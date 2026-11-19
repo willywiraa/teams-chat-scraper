@@ -3,7 +3,7 @@
 A Microsoft Edge extension that archives your Microsoft Teams chats on your own computer. It reads the conversations you open in **Teams Web** (teams.microsoft.com) and stores them in a local database you can export as JSON, NDJSON or Markdown.
 
 - **Uses your existing sign-in.** There's no Microsoft Graph API, no Entra ID app registration and no admin consent.
-- **Reads only what Teams shows you.** The extension reads the messages Teams renders in the open chat and scrolls that chat upwards like you would, so Teams loads older messages. It never reads tokens, cookies or network traffic, never calls Teams or Microsoft APIs and never changes anything in Teams. If your account can't see a message, the extension can't either.
+- **Reads only what Teams shows you.** The extension reads the messages Teams renders in the open chat and scrolls that chat upwards like you would, so Teams loads older messages. It never reads tokens, cookies or network traffic, never calls Teams or Microsoft APIs and never changes anything in Teams. If your account can't see a message, the extension can't either. Images are copied from what the open chat displays (see [Images](#images)).
 - **Keeps everything local.** Messages are stored in the extension's IndexedDB in your browser profile. Nothing is sent anywhere.
 
 > The Teams desktop app can't be accessed by browser extensions. Open the same chats in Teams Web in Edge instead. Your account and data are the same.
@@ -51,9 +51,9 @@ If a run was interrupted (tab closed or reloaded, browser closed, extension upda
 
 Open it from **Open archive & settings** in the popup, or via the extension's *Extension options*.
 
-- **Conversations**: each archived chat with its message count, archived period, completeness and last run. You can **export** one chat (JSON, NDJSON or Markdown), **export all**, or **delete** a chat from the archive.
+- **Conversations**: each archived chat with its message count, number of saved images, archived period, completeness and last run. Click the image count to see the chat's images, with who sent each one and when, and to download them. You can **export** one chat (JSON, NDJSON or Markdown), **export all**, or **delete** a chat (with its images) from the archive. **Include images** decides whether exports contain the saved images.
 - **Import archive…** merges a JSON export back in. Use it to restore a backup or combine archives from two browser profiles. Importing the same file twice changes nothing.
-- **Recent sessions**: every run with its result, counters and warnings.
+- **Recent sessions**: every run with its result, counters (including images saved and not saved) and warnings.
 - **Settings** (see below) and the storage used.
 
 ### Settings
@@ -71,6 +71,8 @@ Open it from **Open archive & settings** in the popup, or via the extension's *E
 | Maximum scroll steps per run / Maximum run duration | 50,000 / 360 min | Hard limits, so a run can never loop forever. |
 | Archived messages to re-see before an update stops | 8 | Overlap required by **Update**. |
 | Pause while the Teams tab is hidden | on | See above. |
+| Save the images shown in messages | on | Saves the pictures displayed in messages into the archive. See [Images](#images). |
+| Largest image to save | 10 MB | Larger images aren't saved; their name and link still are. 1 to 50 MB. |
 | Your display name | (empty) | Teams doesn't show your own name next to your messages. Enter it to record it as their sender. Your messages are marked as yours either way. |
 | Date order used by Teams | auto | Order of numeric dates shown by Teams (for example 1/2/2024). It is used only when no exact timestamp is available. |
 | Selector overrides | (empty) | See [When nothing is found](#when-nothing-is-found). |
@@ -100,21 +102,34 @@ For every message:
 - Exact timestamp (UTC) and the Teams message id.
 - Text with paragraphs, lists and line breaks preserved, plus sanitised HTML.
 - Mentions, links, attachments (file names and links; files aren't downloaded), quoted replies linked to the message they quote, and edited and deleted flags with earlier versions kept.
+- Images shown in messages (pasted pictures, image attachments), saved as displayed. See [Images](#images).
 - System messages, such as someone being added to the chat.
 
 Per chat, the extension also records the participants, the title, the chat type (1:1, group, meeting, channel), the archived period, and whether the archive reaches back to the beginning.
 
+### Images
+
+When **Save the images shown in messages** is on (the default), every picture that a run sees in a message is saved once into the archive and linked from the message's attachment.
+
+- The extension copies the picture Teams already displays. It first reads the page's own copy (Teams usually shows images from a `blob:` address) or the browser cache. Only if neither is available does it request the same image address again, as the page did. If that isn't possible either, it copies the displayed picture through a canvas, which is saved as PNG.
+- An image is named by the SHA-256 hash of its bytes. The same picture shown twice is stored once.
+- Teams usually displays a preview size, so the saved copy may be smaller than the original upload.
+- Images the browser doesn't allow the extension to read (shown from another site without permission), images that never finish loading, and images above **Largest image to save** aren't saved. Their name and link are kept, the run counts them as *not saved*, and a warning explains why.
+- Emoji are kept as text, not as images.
+- Saved images are included in JSON and NDJSON exports (as base64) and restored by **Import archive…**. Markdown transcripts name each saved image by its file name (`<imageId>.png` and so on), which is also the name used when you download it from the archive page.
+
 ## Data and privacy
 
-- The archive lives in the extension's IndexedDB in your Edge profile, which the extension's own pages read directly. Content scripts run only on the Teams domains listed in the manifest. The extension makes no network requests of its own.
+- The archive lives in the extension's IndexedDB in your Edge profile, which the extension's own pages read directly. Content scripts run only on the Teams domains listed in the manifest. The extension sends nothing anywhere. Its only requests re-read images the open chat is displaying, normally from the page's own copy or the browser cache (see [Images](#images)); turn off **Save the images shown in messages** to avoid them.
 - **Removing the extension deletes its archive.** Export a JSON backup first (Archive page → **Export all**). Back up regularly anyway.
-- Exports contain your messages in plain text. Store them accordingly.
+- Exports contain your messages in plain text, and your saved images unless **Include images** is off. Store them accordingly.
 
 ## Limitations
 
 - It works through Teams Web's page structure, not an official API. Teams updates can require selector overrides, or an extractor update, before extraction works again.
 - It's designed for chats. Channel posts may be read partially, but reply threads under channel posts aren't expanded.
-- Reactions, read receipts, and the contents of attached files and images aren't captured.
+- Reactions, read receipts and the contents of attached files aren't captured. Images are saved as displayed (often a preview size). Images the browser won't let the extension read are kept as name and link only.
+- A browser can hold only about 500 MB of text in one file. An "Export all" with many images can exceed that; export chats one at a time, or with **Include images** off.
 - A chat is identified by its Teams thread id. If that id can't be found on the page, the chat title is used instead, and two chats with the same title would then share an archive entry. The popup warns when this happens.
 - The beginning of a chat is detected when Teams stops loading older messages. If Teams failed to load (for example because the network dropped), a run can finish too early. Run **Full history** with **Re-read archived parts** to try again.
 - Messages that show neither a Teams id nor a timestamp (rare) are matched by their content and position. Two identical messages of that kind next to each other may be stored as one.

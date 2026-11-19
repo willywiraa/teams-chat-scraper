@@ -3,8 +3,10 @@ import { detectConversation } from '../../src/extractor/conversation';
 import { buildSelectorProfile, type SelectorProfile } from '../../src/extractor/selectors';
 import { ScrapeControl } from '../../src/scraper/control';
 import { runScrape, type EngineOptions, type EngineResult, type EngineSink } from '../../src/scraper/engine';
+import type { ImageReader } from '../../src/scraper/images';
 import { DEFAULT_SETTINGS, type ScrapeSettings } from '../../src/shared/settings';
 import type { ConversationIdentity, CoverageRange, ExtractedMessage, ScrapeMode } from '../../src/shared/types';
+import { saveCapturedImages } from '../../src/storage/images';
 import { ArchiveRepository } from '../../src/storage/repository';
 
 export const TEAMS_URL = 'https://teams.microsoft.com/v2/';
@@ -39,14 +41,26 @@ export function detect(): ConversationIdentity {
   return conversation;
 }
 
-export function repositorySink(repository: ArchiveRepository, conversation: ConversationIdentity, sessionId: string): EngineSink & { batches: ExtractedMessage[][] } {
+export function repositorySink(
+  repository: ArchiveRepository,
+  conversation: ConversationIdentity,
+  sessionId: string,
+): EngineSink & { batches: ExtractedMessage[][]; imageBatches: string[][] } {
   const batches: ExtractedMessage[][] = [];
+  const imageBatches: string[][] = [];
   return {
     batches,
+    imageBatches,
     write: async (batch) => {
       batches.push(batch.messages);
       const result = await repository.upsertObservations({ conversation, messages: structuredClone(batch.messages), sessionId, segments: batch.segments });
       return result.statuses;
+    },
+    // What the background does with a `session/images` request.
+    saveImages: async (images) => {
+      imageBatches.push(images.map((image) => image.imageId));
+      const result = await saveCapturedImages(repository, conversation.conversationKey, structuredClone(images), { sessionId, nowIso: new Date().toISOString() });
+      return { saved: Object.keys(result.statuses), rejected: result.rejected };
     },
   };
 }
@@ -61,6 +75,7 @@ export interface RunOptions {
   sink?: EngineSink;
   sessionId?: string;
   onProgress?: EngineOptions['onProgress'];
+  imageReader?: ImageReader;
 }
 
 /**
@@ -85,6 +100,7 @@ export async function runEngine(options: RunOptions): Promise<EngineResult> {
     selfDisplayName: null,
     detectConversation: () => detectConversation(document, TEAMS_URL, profile()),
     onProgress: options.onProgress,
+    imageReader: options.imageReader,
   });
   if (result.segments.length > 0) await options.repository.mergeCoverage(conversation.conversationKey, result.segments);
   await options.repository.resolveReplies(conversation.conversationKey);

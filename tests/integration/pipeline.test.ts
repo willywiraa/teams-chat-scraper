@@ -11,6 +11,7 @@ import { emptyCounters } from '../../src/shared/types';
 import type { ArchiveRepository } from '../../src/storage/repository';
 import { ChatSimulator, generateConversation, type ExpectedMessage } from '../helpers/chat-simulator';
 import { TEAMS_URL, detect, fastSettings, openTestRepository } from '../helpers/fixtures';
+import { FakeImageReader, fakeImageBytes } from '../helpers/images';
 
 const PEOPLE = ['Alice Andersen', 'Bob Brown', 'Carol Chen'];
 
@@ -58,7 +59,7 @@ function transport(repository: ArchiveRepository, options: TransportOptions = {}
   return { send, log };
 }
 
-function createController(send: ContentControllerDeps['send']): ContentController {
+function createController(send: ContentControllerDeps['send'], extra: Partial<ContentControllerDeps> = {}): ContentController {
   const controller = new ContentController({
     doc: document,
     getHref: () => TEAMS_URL,
@@ -67,6 +68,7 @@ function createController(send: ContentControllerDeps['send']): ContentControlle
     locale: 'en-US',
     heartbeatMs: 20,
     retryDelaysMs: [5, 10],
+    ...extra,
   });
   controllers.push(controller);
   return controller;
@@ -110,6 +112,60 @@ describe('content controller + background router + archive', () => {
     expect(log[0]).toBe('session/begin');
     expect(log).toContain('session/batch');
     expect(log[log.length - 1]).toBe('session/end');
+  });
+
+  it('saves displayed images through the background before the messages that show them', async () => {
+    const { items, expected } = generateConversation({ count: 70, participants: PEOPLE, selfName: 'Me', seed: 31, withImagesEvery: 6 });
+    simulator = new ChatSimulator({ items });
+    archive = await openTestRepository();
+    const repository = archive;
+    const conversationKey = detect().conversationKey;
+    const { send, log } = transport(repository);
+    let missing = 0;
+    const checked: ContentControllerDeps['send'] = async (request) => {
+      if (request.type === 'session/batch') {
+        for (const message of request.messages) {
+          for (const attachment of message.attachments) if (attachment.imageId && !(await repository.getImage(conversationKey, attachment.imageId))) missing++;
+        }
+      }
+      return send(request);
+    };
+    const reader = new FakeImageReader();
+    const controller = createController(checked, { imageReader: reader });
+    const { sessionId } = await controller.start({ mode: 'full', rescan: false, resumeOf: null });
+    const result = await controller.whenIdle();
+
+    const imageCount = expected.reduce((sum, message) => sum + message.attachments.filter((name) => name === 'image').length, 0);
+    expect(imageCount).toBe(22);
+    expect(result).toMatchObject({ status: 'completed', counters: { imagesSaved: imageCount, imagesFailed: 0 } });
+    expect(missing).toBe(0);
+    expect(log).toContain('session/images');
+    expect(log).not.toContain('session/image-part');
+    expect(await repository.countImages(conversationKey)).toBe(imageCount);
+    expect((await repository.getSession(sessionId))?.counters).toMatchObject({ imagesSaved: imageCount, imagesFailed: 0 });
+    const stored = await repository.getMessages(conversationKey);
+    for (const attachment of stored.flatMap((message) => message.attachments)) {
+      const image = await repository.getImage(conversationKey, attachment.imageId as string);
+      expect(new Uint8Array(image!.data)).toEqual(fakeImageBytes(attachment.url as string));
+    }
+  });
+
+  it('sends images that are too large for one message in parts', async () => {
+    const { items, expected } = generateConversation({ count: 30, participants: PEOPLE, seed: 32, withImagesEvery: 4 });
+    simulator = new ChatSimulator({ items });
+    archive = await openTestRepository();
+    const conversationKey = detect().conversationKey;
+    const { send, log } = transport(archive);
+    // 64-byte fake images are 88 base64 characters: two parts each.
+    const controller = createController(send, { imageReader: new FakeImageReader(), imageRequestChars: 64 });
+    await controller.start({ mode: 'full', rescan: false, resumeOf: null });
+    const result = await controller.whenIdle();
+
+    const imageCount = expected.reduce((sum, message) => sum + message.attachments.filter((name) => name === 'image').length, 0);
+    expect(result).toMatchObject({ status: 'completed', counters: { imagesSaved: imageCount, imagesFailed: 0 } });
+    expect(log.filter((type) => type === 'session/image-part')).toHaveLength(imageCount * 2);
+    expect(log).not.toContain('session/images');
+    expect(await archive.countImages(conversationKey)).toBe(imageCount);
   });
 
   it('retries a background call that fails temporarily', async () => {

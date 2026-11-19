@@ -6,15 +6,26 @@
  * Stability promise: fields are only ever added in v1; renames/removals require formatVersion 2.
  * See docs/EXPORT_FORMAT.md for field documentation.
  */
-import type { ConversationRecord, StoredMessage } from '../shared/types';
+import { bytesToBase64, imageKey, imageMetadataError } from '../shared/images';
+import type { ConversationRecord, StoredImage, StoredMessage } from '../shared/types';
 import { ARCHIVE_SCHEMA_VERSION, EXTRACTOR_VERSION } from '../shared/types';
 
 export const EXPORT_FORMAT = 'teams-chat-archive';
 export const EXPORT_FORMAT_VERSION = 1;
 
+/** A saved image: every stored field except the bytes, which are given as base64. */
+export interface ExportedImageV1 extends Omit<StoredImage, 'data'> {
+  dataBase64: string;
+}
+
 export interface ExportedConversationV1 extends ConversationRecord {
   /** Messages in timeline order (sortKey ascending). */
   messages: StoredMessage[];
+  /**
+   * Saved images that attachments refer to by `imageId`, ordered by `firstSavedAt`.
+   * Added in extractor 1.1; absent in older exports and in exports made without images.
+   */
+  images?: ExportedImageV1[];
 }
 
 export interface ArchiveExportV1 {
@@ -29,12 +40,26 @@ export interface ExportSource {
   getConversation(conversationKey: string): Promise<ConversationRecord | undefined>;
   listConversations(): Promise<ConversationRecord[]>;
   getMessages(conversationKey: string): Promise<StoredMessage[]>;
+  /** Saved images of a conversation; without it the export contains no images. */
+  getImages?(conversationKey: string): Promise<StoredImage[]>;
+}
+
+export interface BuildExportOptions {
+  now?: Date;
+  generatorVersion?: string;
+  /** Include saved images (default true when the source provides them). */
+  includeImages?: boolean;
+}
+
+export function toExportedImage(image: StoredImage): ExportedImageV1 {
+  const { data, ...fields } = image;
+  return { ...fields, dataBase64: bytesToBase64(new Uint8Array(data)) };
 }
 
 export async function buildArchiveExport(
   source: ExportSource,
   conversationKeys: string[] | 'all',
-  options: { now?: Date; generatorVersion?: string } = {},
+  options: BuildExportOptions = {},
 ): Promise<ArchiveExportV1> {
   const records =
     conversationKeys === 'all'
@@ -43,8 +68,15 @@ export async function buildArchiveExport(
           (record): record is ConversationRecord => record !== undefined,
         );
   const conversations: ExportedConversationV1[] = [];
+  const includeImages = options.includeImages !== false;
   for (const record of records) {
-    conversations.push({ ...record, messages: await source.getMessages(record.conversationKey) });
+    const conversation: ExportedConversationV1 = { ...record, messages: await source.getMessages(record.conversationKey) };
+    if (includeImages && source.getImages) {
+      const images = await source.getImages(record.conversationKey);
+      images.sort((a, b) => a.firstSavedAt.localeCompare(b.firstSavedAt) || a.imageId.localeCompare(b.imageId));
+      conversation.images = images.map(toExportedImage);
+    }
+    conversations.push(conversation);
   }
   return {
     format: EXPORT_FORMAT,
@@ -97,6 +129,15 @@ export function parseArchiveExport(input: string | unknown): ArchiveExportV1 {
       assert(typeof message.contentHash === 'string', `${at}.contentHash must be a string`);
       assert(typeof message.fingerprint === 'string', `${at}.fingerprint must be a string`);
       assert(typeof message.firstSeenAt === 'string' && typeof message.lastSeenAt === 'string', `${at} needs firstSeenAt/lastSeenAt`);
+    });
+    // Exports made before extractor 1.1 have no images.
+    assert(conversation.images === undefined || Array.isArray(conversation.images), `${where}.images must be an array`);
+    (conversation.images ?? []).forEach((image, ii) => {
+      const at = `${where}.images[${ii}]`;
+      const problem = imageMetadataError(image);
+      assert(problem === null, `${at}: ${problem}`);
+      assert(image.conversationKey === undefined || image.conversationKey === conversation.conversationKey, `${at}.conversationKey does not match its conversation`);
+      assert(image.key === undefined || image.key === imageKey(conversation.conversationKey, image.imageId), `${at}.key does not match its image id`);
     });
   });
   return archive as ArchiveExportV1;

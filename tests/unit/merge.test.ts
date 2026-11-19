@@ -79,6 +79,38 @@ describe('attachments', () => {
   });
 });
 
+describe('saved images', () => {
+  const ID_A = 'a'.repeat(64);
+  const ID_B = 'b'.repeat(64);
+  const image = (imageId?: string, url: string | null = null) => ({ kind: 'image' as const, name: 'image', url, ...(imageId ? { imageId } : {}) });
+
+  it('keeps the image id, whichever copy has it', () => {
+    expect(unionAttachments([image()], [image(ID_A)])).toEqual([image(ID_A)]);
+    expect(unionAttachments([image(ID_A)], [image(undefined, 'https://x/i.png')])).toEqual([image(ID_A, 'https://x/i.png')]);
+    // An image already linked keeps its id when a later capture produced a different copy.
+    expect(unionAttachments([image(ID_A)], [image(ID_B)])).toEqual([image(ID_A)]);
+  });
+
+  it('keeps several pictures that Teams named "image" apart', () => {
+    expect(unionAttachments([image(ID_A), image(ID_B)], [image(), image()])).toEqual([image(ID_A), image(ID_B)]);
+    expect(unionAttachments([image()], [image(ID_A), image(ID_B)])).toEqual([image(ID_A), image(ID_B)]);
+  });
+
+  it('updates a record when an image is saved later, and never drops its id', () => {
+    const record = createStoredMessage(message({ attachments: [image(), image()] }), ctx());
+    const saved = mergeObservation(record, message({ attachments: [image(ID_A), image(ID_B)] }), ctx('s2'));
+    expect(saved.status).toBe('updated');
+    expect(saved.record.attachments).toEqual([image(ID_A), image(ID_B)]);
+    const later = mergeObservation(saved.record, message({ attachments: [image(), image()] }), ctx('s3'));
+    expect(later.status).toBe('unchanged');
+    expect(later.record.attachments).toEqual([image(ID_A), image(ID_B)]);
+    expect(mergeImported(later.record, createStoredMessage(message({ attachments: [image(), image()] }), ctx('s0', '2024-01-01T00:00:00.000Z'))).record.attachments).toEqual([
+      image(ID_A),
+      image(ID_B),
+    ]);
+  });
+});
+
 describe('importing records', () => {
   it('lets the more recently seen copy win and keeps the other content as a previous version', () => {
     const older = { ...createStoredMessage(message({ text: 'Draft' }), ctx('a', '2024-01-01T00:00:00.000Z')), observationCount: 4, aliases: ['k#fp:x'] };

@@ -10,14 +10,16 @@
  *  - hard caps (steps, duration, stalled passes) prevent endless loops.
  */
 import { safeQueryAll } from '../extractor/dom';
-import { findMessageList, parseRenderedConversation, type GroupLink } from '../extractor/page-parser';
+import { findMessageList, parseRenderedConversation, type GroupLink, type RenderedImage } from '../extractor/page-parser';
 import type { SelectorProfile } from '../extractor/selectors';
 import { hashParts } from '../shared/hash';
+import { BYTES_PER_MB } from '../shared/images';
 import type { ScrapeSettings } from '../shared/settings';
 import type { DateOrder } from '../shared/time';
 import { toIso } from '../shared/time';
 import {
   emptyCounters,
+  type CapturedImage,
   type ConversationIdentity,
   type CoverageRange,
   type ExtractedMessage,
@@ -27,6 +29,7 @@ import {
   type UpsertStatus,
 } from '../shared/types';
 import { sleep, type ScrapeControl } from './control';
+import { ImageCapture, type ImageReader, type ImageSaveResult } from './images';
 import { createScrollDriver, findScrollContainer, type ScrollDriver } from './scroll-driver';
 import { waitForSettle } from './settle';
 import { assignSortKeys, isReliable, type AssignedSortKey } from './sort-keys';
@@ -41,6 +44,11 @@ export interface EngineBatch {
 export interface EngineSink {
   /** Persists observations; resolves to the storage outcome per message key. */
   write(batch: EngineBatch): Promise<Record<string, UpsertStatus>>;
+  /**
+   * Stores images read from the page. Called before the batch whose messages refer to them.
+   * Without it (or without an image reader, or with `settings.saveImages` off) no image is read.
+   */
+  saveImages?(images: CapturedImage[]): Promise<ImageSaveResult>;
 }
 
 export type EnginePhase = 'starting' | 'running' | 'paused' | 'waiting-visible' | 'done';
@@ -81,6 +89,8 @@ export interface EngineOptions {
   selfDisplayName: string | null;
   /** Re-identifies the open conversation; the run stops when it changes. */
   detectConversation: () => ConversationIdentity | null;
+  /** Reads displayed images (see scraper/images.ts); needed to save images. */
+  imageReader?: ImageReader;
   now?: () => number;
   onProgress?: (progress: EngineProgress) => void;
 }
@@ -106,6 +116,8 @@ export function messageSignature(message: ExtractedMessage): string {
     message.replyTo?.messageId,
     message.replyTo?.preview,
     message.attachments.length,
+    // A message is sent again once one of its images has been saved.
+    message.attachments.map((attachment) => attachment.imageId ?? '').join(','),
     message.isEdited,
     message.isDeleted,
   ]);
@@ -159,11 +171,23 @@ class ScrapeEngine {
   private phase: EnginePhase = 'starting';
   private readonly now: () => number;
   private readonly startedAt: number;
+  private readonly images: ImageCapture | null;
 
   constructor(private readonly options: EngineOptions) {
     this.now = options.now ?? (() => Date.now());
     this.startedAt = this.now();
     this.stepRatio = options.settings.scrollStepRatio;
+    const sink = options.sink;
+    this.images =
+      options.settings.saveImages && options.imageReader && sink.saveImages
+        ? new ImageCapture({
+            reader: options.imageReader,
+            maxBytes: options.settings.maxImageMB * BYTES_PER_MB,
+            save: (images) => (sink.saveImages as NonNullable<EngineSink['saveImages']>).call(sink, images),
+            counters: this.counters,
+            warn: (message) => this.warn(message),
+          })
+        : null;
     const coverage = options.coverage ?? [];
     this.overlapRanges =
       options.mode === 'incremental'
@@ -202,7 +226,7 @@ class ScrapeEngine {
           driver = createScrollDriver(findScrollContainer(o.doc, o.profile, list));
         }
 
-        const { messages, groupLinks } = this.parsePass(list);
+        const { messages, groupLinks, images } = this.parsePass(list);
         if (!this.conversationUnchanged()) {
           return this.finish('stopped', 'conversation-changed', 'A different conversation was opened during extraction.');
         }
@@ -210,6 +234,8 @@ class ScrapeEngine {
         this.lastPassMessages = messages.length;
         const connection = this.updateContiguity(messages);
         const senderUpdates = this.propagateSenders(messages, groupLinks);
+        // Images are stored first, so a stored message never refers to an image that is missing.
+        if (this.images && images.length > 0) await this.images.capture(messages, images);
         const newKeys = await this.store(messages, senderUpdates);
         this.inCovered = this.isInCoveredRange(messages);
         if (this.inCovered && o.mode !== 'visible') this.counters.seekPasses++;
@@ -355,7 +381,7 @@ class ScrapeEngine {
     }
   }
 
-  private parsePass(list: Element): { messages: ExtractedMessage[]; groupLinks: GroupLink[] } {
+  private parsePass(list: Element): { messages: ExtractedMessage[]; groupLinks: GroupLink[]; images: RenderedImage[] } {
     const o = this.options;
     const result = parseRenderedConversation(o.doc, {
       profile: o.profile,
@@ -369,7 +395,7 @@ class ScrapeEngine {
       if (warning.startsWith('duplicate-message-id')) this.warn(`Teams rendered the same message twice (${warning.split(':')[1]}); kept the first copy.`);
     }
     assignSortKeys(result.messages, this.sessionSortKeys, this.now());
-    return { messages: result.messages, groupLinks: result.groupLinks };
+    return { messages: result.messages, groupLinks: result.groupLinks, images: result.images };
   }
 
   /**
@@ -558,6 +584,7 @@ class ScrapeEngine {
 
   private finish(status: EngineResult['status'], stopReason: StopReason, error?: string): EngineResult {
     if (stopReason === 'reached-top') this.current.reachedBeginning = true;
+    this.images?.abandonPending();
     this.phase = 'done';
     this.emit();
     // After a failure (typically a failed write) only report what is known to be stored.

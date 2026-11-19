@@ -11,7 +11,7 @@ import {
   type FinishedSessionInfo,
   type Response,
 } from '../shared/protocol';
-import type { ScrapeMode, SessionRecord } from '../shared/types';
+import type { ScrapeMode, SessionCounters, SessionRecord } from '../shared/types';
 import { coverageStatus } from '../storage/coverage';
 import { ArchiveRepository } from '../storage/repository';
 import {
@@ -144,10 +144,12 @@ function renderProgress(status: ContentStatus): void {
   setText('run-new', formatNumber(counters?.inserted ?? 0));
   setText('run-updated', formatNumber(counters?.updated ?? 0));
   setText('run-unchanged', formatNumber(counters?.unchanged ?? 0));
+  setText('run-images', formatNumber(counters?.imagesSaved ?? 0));
   const detail = [
     progress?.oldestReached ? `Reached back to ${formatDateTime(progress.oldestReached)}` : '',
     counters ? `${formatNumber(counters.passes)} scroll steps` : '',
     counters?.gapsDetected ? `${counters.gapsDetected} gap checks` : '',
+    counters?.imagesFailed ? `${formatNumber(counters.imagesFailed)} images not saved` : '',
   ].filter(Boolean);
   setText('run-detail', detail.join(' · '));
   const warnings = byId('run-warnings');
@@ -160,6 +162,14 @@ function renderProgress(status: ContentStatus): void {
   byId<HTMLButtonElement>('btn-stop').disabled = status.state === 'stopping';
 }
 
+/** "· 3 images saved (1 not saved)", or nothing when the run met no images. */
+function imageSummary(counters: SessionCounters): string {
+  const saved = counters.imagesSaved ?? 0;
+  const failed = counters.imagesFailed ?? 0;
+  if (saved === 0 && failed === 0) return '';
+  return ` · ${formatNumber(saved)} images saved${failed > 0 ? ` (${formatNumber(failed)} not saved)` : ''}`;
+}
+
 function renderResult(result: FinishedSessionInfo): void {
   const panel = byId('result-panel');
   const counters = result.counters;
@@ -167,7 +177,11 @@ function renderResult(result: FinishedSessionInfo): void {
   panel.className = `card ${result.status === 'failed' ? 'error' : result.status === 'completed' ? 'success' : 'notice'}`;
   const children: Array<HTMLElement | null> = [
     el('strong', {}, `${title}: ${STOP_REASON_LABELS[result.stopReason]}`),
-    el('div', { className: 'small' }, `${formatNumber(counters.inserted)} new · ${formatNumber(counters.updated)} updated · ${formatNumber(counters.unchanged)} already archived`),
+    el(
+      'div',
+      { className: 'small' },
+      `${formatNumber(counters.inserted)} new · ${formatNumber(counters.updated)} updated · ${formatNumber(counters.unchanged)} already archived${imageSummary(counters)}`,
+    ),
     result.error ? el('div', { className: 'small' }, result.error) : null,
     result.status !== 'completed' && result.mode === 'full'
       ? el('div', { className: 'muted small' }, 'Start “Full history” again to continue; archived parts are skipped quickly.')

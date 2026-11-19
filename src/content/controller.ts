@@ -9,19 +9,23 @@ import { findMessageList, parseRenderedConversation } from '../extractor/page-pa
 import { buildSelectorProfile, type SelectorProfile } from '../extractor/selectors';
 import { ScrapeControl, sleep } from '../scraper/control';
 import { runScrape, type EngineProgress, type EngineResult, type EngineSink } from '../scraper/engine';
+import type { ImageReader, ImageSaveResult } from '../scraper/images';
 import { findScrollContainer } from '../scraper/scroll-driver';
 import {
   HEARTBEAT_INTERVAL_MS,
+  IMAGE_REQUEST_CHARS,
   type ActiveSessionInfo,
   type BackgroundRequest,
   type ContentStatus,
   type FinishedSessionInfo,
   type SessionBatchResponse,
   type SessionBeginResponse,
+  type SessionImagePartResponse,
+  type SessionImagesResponse,
 } from '../shared/protocol';
 import type { ScrapeSettings } from '../shared/settings';
 import { resolveDateOrder } from '../shared/time';
-import { emptyCounters, type ScrapeMode } from '../shared/types';
+import { emptyCounters, type CapturedImage, type ScrapeMode } from '../shared/types';
 
 export interface ContentControllerDeps {
   doc: Document;
@@ -34,6 +38,10 @@ export interface ContentControllerDeps {
   heartbeatMs?: number;
   /** Delays between retries of failed background calls (ms). */
   retryDelaysMs?: number[];
+  /** Reads displayed images; without it no images are saved. */
+  imageReader?: ImageReader;
+  /** Most base64 characters per image request (larger images are sent in parts). */
+  imageRequestChars?: number;
 }
 
 export interface StartCommand {
@@ -140,6 +148,7 @@ export class ContentController {
         });
         return response.statuses;
       },
+      saveImages: (images) => this.sendImages(sessionId, conversation.conversationKey, images),
     };
 
     this.startHeartbeat(sessionId, control);
@@ -156,6 +165,7 @@ export class ContentController {
       dateOrder: resolveDateOrder(settings.dateOrder, this.deps.locale),
       selfDisplayName: settings.selfDisplayName || null,
       detectConversation: () => detectConversation(doc, this.deps.getHref(), profile),
+      imageReader: this.deps.imageReader,
       now: this.now,
       onProgress: (progress) => {
         this.progress = progress;
@@ -234,6 +244,74 @@ export class ContentController {
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.lastResult = { ...this.lastResult, error: this.lastResult.error ?? `The session end could not be recorded: ${reason}` };
+    }
+  }
+
+  /**
+   * Sends images to the background: small ones together, up to the request size, and each image
+   * too large for one request in parts. A request that fails marks its images as not saved.
+   */
+  private async sendImages(sessionId: string, conversationKey: string, images: CapturedImage[]): Promise<ImageSaveResult> {
+    const budget = Math.max(4, this.deps.imageRequestChars ?? IMAGE_REQUEST_CHARS);
+    const result: ImageSaveResult = { saved: [], rejected: {} };
+    let group: CapturedImage[] = [];
+    let groupChars = 0;
+    const flush = async () => {
+      if (group.length === 0) return;
+      const sending = group;
+      group = [];
+      groupChars = 0;
+      try {
+        const response = await this.sendWithRetry<SessionImagesResponse>({ type: 'session/images', sessionId, conversationKey, images: sending });
+        result.saved.push(...Object.keys(response.statuses));
+        Object.assign(result.rejected, response.rejected);
+      } catch (error) {
+        for (const image of sending) result.rejected[image.imageId] = error instanceof Error ? error.message : String(error);
+      }
+    };
+    for (const image of images) {
+      if (image.dataBase64.length > budget) {
+        await flush();
+        const outcome = await this.sendImageInParts(sessionId, conversationKey, image, budget);
+        if (outcome === null) result.saved.push(image.imageId);
+        else result.rejected[image.imageId] = outcome;
+        continue;
+      }
+      if (groupChars + image.dataBase64.length > budget) await flush();
+      group.push(image);
+      groupChars += image.dataBase64.length;
+    }
+    await flush();
+    return result;
+  }
+
+  /** Sends one image in parts; resolves to null when stored, else to the reason it was not. */
+  private async sendImageInParts(sessionId: string, conversationKey: string, image: CapturedImage, budget: number): Promise<string | null> {
+    const { dataBase64, ...info } = image;
+    const partChars = budget - (budget % 4);
+    const count = Math.ceil(dataBase64.length / partChars);
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let restart = false;
+        for (let index = 0; index < count && !restart; index++) {
+          const response = await this.sendWithRetry<SessionImagePartResponse>({
+            type: 'session/image-part',
+            sessionId,
+            conversationKey,
+            image: info,
+            index,
+            count,
+            dataBase64: dataBase64.slice(index * partChars, (index + 1) * partChars),
+          });
+          if (response.status === 'inserted' || response.status === 'unchanged') return null;
+          if (response.status === 'rejected') return response.reason ?? 'refused by the archive';
+          restart = response.status === 'restart';
+        }
+        if (!restart) break;
+      }
+      return 'the upload was interrupted';
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
     }
   }
 

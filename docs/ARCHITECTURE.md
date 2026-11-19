@@ -16,7 +16,7 @@
                                                    └──────────────────────────────────────────┘
 ```
 
-The content script runs inside the Teams page, so it can't open the extension's own IndexedDB. It sends every captured batch to the background service worker, which owns all writes. The popup, side panel and archive page belong to the extension origin and read the database directly. They control a running extraction by sending commands to the content script.
+The content script runs inside the Teams page, so it can't open the extension's own IndexedDB. It sends every captured batch, and the images displayed in it, to the background service worker, which owns all writes. The popup, side panel and archive page belong to the extension origin and read the database directly. They control a running extraction by sending commands to the content script.
 
 Only `background/service-worker.ts`, `content/content-script.ts` and `ui/` touch `chrome.*` APIs. Everything else (extractor, engine, storage, export, router and controller) receives its dependencies as parameters. That is why the complete pipeline runs in the test suite under jsdom and fake-indexeddb.
 
@@ -46,6 +46,7 @@ shared ◀── storage   ◀── background, export, ui
    - Assign a timeline position to messages that have neither an id nor a time (`sort-keys.ts`).
    - Check that this window overlaps the previous one.
    - Pass sender names down group links captured in earlier windows. A run from one person can be longer than the rendered window.
+   - Save the images displayed in the window that weren't saved yet (see [Images](#images)) and link them from their attachments.
    - Send new or changed messages to storage.
    - Scroll up, wait until the page has settled (`settle.ts`: no DOM mutations for a quiet period and no loading spinner), and repeat.
 
@@ -71,6 +72,20 @@ Merge rules never lose information:
 - Changed content pushes the previous text into `previousVersions` and sets `isEdited`. A change caused by an extractor upgrade alone doesn't set `isEdited`.
 - An empty observation (a message only partly rendered) is ignored.
 - Each batch is written in one IndexedDB transaction, so a failed batch leaves nothing half-written.
+
+## Images
+
+The page parser reports every image a message displays (`PageParseResult.images`: the message key, the index of its attachment and the `<img>` element). Emoji images are text and are excluded. `scraper/images.ts` (`ImageCapture`) then does the rest for each pass:
+
+1. **Once per address.** It keeps a per-session cache by the address the image is shown from (`currentSrc`). An address already saved only gets its `imageId` set again. One that failed isn't retried in the same session.
+2. **Read.** It reads the bytes through an injected `ImageReader`, so the engine never touches `chrome.*` and tests use a fake one. The real reader (`content/image-reader.ts`) waits for the image to finish loading. It then fetches the address with `cache: 'force-cache'`: `blob:` and `data:` addresses are the page's own copy, and a web address normally comes from the browser cache. For other sites it tries with, then without, cookies. If the address can't be fetched, or doesn't return an image, it draws the displayed picture on a canvas and encodes it as PNG. A canvas "tainted" by an image from another site can't be read, so such an image fails.
+3. **Limits.** Images above `maxImageMB` fail as *too large*. Images still loading are tried again in the next passes (3 attempts) and count as failed if they never load, including when the session ends.
+4. **Name.** `imageId` is the SHA-256 (hex) of the bytes, from `crypto.subtle`. The same picture under two addresses is stored once.
+5. **Store first.** New images go to the background (`session/images`) *before* the batch whose messages refer to them, so a stored attachment never points at a missing image. Only images the background confirms are linked (`attachment.imageId`) and counted in `imagesSaved`. Failures are counted in `imagesFailed` and reported once as a warning.
+
+`imageId` is part of the engine's message signature, so a message seen before its image loaded is sent again once the image is saved. It isn't part of `contentHash` or the fingerprint: saving an image isn't an edit. When merging, attachments keep an existing `imageId` and take one from the other copy when they have none. Images are matched by name *and* position among the images of that name, because Teams names most pasted pictures `image` (`storage/merge.ts`).
+
+**Messaging.** Extension messages are JSON (at most 64 MiB), so bytes travel as base64 (`CapturedImage.dataBase64`). The controller groups images into `session/images` requests of up to 16 MiB of base64 (`IMAGE_REQUEST_CHARS`). An image larger than that is sent as `session/image-part` requests in order. The router keeps the parts in memory (`ImageUploads`) until the last one arrives. If the worker restarted in between, it answers `restart` and the tab sends the image again from the first part. For every image the router checks that the session exists for this conversation, the type is `image/*`, the size is within the limit, the base64 decodes to `byteLength` bytes and their SHA-256 equals `imageId` (`shared/images.ts`, `storage/images.ts`). It reports refused images per id instead of failing the request, so one bad image can't stop a run.
 
 ## Timeline order
 
@@ -113,7 +128,7 @@ A run always ends. The engine stops when any of these happens:
 
 ## Database
 
-IndexedDB database `teams-chat-archive` (`storage/schema.ts`), version 1:
+IndexedDB database `teams-chat-archive` (`storage/schema.ts`), version 2:
 
 | Store | Key | Indexes |
 | --- | --- | --- |
@@ -121,6 +136,14 @@ IndexedDB database `teams-chat-archive` (`storage/schema.ts`), version 1:
 | `messages` | `key` | `byConversationSort` [conversationKey, sortKey]; `byConversationFingerprint` [conversationKey, fingerprint]; `byAlias` aliases (multi-entry) |
 | `sessions` | `sessionId` | `byConversationStarted` [conversationKey, startedAt]; `byStatus` status |
 | `meta` | `key` | none (reserved) |
+| `images` | `key` (`<conversationKey>#img:<imageId>`) | `byConversationImage` [conversationKey, imageId] (unique) |
+
+History:
+
+- Version 1 (extension 1.0): `conversations`, `messages`, `sessions` and `meta`.
+- Version 2 (extension 1.1): adds the `images` store. The upgrade only creates the new store, so all existing records stay as they are. Messages stored before it simply have no `imageId` on their attachments. `tests/integration/migration.test.ts` opens a version 1 database with data and checks that everything survives.
+
+Images are written idempotently: an image that already exists under its key is left unchanged. Deleting a conversation deletes its images too.
 
 Versioning:
 
@@ -130,10 +153,11 @@ Versioning:
 ## Security
 
 - Host permissions and content scripts are limited to `teams.microsoft.com`, `teams.cloud.microsoft` and `teams.live.com`.
-- The extractor only reads the DOM of the open chat. The only page interaction is scrolling the message list.
+- The extractor only reads the DOM of the open chat. The only page interaction is scrolling the message list. Reading an image waits for its `load` event but changes nothing on the page.
 - The background accepts requests only from Teams tabs and the extension's own pages. The content script accepts commands only from this extension.
 - Message HTML is re-serialised through a tag and attribute allow-list, and only `http(s)`, `mailto` and `tel` links are kept. The UI writes text through `textContent` only.
-- There is no remote code, no `eval` and no network access.
+- There is no remote code and no `eval`. The only network access is re-reading images that the open chat displays, normally from the page's own copy or the browser cache (see [Images](#images)). It is off when **Save the images shown in messages** is off.
+- Saved images are shown on the archive page only as `<img>` elements from `blob:` addresses, so image content (an SVG, for example) can't run scripts there.
 - Diagnostics reports hold counts and a redacted page skeleton. They contain no text, names, message ids or thread ids.
 
 ## Integrating with a knowledge management system

@@ -17,14 +17,15 @@ This is the contract for moving archived Teams chats into other systems, such as
   "format": "teams-chat-archive",
   "formatVersion": 1,
   "exportedAt": "2024-02-01T10:20:30.456Z",
-  "generator": { "name": "teams-chat-extractor", "version": "1.0.0", "extractorVersion": "1.0.0", "schemaVersion": 1 },
+  "generator": { "name": "teams-chat-extractor", "version": "1.1.0", "extractorVersion": "1.1.0", "schemaVersion": 2 },
   "conversations": [
     {
       "conversationKey": "teams:19:abc…@thread.v2",
       "title": "Project Alpha",
       "type": "group",
       // … conversation fields (below)
-      "messages": [ /* message records in timeline order (below) */ ]
+      "messages": [ /* message records in timeline order (below) */ ],
+      "images": [ /* saved images (below); absent in exports made before 1.1 or without images */ ]
     }
   ]
 }
@@ -50,6 +51,7 @@ All timestamps are ISO-8601 strings in UTC. Numbers named `…SortKey`, `oldest`
 | `lastSessionId` | string \| null | Most recent extraction session. |
 | `schemaVersion` | number | Archive schema version of the record. |
 | `messages` | message[] | Ordered by `sortKey` ascending. |
+| `images` | image[] (optional) | Saved images of the conversation, ordered by `firstSavedAt` (see [Image fields](#image-fields)). Added in 1.1. It is absent in older exports and in exports made with **Include images** off. |
 
 **Coverage.** `coverage` is how a consumer can tell how complete the history is. If one range has `reachedBeginning: true` and its `newest` is at least `newestSortKey`, the archive holds the chat's complete history up to its last extraction. Several ranges mean there are stretches in between that were never captured.
 
@@ -73,7 +75,7 @@ All timestamps are ISO-8601 strings in UTC. Numbers named `…SortKey`, `oldest`
 | `html` | string | Sanitised HTML of the message body (safe tags and attributes only, `http(s)`/`mailto`/`tel` links). It may be empty. |
 | `mentions` | `{ name, id }[]` | People mentioned. |
 | `links` | `{ href, text }[]` | Links in the message. |
-| `attachments` | `{ kind, name, url }[]` | `kind`: `file`, `image`, `link-preview`, `card` or `other`. Files aren't downloaded. `url` usually points to SharePoint/OneDrive and requires sign-in. |
+| `attachments` | `{ kind, name, url, imageId? }[]` | `kind`: `file`, `image`, `link-preview`, `card` or `other`. Files aren't downloaded. `url` usually points to SharePoint/OneDrive and requires sign-in; it is null for images Teams shows from a temporary `blob:` address. `imageId` (images only, added in 1.1) is the `imageId` of the saved copy in the conversation's `images`; it is absent when the image wasn't saved. Teams names most pasted pictures just `image`, so several attachments can share a name. |
 | `replyTo` | object \| null | Quoted reply: `messageId`, `senderName`, `timestampRaw` and `preview` (the quoted text as shown), plus `resolvedKey` (the `key` of the quoted message when known) and `resolution` (`message-id`, `content-match` or `unresolved`). |
 | `isEdited` | boolean | Teams showed the message as edited, or a content change was observed. |
 | `isDeleted` | boolean | Teams showed the message as deleted. |
@@ -84,6 +86,26 @@ All timestamps are ISO-8601 strings in UTC. Numbers named `…SortKey`, `oldest`
 | `firstSessionId`, `lastSessionId` | string | Sessions that first and last saw it. |
 | `observationCount` | number | How many times it was captured. |
 | `extractorVersion`, `schemaVersion` | string, number | Versions that last wrote the record. |
+
+### Image fields
+
+Images are content-addressed: `imageId` is the SHA-256 of the bytes, so an image never changes and the same picture is stored once per conversation.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `key` | string | `<conversationKey>#img:<imageId>`. Stable unique identifier. |
+| `conversationKey` | string | Owning conversation. |
+| `imageId` | string | SHA-256 of the image bytes, as 64 lower-case hex characters. Attachments refer to it. |
+| `mimeType` | string | `image/png`, `image/jpeg`, `image/gif`, `image/webp` and so on. |
+| `byteLength` | number | Size of the image in bytes. |
+| `width`, `height` | number \| null | Pixel size, when known. |
+| `method` | `fetch` \| `canvas` | `fetch`: the bytes Teams displayed (from the page's copy, the browser cache or the image address). `canvas`: the displayed picture re-encoded as PNG, used when the bytes couldn't be read. |
+| `firstSavedAt` | string | When the image was first saved. |
+| `sessionId` | string \| null | Session that saved it. |
+| `schemaVersion` | number | Archive schema version of the record. |
+| `dataBase64` | string | The image bytes, standard base64 with padding. |
+
+The saved copy is the picture as Teams displayed it, which may be a preview size rather than the original upload. An import checks that `dataBase64` has `byteLength` bytes whose SHA-256 is `imageId`, and rejects the whole file otherwise.
 
 ### Identity changes
 
@@ -98,16 +120,22 @@ One JSON object per line, discriminated by `record`. A conversation's message li
 {"record":"conversation","conversationKey":"teams:19:…","title":"Project Alpha","type":"group",…}
 {"record":"message","key":"teams:19:…#1705314600000","sender":{…},"text":"…",…}
 {"record":"message",…}
+{"record":"image","key":"teams:19:…#img:3f2a…","imageId":"3f2a…","mimeType":"image/png",…,"dataBase64":"iVBORw0…"}
 {"record":"conversation",…}
 …
 ```
 
-The conversation line holds all conversation fields except `messages`. Message lines hold all message fields. (The discriminator is called `record` because conversations already have a `type` field.)
+The conversation line holds all conversation fields except `messages` and `images`. Message lines hold all message fields, and image lines all image fields. A conversation's image lines follow its message lines. (The discriminator is called `record` because conversations already have a `type` field.)
+
+## Markdown transcripts
+
+A Markdown transcript doesn't contain images. The attachment line of a message names each saved image by its file name, `<imageId>.<ext>` (for example `3f2a….png`). That is the name the image gets when you download it from the archive page. When the export was made without images, the line gives the `imageId` instead.
 
 ## Recommended ingestion
 
 1. Upsert messages by `key`, and conversations by `conversationKey`.
 2. Treat a changed `contentHash` for a known `key` as an edit. `previousVersions` holds what was replaced.
 3. Remove records whose key appears in another record's `aliases`.
-4. To fetch only new data, export again later. Exports always contain the full archive, so any export can be re-ingested with this upsert logic.
-5. Use `coverage` (or the conversation's `lastExtractedAt`) to show how current and complete each chat is.
+4. Store images by `key` (or by `imageId` per conversation). An image never changes, so one already ingested can be skipped. Resolve an attachment's `imageId` within its conversation's images.
+5. To fetch only new data, export again later. Exports always contain the full archive, so any export can be re-ingested with this upsert logic.
+6. Use `coverage` (or the conversation's `lastExtractedAt`) to show how current and complete each chat is.

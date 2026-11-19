@@ -5,6 +5,7 @@
 import { isContentCommand, type ContentCommand, type ContentCommandResult, type Response } from '../shared/protocol';
 import { normalizeSettings, SETTINGS_STORAGE_KEY, type ScrapeSettings } from '../shared/settings';
 import { ContentController } from './controller';
+import { createPageImageReader } from './image-reader';
 
 declare global {
   interface Window {
@@ -53,6 +54,7 @@ async function handle(controller: ContentController, command: ContentCommand): P
     send: sendToBackground,
     loadSettings,
     locale: navigator.language,
+    imageReader: createPageImageReader(),
   });
 
   window.__teamsChatExtractor = {

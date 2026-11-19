@@ -10,17 +10,20 @@
  *                 byConversationStarted      [conversationKey, startedAt]
  *                 byStatus                   status
  *  meta           key: key (free-form key/value, e.g. schema info)
+ *  images         key: key (`<conversationKey>#img:<imageId>`), since version 2
+ *                 byConversationImage        [conversationKey, imageId]       images of a conversation
  *
  * Add migrations to `upgradeArchiveDb` and bump DB_VERSION; never edit a released step.
  */
 export const DB_NAME = 'teams-chat-archive';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export const STORES = {
   conversations: 'conversations',
   messages: 'messages',
   sessions: 'sessions',
   meta: 'meta',
+  images: 'images',
 } as const;
 
 export const INDEXES = {
@@ -29,6 +32,7 @@ export const INDEXES = {
   messagesByAlias: 'byAlias',
   sessionsByConversation: 'byConversationStarted',
   sessionsByStatus: 'byStatus',
+  imagesByConversation: 'byConversationImage',
 } as const;
 
 export function upgradeArchiveDb(db: IDBDatabase, oldVersion: number): void {
@@ -45,5 +49,10 @@ export function upgradeArchiveDb(db: IDBDatabase, oldVersion: number): void {
     sessions.createIndex(INDEXES.sessionsByStatus, 'status', { unique: false });
 
     db.createObjectStore(STORES.meta, { keyPath: 'key' });
+  }
+  if (oldVersion < 2) {
+    // Version 2 (extractor 1.1): saved images. Existing stores and records are left untouched.
+    const images = db.createObjectStore(STORES.images, { keyPath: 'key' });
+    images.createIndex(INDEXES.imagesByConversation, ['conversationKey', 'imageId'], { unique: true });
   }
 }

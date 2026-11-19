@@ -3,6 +3,7 @@ import { exportFileName, serializeArchive, type ExportFormat } from '../export/e
 import { buildArchiveExport } from '../export/format';
 import { importArchive } from '../export/import';
 import { buildSelectorProfile, DEFAULT_SELECTOR_PROFILE, findInvalidSelectors } from '../extractor/selectors';
+import { imageFileName } from '../shared/images';
 import { STALE_SESSION_MS } from '../shared/protocol';
 import {
   DEFAULT_SETTINGS,
@@ -11,7 +12,7 @@ import {
   SETTINGS_STORAGE_KEY,
   type ScrapeSettings,
 } from '../shared/settings';
-import type { ConversationRecord } from '../shared/types';
+import type { ConversationRecord, SessionCounters, StoredImage } from '../shared/types';
 import { coverageStatus } from '../storage/coverage';
 import { ArchiveRepository } from '../storage/repository';
 import {
@@ -49,6 +50,7 @@ const NUMBER_FIELDS: Array<{ key: NumericSetting; label: string; step?: number }
   { key: 'maxSteps', label: 'Maximum scroll steps per run' },
   { key: 'maxDurationMinutes', label: 'Maximum run duration (minutes)' },
   { key: 'incrementalOverlap', label: 'Archived messages to re-see before an update stops' },
+  { key: 'maxImageMB', label: 'Largest image to save (MB)' },
 ];
 
 let repositoryPromise: Promise<ArchiveRepository> | null = null;
@@ -66,22 +68,87 @@ function message(id: string, text: string, kind: 'notice' | 'error' | 'success' 
 
 async function exportConversations(keys: string[] | 'all', format: ExportFormat): Promise<void> {
   const repo = await repository();
+  const includeImages = byId<HTMLInputElement>('export-images').checked;
+  message('archive-message', 'Preparing the export…');
   const archive = await buildArchiveExport(
     {
       getConversation: (key) => repo.getConversation(key),
       listConversations: () => repo.listConversations(),
       getMessages: (key) => repo.getMessages(key),
+      getImages: (key) => repo.getImages(key),
     },
     keys,
-    { generatorVersion: chrome.runtime.getManifest().version },
+    { generatorVersion: chrome.runtime.getManifest().version, includeImages },
   );
-  const text = serializeArchive(archive, format);
+  let text: string;
+  try {
+    text = serializeArchive(archive, format);
+  } catch (error) {
+    if (error instanceof RangeError) {
+      throw new Error('The export is too large for one file. Export conversations one at a time, or without images.');
+    }
+    throw error;
+  }
   downloadText(exportFileName(archive, format), text, MIME[format]);
   const count = archive.conversations.reduce((sum, conversation) => sum + conversation.messages.length, 0);
-  message('archive-message', `Exported ${formatNumber(count)} messages from ${archive.conversations.length} conversation(s).`, 'success');
+  const images = archive.conversations.reduce((sum, conversation) => sum + (conversation.images?.length ?? 0), 0);
+  message(
+    'archive-message',
+    `Exported ${formatNumber(count)} messages${images > 0 ? ` and ${formatNumber(images)} images` : ''} from ${archive.conversations.length} conversation(s).`,
+    'success',
+  );
 }
 
-function conversationRow(record: ConversationRecord): HTMLTableRowElement {
+// ------------------------------------------------------------------ images
+
+let imageUrls: string[] = [];
+
+function closeImages(): void {
+  const dialog = byId<HTMLDialogElement>('image-dialog');
+  if (dialog.open) dialog.close();
+  for (const url of imageUrls) URL.revokeObjectURL(url);
+  imageUrls = [];
+  byId('image-grid').replaceChildren();
+}
+
+/** Shows the saved images of a conversation, with who sent each and when. */
+async function showImages(record: ConversationRecord): Promise<void> {
+  closeImages();
+  const repo = await repository();
+  const images = await repo.getImages(record.conversationKey);
+  const context = new Map<string, { sortKey: number; caption: string }>();
+  await repo.forEachMessage(record.conversationKey, (stored) => {
+    for (const attachment of stored.attachments) {
+      if (!attachment.imageId || context.has(attachment.imageId)) continue;
+      const sender = stored.sender.name ?? (stored.sender.isSelf ? 'Me' : 'Unknown sender');
+      context.set(attachment.imageId, { sortKey: stored.sortKey, caption: `${sender} · ${formatDateTime(stored.timestamp ?? stored.sortKey)}` });
+    }
+  });
+  const position = (image: StoredImage) => context.get(image.imageId)?.sortKey ?? Number.MAX_VALUE;
+  const ordered = [...images].sort((a, b) => position(a) - position(b) || a.firstSavedAt.localeCompare(b.firstSavedAt));
+  byId('image-dialog-title').textContent = `${record.title ?? record.conversationKey}: ${formatNumber(images.length)} saved images`;
+  byId('image-grid').replaceChildren(...ordered.map((image) => imageTile(image, context.get(image.imageId)?.caption ?? 'No longer referenced by a message')));
+  byId<HTMLDialogElement>('image-dialog').showModal();
+}
+
+function imageTile(image: StoredImage, caption: string): HTMLElement {
+  const url = URL.createObjectURL(new Blob([image.data], { type: image.mimeType }));
+  imageUrls.push(url);
+  const size = image.width && image.height ? `${image.width}×${image.height} · ` : '';
+  return el(
+    'figure',
+    { className: 'image-tile' },
+    el('a', { href: url, target: '_blank', rel: 'noopener', title: 'Open full size' }, el('img', { src: url, alt: '', loading: 'lazy' })),
+    el(
+      'figcaption',
+      { className: 'small' },
+      el('div', {}, caption),
+      el('div', { className: 'muted' }, `${size}${Math.max(1, Math.round(image.byteLength / 1024))} KB · `, el('a', { href: url, download: imageFileName(image) }, 'Download')),
+    ),
+  );
+}
+
+function conversationRow(record: ConversationRecord, imageCount: number): HTMLTableRowElement {
   const status = coverageStatus(record.coverage, record.newestSortKey);
   const format = el('select', { 'aria-label': 'Export format' }, el('option', { value: 'json' }, 'JSON'), el('option', { value: 'ndjson' }, 'NDJSON'), el('option', { value: 'markdown' }, 'Markdown'));
   const exportButton = el('button', {
@@ -91,12 +158,12 @@ function conversationRow(record: ConversationRecord): HTMLTableRowElement {
     className: 'danger',
     onclick: async () => {
       const ok = confirm(
-        `Delete "${record.title ?? record.conversationKey}" with ${record.messageCount} archived messages from this browser?\n\nThis cannot be undone. Export a backup first if you may need it.`,
+        `Delete "${record.title ?? record.conversationKey}" with ${record.messageCount} archived messages${imageCount > 0 ? ` and ${imageCount} images` : ''} from this browser?\n\nThis cannot be undone. Export a backup first if you may need it.`,
       );
       if (!ok) return;
       const repo = await repository();
       const removed = await repo.deleteConversation(record.conversationKey);
-      message('archive-message', `Deleted ${formatNumber(removed.messages)} messages and ${removed.sessions} sessions.`, 'success');
+      message('archive-message', `Deleted ${formatNumber(removed.messages)} messages, ${formatNumber(removed.images)} images and ${removed.sessions} sessions.`, 'success');
       await render();
     },
   }, 'Delete');
@@ -106,6 +173,17 @@ function conversationRow(record: ConversationRecord): HTMLTableRowElement {
     el('td', {}, el('div', { className: 'conv-title' }, record.title ?? '(untitled)'), el('div', { className: 'muted small mono' }, record.conversationKey)),
     el('td', {}, TYPE_LABELS[record.type]),
     el('td', { className: 'num' }, formatNumber(record.messageCount)),
+    el(
+      'td',
+      { className: 'num' },
+      imageCount > 0
+        ? el(
+            'button',
+            { className: 'link', title: 'View the saved images', onclick: () => void showImages(record).catch((e) => message('archive-message', errorText(e), 'error')) },
+            formatNumber(imageCount),
+          )
+        : '0',
+    ),
     el('td', {}, status === 'complete' ? 'Complete' : status === 'partial' ? 'Partial' : '–'),
     el('td', {}, record.oldestSortKey !== null ? `${formatDate(record.oldestSortKey)} – ${formatDate(record.newestSortKey)}` : '–'),
     el('td', {}, formatDateTime(record.lastExtractedAt)),
@@ -116,7 +194,8 @@ function conversationRow(record: ConversationRecord): HTMLTableRowElement {
 async function renderConversations(): Promise<void> {
   const repo = await repository();
   const conversations = await repo.listConversations();
-  byId('conversations').querySelector('tbody')!.replaceChildren(...conversations.map(conversationRow));
+  const imageCounts = await Promise.all(conversations.map((record) => repo.countImages(record.conversationKey)));
+  byId('conversations').querySelector('tbody')!.replaceChildren(...conversations.map((record, i) => conversationRow(record, imageCounts[i] ?? 0)));
   byId('conversations').hidden = conversations.length === 0;
   byId('no-conversations').hidden = conversations.length > 0;
   byId<HTMLButtonElement>('btn-export-all').disabled = conversations.length === 0;
@@ -140,12 +219,20 @@ async function renderSessions(): Promise<void> {
         el('td', { className: 'num' }, formatNumber(session.counters.inserted)),
         el('td', { className: 'num' }, formatNumber(session.counters.updated)),
         el('td', { className: 'num' }, formatNumber(session.counters.unchanged)),
+        el('td', { className: 'num' }, imagesCell(session.counters)),
         el('td', {}, formatDuration(Date.parse(end) - Date.parse(session.startedAt))),
       );
     }),
   );
   byId('sessions').hidden = sessions.length === 0;
   byId('no-sessions').hidden = sessions.length > 0;
+}
+
+/** Saved images, plus failures; sessions recorded before version 1.1 have no image counters. */
+function imagesCell(counters: Partial<SessionCounters>): string {
+  if (counters.imagesSaved === undefined) return '–';
+  const failed = counters.imagesFailed ?? 0;
+  return failed > 0 ? `${formatNumber(counters.imagesSaved)} (${formatNumber(failed)} not saved)` : formatNumber(counters.imagesSaved);
 }
 
 async function renderStorage(): Promise<void> {
@@ -191,6 +278,7 @@ function buildSettingsFields(): void {
       ),
     ),
     el('label', { className: 'check field', for: 'pauseWhenHidden' }, el('input', { type: 'checkbox', id: 'pauseWhenHidden' }), el('span', {}, 'Pause while the Teams tab is hidden (recommended: background tabs are throttled)')),
+    el('label', { className: 'check field', for: 'saveImages' }, el('input', { type: 'checkbox', id: 'saveImages' }), el('span', {}, 'Save the images shown in messages (the copy Teams already displays)')),
   );
   container.replaceChildren(...fields);
 }
@@ -200,6 +288,7 @@ function fillSettings(settings: ScrapeSettings): void {
   byId<HTMLInputElement>('selfDisplayName').value = settings.selfDisplayName;
   byId<HTMLSelectElement>('dateOrder').value = settings.dateOrder;
   byId<HTMLInputElement>('pauseWhenHidden').checked = settings.pauseWhenHidden;
+  byId<HTMLInputElement>('saveImages').checked = settings.saveImages;
   byId<HTMLTextAreaElement>('selectorOverrides').value = settings.selectorOverrides;
 }
 
@@ -209,6 +298,7 @@ function readSettings(): ScrapeSettings {
   raw.selfDisplayName = byId<HTMLInputElement>('selfDisplayName').value;
   raw.dateOrder = byId<HTMLSelectElement>('dateOrder').value;
   raw.pauseWhenHidden = byId<HTMLInputElement>('pauseWhenHidden').checked;
+  raw.saveImages = byId<HTMLInputElement>('saveImages').checked;
   raw.selectorOverrides = byId<HTMLTextAreaElement>('selectorOverrides').value;
   return normalizeSettings(raw);
 }
@@ -236,6 +326,8 @@ async function saveSettings(event: Event): Promise<void> {
 
 function wire(): void {
   byId('settings-form').addEventListener('submit', (event) => void saveSettings(event));
+  byId('btn-image-close').addEventListener('click', closeImages);
+  byId<HTMLDialogElement>('image-dialog').addEventListener('close', closeImages);
   byId('btn-defaults').addEventListener('click', () => {
     fillSettings({ ...DEFAULT_SETTINGS });
     message('settings-message', 'Defaults restored in the form. Click "Save settings" to apply.');
@@ -256,9 +348,11 @@ function wire(): void {
     if (!file) return;
     try {
       const summary = await importArchive(await repository(), await file.text());
+      const images = summary.imagesInserted + summary.imagesUnchanged;
       message(
         'archive-message',
-        `Imported ${summary.conversations} conversation(s): ${formatNumber(summary.inserted)} new, ${formatNumber(summary.updated)} merged, ${formatNumber(summary.unchanged)} already present.`,
+        `Imported ${summary.conversations} conversation(s): ${formatNumber(summary.inserted)} new, ${formatNumber(summary.updated)} merged, ${formatNumber(summary.unchanged)} already present.` +
+          (images > 0 ? ` Images: ${formatNumber(summary.imagesInserted)} new, ${formatNumber(summary.imagesUnchanged)} already present.` : ''),
         'success',
       );
       await render();

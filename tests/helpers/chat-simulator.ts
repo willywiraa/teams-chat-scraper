@@ -221,6 +221,8 @@ export interface GenerateOptions {
   /** Probability that a message continues the previous sender's group. */
   groupProbability?: number;
   withAttachmentsEvery?: number;
+  /** Every Nth message shows two pasted pictures, both named "image" (as Teams names them). */
+  withImagesEvery?: number;
   withRepliesEvery?: number;
   /** Insert a system message ("X added Y") before every Nth message. */
   systemEvery?: number;
@@ -277,6 +279,14 @@ export function generateConversation(options: GenerateOptions): GeneratedConvers
     if (options.withAttachmentsEvery && i % options.withAttachmentsEvery === 0) {
       message.attachments = [{ name: `file-${i}.pdf`, url: `https://example.invalid/files/${i}.pdf` }];
       attachments.push(`file-${i}.pdf`);
+    }
+    if (every(options.withImagesEvery, i)) {
+      message.attachments = [
+        ...(message.attachments ?? []),
+        { name: 'image', kind: 'image', url: `https://example.invalid/img/${i}-a.png` },
+        { name: 'image', kind: 'image', url: `https://example.invalid/img/${i}-b.png` },
+      ];
+      attachments.push('image', 'image');
     }
     let replyTo: number | null = null;
     if (every(options.withRepliesEvery, i)) {

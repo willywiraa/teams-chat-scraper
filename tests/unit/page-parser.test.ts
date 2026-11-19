@@ -157,6 +157,32 @@ describe('parseRenderedConversation', () => {
     expect(messages[1]?.replyTo?.resolvedKey).toBe(messages[0]?.key);
   });
 
+  it('reports the displayed images with the attachment each belongs to', () => {
+    const result = parseResult([
+      {
+        id: '1705314600000',
+        author: 'Alice',
+        time: '2024-01-15T10:30:00Z',
+        html: '<p>Look <img src="https://x/inline.png" alt="inline.png"> <img itemtype="http://schema.skype.com/Emoji" src="https://x/emoji.png" alt="🙂"></p>',
+        attachments: [
+          { name: 'plan.pdf', url: 'https://x/plan.pdf' },
+          { name: 'image', kind: 'image', url: 'https://x/1.png' },
+          { name: 'image', kind: 'image', url: 'https://x/2.png' },
+        ],
+      },
+      { id: '1705314660000', author: 'Bob', time: '2024-01-15T10:31:00Z', paragraphs: ['Nothing to see'] },
+    ]);
+    const [first] = result.messages;
+    expect(first?.attachments.map((attachment) => `${attachment.kind}:${attachment.name}`)).toEqual(['file:plan.pdf', 'image:image', 'image:image', 'image:inline.png']);
+    expect(result.images.map((image) => ({ key: image.messageKey, index: image.attachmentIndex, src: image.element.getAttribute('src') }))).toEqual([
+      { key: first?.key, index: 1, src: 'https://x/1.png' },
+      { key: first?.key, index: 2, src: 'https://x/2.png' },
+      { key: first?.key, index: 3, src: 'https://x/inline.png' },
+    ]);
+    // Emoji stay text and are never treated as images.
+    expect(first?.text).toContain('🙂');
+  });
+
   it('parses a large rendered list quickly', () => {
     const fixtures: FixtureMessage[] = Array.from({ length: 2000 }, (_, i) => ({
       id: String(1705314600000 + i * 1000),

@@ -14,11 +14,14 @@ import {
   type ConversationRecord,
   type CoverageRange,
   type ExtractedMessage,
+  type ImageSaveStatus,
   type SessionRecord,
   type SessionStatus,
+  type StoredImage,
   type StoredMessage,
   type UpsertStatus,
 } from '../shared/types';
+import { imageKey } from '../shared/images';
 import { mergeAllCoverage } from './coverage';
 import { openDatabase, prefixRange, requestToPromise, transactionDone } from './idb';
 import { absorbDuplicate, mergeImported, mergeObservation } from './merge';
@@ -278,9 +281,9 @@ export class ArchiveRepository {
     return conversation;
   }
 
-  /** Deletes a conversation with all its messages and sessions. */
-  async deleteConversation(conversationKey: string): Promise<{ messages: number; sessions: number }> {
-    const tx = this.db.transaction([STORES.messages, STORES.sessions, STORES.conversations], 'readwrite');
+  /** Deletes a conversation with all its messages, images and sessions. */
+  async deleteConversation(conversationKey: string): Promise<{ messages: number; images: number; sessions: number }> {
+    const tx = this.db.transaction([STORES.messages, STORES.images, STORES.sessions, STORES.conversations], 'readwrite');
     const done = transactionDone(tx);
     const deleteVia = (index: IDBIndex) =>
       new Promise<number>((resolve, reject) => {
@@ -299,10 +302,62 @@ export class ArchiveRepository {
         request.onerror = () => reject(request.error);
       });
     const messages = await deleteVia(tx.objectStore(STORES.messages).index(INDEXES.messagesBySort));
+    const images = await deleteVia(tx.objectStore(STORES.images).index(INDEXES.imagesByConversation));
     const sessions = await deleteVia(tx.objectStore(STORES.sessions).index(INDEXES.sessionsByConversation));
     await requestToPromise(tx.objectStore(STORES.conversations).delete(conversationKey));
     await done;
-    return { messages, sessions };
+    return { messages, images, sessions };
+  }
+
+  // ------------------------------------------------------------------ images
+
+  /**
+   * Stores images of one conversation in one transaction. Idempotent: an image id is the hash of
+   * its bytes, so an image that is already archived is left as it is (`unchanged`).
+   * Returns the outcome per image id.
+   */
+  async putImages(conversationKey: string, images: readonly StoredImage[]): Promise<Record<string, ImageSaveStatus>> {
+    const statuses: Record<string, ImageSaveStatus> = {};
+    if (images.length === 0) return statuses;
+    const tx = this.db.transaction(STORES.images, 'readwrite');
+    const done = transactionDone(tx);
+    const store = tx.objectStore(STORES.images);
+    try {
+      for (const image of images) {
+        if (image.conversationKey !== conversationKey) throw new Error(`Image ${image.key} does not belong to conversation ${conversationKey}`);
+        if (image.key !== imageKey(conversationKey, image.imageId)) throw new Error(`Image key ${image.key} does not match its image id`);
+        const existing = (await requestToPromise(store.getKey(image.key))) !== undefined;
+        if (!existing) await requestToPromise(store.put(image));
+        statuses[image.imageId] = existing ? 'unchanged' : 'inserted';
+      }
+      await done;
+      return statuses;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {
+        // Already finished or aborted.
+      }
+      await done.catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async getImage(conversationKey: string, imageId: string): Promise<StoredImage | undefined> {
+    const tx = this.db.transaction(STORES.images, 'readonly');
+    return (await requestToPromise(tx.objectStore(STORES.images).get(imageKey(conversationKey, imageId)))) as StoredImage | undefined;
+  }
+
+  /** All saved images of a conversation (with their bytes), ordered by image id. */
+  async getImages(conversationKey: string): Promise<StoredImage[]> {
+    const tx = this.db.transaction(STORES.images, 'readonly');
+    const index = tx.objectStore(STORES.images).index(INDEXES.imagesByConversation);
+    return (await requestToPromise(index.getAll(prefixRange(conversationKey)))) as StoredImage[];
+  }
+
+  async countImages(conversationKey: string): Promise<number> {
+    const tx = this.db.transaction(STORES.images, 'readonly');
+    return requestToPromise(tx.objectStore(STORES.images).index(INDEXES.imagesByConversation).count(prefixRange(conversationKey)));
   }
 
   // ---------------------------------------------------------------- sessions

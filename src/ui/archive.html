@@ -23,6 +23,7 @@
               <option value="ndjson">NDJSON</option>
               <option value="markdown">Markdown transcript</option>
             </select>
+            <label class="check small" for="export-images" title="Saved images make JSON and NDJSON exports much larger"><input type="checkbox" id="export-images" checked /> Include images</label>
             <button id="btn-export-all">Export all</button>
             <label class="button" for="import-file">Import archive…</label>
             <input type="file" id="import-file" accept=".json,application/json" hidden />
@@ -35,6 +36,7 @@
               <th>Conversation</th>
               <th>Type</th>
               <th class="num">Messages</th>
+              <th class="num">Images</th>
               <th>History</th>
               <th>Archived period</th>
               <th>Last run</th>
@@ -63,6 +65,7 @@
               <th class="num">New</th>
               <th class="num">Updated</th>
               <th class="num">Already archived</th>
+              <th class="num">Images</th>
               <th>Duration</th>
             </tr>
           </thead>
@@ -88,6 +91,14 @@
         </form>
       </section>
     </main>
+
+    <dialog id="image-dialog" class="image-dialog" aria-labelledby="image-dialog-title">
+      <div class="section-head">
+        <h2 id="image-dialog-title">Saved images</h2>
+        <button type="button" id="btn-image-close">Close</button>
+      </div>
+      <div id="image-grid" class="image-grid"></div>
+    </dialog>
     <script src="archive.js"></script>
   </body>
 </html>

@@ -42,16 +42,34 @@ export interface MergeResult {
 }
 
 function attachmentKey(att: Attachment): string {
-  return `${att.kind}|${att.name ?? ''}|${att.url ?? ''}`;
+  return `${att.kind}|${att.name ?? ''}|${att.url ?? ''}|${att.imageId ?? ''}`;
 }
 
+/**
+ * Union of two attachment lists of the same message. The same file seen with and without a
+ * (temporary) URL counts once. Images are matched by name *and* position among the images of
+ * that name, because Teams names most pasted pictures just "image". Missing details (a URL,
+ * the id of a saved image) are filled in from the other copy; an existing image id is kept.
+ */
 export function unionAttachments(a: readonly Attachment[], b: readonly Attachment[]): Attachment[] {
   const byKey = new Map<string, Attachment>();
-  for (const att of [...a, ...b]) {
-    // Same file seen with and without a (temporary) URL counts once.
-    const loose = `${att.kind}|${att.name ?? ''}`;
-    const existing = byKey.get(loose);
-    if (!existing || (!existing.url && att.url)) byKey.set(loose, { ...att });
+  for (const list of [a, b]) {
+    const occurrences = new Map<string, number>();
+    for (const att of list) {
+      let loose = `${att.kind}|${att.name ?? ''}`;
+      if (att.kind === 'image') {
+        const occurrence = occurrences.get(loose) ?? 0;
+        occurrences.set(loose, occurrence + 1);
+        loose = `${loose}|${occurrence}`;
+      }
+      const existing = byKey.get(loose);
+      if (!existing) {
+        byKey.set(loose, { ...att });
+        continue;
+      }
+      if (!existing.url && att.url) existing.url = att.url;
+      if (!existing.imageId && att.imageId) existing.imageId = att.imageId;
+    }
   }
   return Array.from(byKey.values());
 }

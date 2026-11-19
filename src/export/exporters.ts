@@ -2,9 +2,10 @@
  * Serialisers for the archive export: JSON (canonical, lossless), NDJSON (streaming-friendly
  * for ingestion pipelines) and Markdown (human-readable transcript).
  */
+import { imageFileName } from '../shared/images';
 import { coverageStatus } from '../storage/coverage';
 import type { StoredMessage } from '../shared/types';
-import type { ArchiveExportV1, ExportedConversationV1 } from './format';
+import type { ArchiveExportV1, ExportedConversationV1, ExportedImageV1 } from './format';
 
 export type ExportFormat = 'json' | 'ndjson' | 'markdown';
 
@@ -14,17 +15,18 @@ export function toJson(archive: ArchiveExportV1): string {
 
 /**
  * One JSON object per line, discriminated by `record`: a `header` line, then per conversation
- * a `conversation` line followed by its `message` lines. (`record` is used rather than `type`
- * because conversations already have a `type` field.)
+ * a `conversation` line followed by its `message` lines and then its `image` lines. (`record`
+ * is used rather than `type` because conversations already have a `type` field.)
  */
 export function toNdjson(archive: ArchiveExportV1): string {
   const lines: string[] = [
     JSON.stringify({ record: 'header', format: archive.format, formatVersion: archive.formatVersion, exportedAt: archive.exportedAt, generator: archive.generator }),
   ];
   for (const conversation of archive.conversations) {
-    const { messages, ...meta } = conversation;
+    const { messages, images, ...meta } = conversation;
     lines.push(JSON.stringify({ record: 'conversation', ...meta }));
     for (const message of messages) lines.push(JSON.stringify({ record: 'message', ...message }));
+    for (const image of images ?? []) lines.push(JSON.stringify({ record: 'image', ...image }));
   }
   return `${lines.join('\n')}\n`;
 }
@@ -67,23 +69,30 @@ function senderLabel(message: StoredMessage): string {
   return 'Unknown sender';
 }
 
-function attachmentLine(message: StoredMessage): string | null {
+function attachmentLine(message: StoredMessage, images: Map<string, ExportedImageV1>): string | null {
   if (message.attachments.length === 0) return null;
   const parts = message.attachments.map((att) => {
     const label = escapeInline(att.name ?? att.kind);
     const prefix = att.kind === 'image' ? 'Image' : att.kind === 'card' ? 'Card' : att.kind === 'link-preview' ? 'Link' : 'File';
-    return att.url ? `${prefix}: [${label}](${att.url})` : `${prefix}: ${label}`;
+    let text = att.url ? `${prefix}: [${label}](${att.url})` : `${prefix}: ${label}`;
+    if (att.kind === 'image' && att.imageId) {
+      const image = images.get(att.imageId);
+      text += image ? ` (saved as \`${imageFileName(image)}\`)` : ` (saved image \`${att.imageId}\`)`;
+    }
+    return text;
   });
   return `_Attachments:_ ${parts.join(' · ')}`;
 }
 
 function conversationToMarkdown(conversation: ExportedConversationV1, byKey: Map<string, StoredMessage>, options: MarkdownOptions): string {
+  const images = new Map((conversation.images ?? []).map((image) => [image.imageId, image]));
   const lines: string[] = [];
   const zone = options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   lines.push(`# ${escapeInline(conversation.title ?? conversation.conversationKey)}`, '');
   lines.push(`- Type: ${conversation.type}`);
   if (conversation.participants.length) lines.push(`- Participants: ${conversation.participants.map(escapeInline).join(', ')}`);
   lines.push(`- Messages: ${conversation.messages.length}`);
+  if (images.size > 0) lines.push(`- Saved images: ${images.size} (in the JSON export, named here by file name)`);
   const status = coverageStatus(conversation.coverage, conversation.newestSortKey);
   lines.push(`- Archive coverage: ${status === 'complete' ? 'complete history' : status === 'partial' ? 'partial history' : 'unknown'}`);
   lines.push(`- Times shown in: ${zone}`, '', '---', '');
@@ -113,7 +122,7 @@ function conversationToMarkdown(conversation: ExportedConversationV1, byKey: Map
       for (const line of message.text.split('\n')) lines.push(escapeMarkdownLine(line));
       lines.push('');
     }
-    const attachments = attachmentLine(message);
+    const attachments = attachmentLine(message, images);
     if (attachments) lines.push(attachments, '');
   }
   return lines.join('\n');

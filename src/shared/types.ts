@@ -98,6 +98,9 @@ export interface StoredImage {
   schemaVersion: number;
 }
 
+/** Outcome of storing an image: images are immutable (keyed by hash), so a repeat is `unchanged`. */
+export type ImageSaveStatus = 'inserted' | 'unchanged';
+
 export interface Mention {
   name: string;
   id: string | null;

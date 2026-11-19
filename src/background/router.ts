@@ -2,13 +2,18 @@
  * Handles requests from content scripts. Kept free of Chrome APIs so it can be tested
  * end-to-end against a real (fake-indexeddb backed) repository.
  */
+import { imageMetadataError, MAX_IMAGE_BYTES } from '../shared/images';
 import type {
   BackgroundRequest,
+  CapturedImageInfo,
   SessionBatchResponse,
   SessionBeginResponse,
   SessionEndResponse,
+  SessionImagePartResponse,
+  SessionImagesResponse,
 } from '../shared/protocol';
 import { EXTRACTOR_VERSION, emptyCounters, type SessionRecord } from '../shared/types';
+import { saveCapturedImages } from '../storage/images';
 import type { ArchiveRepository } from '../storage/repository';
 
 export interface RouterDeps {
@@ -16,6 +21,10 @@ export interface RouterDeps {
   now: () => Date;
   newId: () => string;
   staleSessionMs: number;
+  /** Parts of large images being received; defaults to one buffer per worker. */
+  imageUploads?: ImageUploads;
+  /** Largest image accepted (bytes); defaults to and is capped at MAX_IMAGE_BYTES. */
+  maxImageBytes?: number;
 }
 
 export interface RequestContext {
@@ -24,6 +33,67 @@ export interface RequestContext {
 }
 
 const MAX_SESSION_WARNINGS = 50;
+
+interface PendingUpload {
+  info: string;
+  count: number;
+  parts: string[];
+  chars: number;
+  touchedAt: number;
+}
+
+export type UploadOutcome =
+  | { status: 'partial' }
+  | { status: 'restart' }
+  | { status: 'rejected'; reason: string }
+  | { status: 'complete'; dataBase64: string };
+
+/**
+ * Parts of images too large for one extension message, kept in memory until the last part
+ * arrives. If the worker restarts in between, the next part gets `restart` and the tab sends
+ * the image again from the first part.
+ */
+export class ImageUploads {
+  private readonly uploads = new Map<string, PendingUpload>();
+
+  constructor(
+    private readonly ttlMs = 120_000,
+    private readonly maxUploads = 4,
+  ) {}
+
+  get size(): number {
+    return this.uploads.size;
+  }
+
+  add(key: string, part: { info: CapturedImageInfo; index: number; count: number; dataBase64: string }, nowMs: number, maxChars: number): UploadOutcome {
+    for (const [pendingKey, upload] of this.uploads) {
+      if (nowMs - upload.touchedAt > this.ttlMs) this.uploads.delete(pendingKey);
+    }
+    const info = JSON.stringify(part.info);
+    if (part.index === 0) {
+      this.uploads.delete(key);
+      while (this.uploads.size >= this.maxUploads) this.uploads.delete(this.uploads.keys().next().value as string);
+      this.uploads.set(key, { info, count: part.count, parts: [], chars: 0, touchedAt: nowMs });
+    }
+    const upload = this.uploads.get(key);
+    if (!upload || upload.info !== info || upload.count !== part.count || upload.parts.length !== part.index) {
+      this.uploads.delete(key);
+      return { status: 'restart' };
+    }
+    upload.chars += part.dataBase64.length;
+    if (upload.chars > maxChars) {
+      this.uploads.delete(key);
+      return { status: 'rejected', reason: 'the image is larger than its stated size' };
+    }
+    upload.parts.push(part.dataBase64);
+    upload.touchedAt = nowMs;
+    if (upload.parts.length < upload.count) return { status: 'partial' };
+    this.uploads.delete(key);
+    return { status: 'complete', dataBase64: upload.parts.join('') };
+  }
+}
+
+const defaultUploads = new ImageUploads();
 
 function requireString(value: unknown, name: string): string {
   if (typeof value !== 'string' || value.length === 0) throw new Error(`Invalid request: ${name} is required`);
@@ -35,14 +105,24 @@ function requireArray<T>(value: unknown, name: string): T[] {
   return value as T[];
 }
 
+/** The session an image request belongs to; it must exist and be for the same conversation. */
+async function requireSession(repository: ArchiveRepository, sessionId: unknown, conversationKey: unknown): Promise<SessionRecord> {
+  const id = requireString(sessionId, 'sessionId');
+  const session = await repository.getSession(id);
+  if (!session) throw new Error(`Unknown session ${id}`);
+  if (session.conversationKey !== conversationKey) throw new Error('Image conversation does not match the session conversation');
+  return session;
+}
+
 export async function handleBackgroundRequest(
   request: BackgroundRequest,
   context: RequestContext,
   deps: RouterDeps,
-): Promise<SessionBeginResponse | SessionBatchResponse | SessionEndResponse | { recorded: boolean }> {
+): Promise<SessionBeginResponse | SessionBatchResponse | SessionImagesResponse | SessionImagePartResponse | SessionEndResponse | { recorded: boolean }> {
   const repository = await deps.getRepository();
   const now = deps.now();
   const nowIso = now.toISOString();
+  const maxImageBytes = Math.min(deps.maxImageBytes ?? MAX_IMAGE_BYTES, MAX_IMAGE_BYTES);
 
   switch (request.type) {
     case 'session/begin': {
@@ -103,6 +183,35 @@ export async function handleBackgroundRequest(
         { skipIfEnded: true },
       );
       return { statuses: result.statuses };
+    }
+
+    case 'session/images': {
+      const session = await requireSession(repository, request.sessionId, request.conversationKey);
+      const images = requireArray(request.images, 'images');
+      return saveCapturedImages(repository, session.conversationKey, images, { sessionId: session.sessionId, nowIso, maxBytes: maxImageBytes });
+    }
+
+    case 'session/image-part': {
+      const session = await requireSession(repository, request.sessionId, request.conversationKey);
+      const { index, count, dataBase64 } = request;
+      if (!Number.isInteger(index) || !Number.isInteger(count) || index < 0 || count < 1 || index >= count || typeof dataBase64 !== 'string') {
+        throw new Error('Invalid request: index, count and dataBase64 do not describe an image part');
+      }
+      const info = (request.image && typeof request.image === 'object' ? request.image : {}) as CapturedImageInfo;
+      const problem = imageMetadataError({ ...info, dataBase64: '' }, maxImageBytes);
+      if (problem) return { status: 'rejected', reason: problem } satisfies SessionImagePartResponse;
+      const maxChars = 4 * Math.ceil(maxImageBytes / 3);
+      const uploads = deps.imageUploads ?? defaultUploads;
+      const outcome = uploads.add(`${session.sessionId}|${info.imageId}`, { info, index, count, dataBase64 }, now.getTime(), maxChars);
+      if (outcome.status !== 'complete') return outcome satisfies SessionImagePartResponse;
+      const saved = await saveCapturedImages(repository, session.conversationKey, [{ ...info, dataBase64: outcome.dataBase64 }], {
+        sessionId: session.sessionId,
+        nowIso,
+        maxBytes: maxImageBytes,
+      });
+      const reason = Object.values(saved.rejected)[0];
+      if (reason !== undefined) return { status: 'rejected', reason } satisfies SessionImagePartResponse;
+      return { status: saved.statuses[info.imageId] ?? 'inserted' } satisfies SessionImagePartResponse;
     }
 
     case 'session/heartbeat': {

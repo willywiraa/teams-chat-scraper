@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { serializeArchive } from '../../src/export/exporters';
-import { buildArchiveExport, ImportValidationError } from '../../src/export/format';
+import { serializeArchive, toNdjson } from '../../src/export/exporters';
+import { buildArchiveExport, ImportValidationError, type ArchiveExportV1 } from '../../src/export/format';
 import { importArchive } from '../../src/export/import';
+import { base64ToBytes, bytesToBase64, sha256Hex } from '../../src/shared/images';
+import type { CapturedImage } from '../../src/shared/types';
+import { saveCapturedImages, toStoredImage } from '../../src/storage/images';
 import type { ArchiveRepository } from '../../src/storage/repository';
 import { openTestRepository } from '../helpers/fixtures';
+import { fakeImageBytes } from '../helpers/images';
 import { CK, CONVERSATION, message, session } from '../helpers/messages';
 
 let repo: ArchiveRepository;
@@ -18,6 +22,14 @@ afterEach(() => {
 
 const upsert = (messages: ReturnType<typeof message>[], sessionId = 's1', conversation = CONVERSATION) =>
   repo.upsertObservations({ conversation, messages: structuredClone(messages), sessionId });
+
+async function captured(src: string, size = 80): Promise<CapturedImage> {
+  const bytes = fakeImageBytes(src, size);
+  return { imageId: await sha256Hex(bytes), mimeType: 'image/png', byteLength: bytes.byteLength, width: 8, height: 8, method: 'fetch', dataBase64: bytesToBase64(bytes) };
+}
+
+const saveImages = (images: CapturedImage[], conversationKey = CK, sessionId = 's1') =>
+  saveCapturedImages(repo, conversationKey, images, { sessionId, nowIso: '2024-01-15T12:00:00.000Z' });
 
 describe('upserts and duplicate prevention', () => {
   it('inserts new messages and treats identical re-observations as unchanged', async () => {
@@ -176,17 +188,40 @@ describe('replies, deletion, export and import', () => {
     expect((await repo.getMessage(orphan.key))?.replyTo?.resolvedKey).toBeNull();
   });
 
-  it('deletes a conversation with its messages and sessions only', async () => {
+  it('deletes a conversation with its messages, images and sessions only', async () => {
     const other = { ...CONVERSATION, conversationKey: 'teams:19:other@thread.v2', threadId: '19:other@thread.v2' };
     await upsert([message({ id: '1705314600000' }), message({ id: '1705314660000' })]);
     await upsert([message({ id: '1705314600000', conversationKey: other.conversationKey })], 's1', other);
     await repo.createSession(session({ sessionId: 'a' }));
     await repo.createSession(session({ sessionId: 'b', conversationKey: other.conversationKey }));
+    const shared = await captured('shared');
+    await saveImages([shared, await captured('mine')]);
+    await saveImages([shared], other.conversationKey);
 
-    expect(await repo.deleteConversation(CK)).toEqual({ messages: 2, sessions: 1 });
+    expect(await repo.deleteConversation(CK)).toEqual({ messages: 2, images: 2, sessions: 1 });
     expect(await repo.getConversation(CK)).toBeUndefined();
+    expect(await repo.countImages(CK)).toBe(0);
     expect(await repo.countMessages(other.conversationKey)).toBe(1);
+    expect(await repo.getImage(other.conversationKey, shared.imageId)).toBeDefined();
     expect(await repo.getSession('b')).toBeDefined();
+  });
+
+  it('stores images idempotently per conversation and writes a batch of images atomically', async () => {
+    const first = await captured('first');
+    const second = await captured('second');
+    expect(await saveImages([first])).toEqual({ statuses: { [first.imageId]: 'inserted' }, rejected: {} });
+    expect(await saveImages([first, second], CK, 's2')).toEqual({ statuses: { [first.imageId]: 'unchanged', [second.imageId]: 'inserted' }, rejected: {} });
+    // The first copy is kept (an image id is the hash of its bytes, so nothing can change).
+    expect(await repo.getImage(CK, first.imageId)).toMatchObject({ sessionId: 's1', firstSavedAt: '2024-01-15T12:00:00.000Z' });
+    expect((await repo.getImages(CK)).map((image) => image.imageId).sort()).toEqual([first.imageId, second.imageId].sort());
+
+    const { dataBase64, ...info } = await captured('third');
+    const third = toStoredImage(CK, info, base64ToBytes(dataBase64), { sessionId: 's3', nowIso: '2024-01-16T00:00:00.000Z' });
+    const stray = { ...third, conversationKey: 'teams:other', key: `teams:other#img:${third.imageId}` };
+    await expect(repo.putImages(CK, [third, stray])).rejects.toThrow(/does not belong/);
+    await expect(repo.putImages(CK, [third, { ...third, key: `${CK}#img:${'0'.repeat(64)}` }])).rejects.toThrow(/does not match its image id/);
+    // Nothing of a refused batch is written.
+    expect(await repo.countImages(CK)).toBe(2);
   });
 
   it('round-trips an export through import, idempotently', async () => {
@@ -206,8 +241,9 @@ describe('replies, deletion, export and import', () => {
     const json = serializeArchive(exported, 'json');
     const target = await openTestRepository();
     try {
-      expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 3, updated: 0, unchanged: 0 });
-      expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 0, updated: 0, unchanged: 3 });
+      const noImages = { imagesInserted: 0, imagesUnchanged: 0 };
+      expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 3, updated: 0, unchanged: 0, ...noImages });
+      expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 0, updated: 0, unchanged: 3, ...noImages });
       expect(await target.getMessages(CK)).toEqual(await repo.getMessages(CK));
       const restored = await target.getConversation(CK);
       const original = await repo.getConversation(CK);
@@ -222,7 +258,75 @@ describe('replies, deletion, export and import', () => {
       });
 
       // Importing into an archive that already has some of the messages merges instead of duplicating.
-      expect(await importArchive(repo, json)).toEqual({ conversations: 1, inserted: 0, updated: 0, unchanged: 3 });
+      expect(await importArchive(repo, json)).toEqual({ conversations: 1, inserted: 0, updated: 0, unchanged: 3, ...noImages });
+    } finally {
+      target.close();
+    }
+  });
+
+  it('round-trips images through export and import, idempotently', async () => {
+    const pasted = await captured('https://example.invalid/pasted.png', 3000);
+    const diagram = await captured('https://example.invalid/diagram.png');
+    await saveImages([pasted, diagram]);
+    await upsert([
+      message({ id: '1705314600000', text: 'Pictures', attachments: [{ kind: 'image', name: 'image', url: null, imageId: pasted.imageId }, { kind: 'image', name: 'diagram.png', url: 'https://example.invalid/diagram.png', imageId: diagram.imageId }] }),
+      message({ id: '1705314660000', text: 'Text only' }),
+    ]);
+
+    const exported = await buildArchiveExport(repo, 'all', { now: new Date('2024-02-01T00:00:00Z') });
+    expect(exported.conversations[0]?.images?.map((image) => image.imageId).sort()).toEqual([pasted.imageId, diagram.imageId].sort());
+    expect(exported.conversations[0]?.images?.find((image) => image.imageId === pasted.imageId)).toMatchObject({
+      key: `${CK}#img:${pasted.imageId}`,
+      conversationKey: CK,
+      mimeType: 'image/png',
+      byteLength: 3000,
+      dataBase64: pasted.dataBase64,
+    });
+    const json = serializeArchive(exported, 'json');
+    const target = await openTestRepository();
+    try {
+      expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 2, updated: 0, unchanged: 0, imagesInserted: 2, imagesUnchanged: 0 });
+      expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 0, updated: 0, unchanged: 2, imagesInserted: 0, imagesUnchanged: 2 });
+      expect(await target.getMessages(CK)).toEqual(await repo.getMessages(CK));
+      expect(await target.getImages(CK)).toEqual(await repo.getImages(CK));
+      expect(new Uint8Array((await target.getImage(CK, pasted.imageId))!.data)).toEqual(fakeImageBytes('https://example.invalid/pasted.png', 3000));
+      // NDJSON carries the same images as `image` records.
+      const ndjson = toNdjson(exported).trimEnd().split('\n').map((line) => JSON.parse(line));
+      expect(ndjson.map((line) => line.record)).toEqual(['header', 'conversation', 'message', 'message', 'image', 'image']);
+      expect(ndjson[1].images).toBeUndefined();
+    } finally {
+      target.close();
+    }
+
+    // An export without images (made before version 1.1, or with "Include images" off) still imports.
+    const older: ArchiveExportV1 = structuredClone(exported);
+    delete older.conversations[0]!.images;
+    const fresh = await openTestRepository();
+    try {
+      expect(await importArchive(fresh, older)).toEqual({ conversations: 1, inserted: 2, updated: 0, unchanged: 0, imagesInserted: 0, imagesUnchanged: 0 });
+      expect((await fresh.getMessages(CK))[0]?.attachments[0]?.imageId).toBe(pasted.imageId);
+      expect(await fresh.countImages(CK)).toBe(0);
+      expect((await buildArchiveExport(repo, 'all', { includeImages: false })).conversations[0]?.images).toBeUndefined();
+    } finally {
+      fresh.close();
+    }
+  });
+
+  it('imports nothing from a file with a damaged image', async () => {
+    const image = await captured('damaged');
+    await saveImages([image]);
+    await upsert([message({ id: '1705314600000', attachments: [{ kind: 'image', name: 'image', url: null, imageId: image.imageId }] })]);
+    const exported = await buildArchiveExport(repo, 'all');
+    const target = await openTestRepository();
+    try {
+      const tampered = structuredClone(exported);
+      tampered.conversations[0]!.images![0]!.dataBase64 = bytesToBase64(fakeImageBytes('something else', 80));
+      await expect(importArchive(target, tampered)).rejects.toThrow(/images\[0\]: imageId does not match the SHA-256 of the data/);
+      const wrongType = structuredClone(exported);
+      wrongType.conversations[0]!.images![0]!.mimeType = 'application/x-msdownload';
+      await expect(importArchive(target, wrongType)).rejects.toBeInstanceOf(ImportValidationError);
+      expect(await target.listConversations()).toEqual([]);
+      expect(await target.countImages(CK)).toBe(0);
     } finally {
       target.close();
     }

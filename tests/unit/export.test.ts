@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { exportFileName, serializeArchive, toMarkdown, toNdjson } from '../../src/export/exporters';
 import { buildArchiveExport, EXPORT_FORMAT, EXPORT_FORMAT_VERSION, parseArchiveExport, type ArchiveExportV1, type ExportSource } from '../../src/export/format';
-import { EXTRACTOR_VERSION, type ConversationRecord, type StoredMessage } from '../../src/shared/types';
+import { ARCHIVE_SCHEMA_VERSION, EXTRACTOR_VERSION, type ConversationRecord, type StoredMessage } from '../../src/shared/types';
+import { sha256Hex, toArrayBuffer } from '../../src/shared/images';
 import { createStoredMessage } from '../../src/storage/merge';
+import { fakeImageBytes } from '../helpers/images';
 import { CK, message } from '../helpers/messages';
 
 const ctx = { sessionId: 's1', nowIso: '2024-01-15T12:00:00.000Z' };
@@ -61,7 +63,7 @@ describe('archive export', () => {
       format: EXPORT_FORMAT,
       formatVersion: EXPORT_FORMAT_VERSION,
       exportedAt: '2024-02-01T10:20:30.456Z',
-      generator: { name: 'teams-chat-extractor', extractorVersion: EXTRACTOR_VERSION, schemaVersion: 1 },
+      generator: { name: 'teams-chat-extractor', extractorVersion: EXTRACTOR_VERSION, schemaVersion: ARCHIVE_SCHEMA_VERSION },
     });
     expect(exported.conversations).toHaveLength(1);
     expect(exported.conversations[0]).toMatchObject({ conversationKey: CK, title: 'Project Alpha', messages });
@@ -106,6 +108,58 @@ describe('archive export', () => {
     const exported = await archive();
     expect(exportFileName(exported, 'markdown')).toBe('Project-Alpha-2024-02-01T10-20-30.md');
     expect(exportFileName({ ...exported, conversations: [] }, 'ndjson')).toBe('teams-archive-2024-02-01T10-20-30.ndjson');
+  });
+});
+
+describe('images in exports', () => {
+  async function withImage() {
+    const bytes = fakeImageBytes('https://example.invalid/chart.png', 40);
+    const imageId = await sha256Hex(bytes);
+    const pictured = createStoredMessage(
+      message({ id: String(Date.UTC(2024, 0, 15, 9, 20)), text: 'Chart', attachments: [{ kind: 'image', name: 'chart.png', url: 'https://example.invalid/chart.png', imageId }, { kind: 'image', name: 'image', url: null, imageId: 'f'.repeat(64) }] }),
+      ctx,
+    );
+    const withImages: ExportSource = {
+      ...source,
+      getMessages: async () => [...messages, pictured],
+      getImages: async () => [
+        { key: `${CK}#img:${imageId}`, conversationKey: CK, imageId, mimeType: 'image/png', byteLength: 40, width: 4, height: 2, method: 'fetch', data: toArrayBuffer(bytes), firstSavedAt: ctx.nowIso, sessionId: 's1', schemaVersion: 2 },
+      ],
+    };
+    return { exported: await buildArchiveExport(withImages, [CK], { now: new Date('2024-02-01T10:20:30.456Z') }), imageId };
+  }
+
+  it('adds the images of each conversation as base64, after its messages in NDJSON', async () => {
+    const { exported, imageId } = await withImage();
+    expect(exported.conversations[0]?.images).toEqual([
+      { key: `${CK}#img:${imageId}`, conversationKey: CK, imageId, mimeType: 'image/png', byteLength: 40, width: 4, height: 2, method: 'fetch', firstSavedAt: ctx.nowIso, sessionId: 's1', schemaVersion: 2, dataBase64: Buffer.from(fakeImageBytes('https://example.invalid/chart.png', 40)).toString('base64') },
+    ]);
+    expect(parseArchiveExport(serializeArchive(exported, 'json'))).toEqual(exported);
+    const lines = toNdjson(exported).trimEnd().split('\n').map((line) => JSON.parse(line));
+    expect(lines.map((line) => line.record)).toEqual(['header', 'conversation', 'message', 'message', 'message', 'message', 'message', 'image']);
+    expect(lines[7]).toMatchObject({ record: 'image', imageId, conversationKey: CK });
+  });
+
+  it('names saved images in the Markdown transcript', async () => {
+    const { exported, imageId } = await withImage();
+    const markdown = toMarkdown(exported, { timeZone: 'UTC', locale: 'en-GB' });
+    expect(markdown).toContain('- Saved images: 1 (in the JSON export, named here by file name)');
+    expect(markdown).toContain(`_Attachments:_ Image: [chart.png](https://example.invalid/chart.png) (saved as \`${imageId}.png\`) · Image: image (saved image \`${'f'.repeat(64)}\`)`);
+  });
+
+  it('rejects malformed images and accepts exports without any', async () => {
+    const { exported } = await withImage();
+    const broken = (mutate: (copy: ArchiveExportV1) => void) => {
+      const copy = structuredClone(exported);
+      mutate(copy);
+      return () => parseArchiveExport(copy);
+    };
+    expect(broken((copy) => ((copy.conversations[0] as { images: unknown }).images = {}))).toThrow(/conversations\[0\]\.images must be an array/);
+    expect(broken((copy) => (copy.conversations[0]!.images![0]!.mimeType = 'text/html'))).toThrow(/images\[0\]: mimeType "text\/html" is not an image type/);
+    expect(broken((copy) => (copy.conversations[0]!.images![0]!.imageId = 'nope'))).toThrow(/imageId must be/);
+    expect(broken((copy) => (copy.conversations[0]!.images![0]!.conversationKey = 'teams:other'))).toThrow(/does not match its conversation/);
+    expect(broken((copy) => (copy.conversations[0]!.images![0]!.key = 'teams:other#img:x'))).toThrow(/key does not match its image id/);
+    expect(broken((copy) => delete copy.conversations[0]!.images)).not.toThrow();
   });
 });
 

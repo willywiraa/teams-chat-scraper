@@ -55,6 +55,14 @@ describe('settings', () => {
     expect(settings).toMatchObject({ scrollIntervalMs: 250, seekIntervalMs: 450, scrollStepRatio: 3, maxSteps: 13, maxNoProgressPasses: 1 });
   });
 
+  it('normalises the image settings', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({ saveImages: true, maxImageMB: 10 });
+    expect(normalizeSettings({ saveImages: false, maxImageMB: '25' })).toMatchObject({ saveImages: false, maxImageMB: 25 });
+    expect(normalizeSettings({ saveImages: 'no', maxImageMB: 0 })).toMatchObject({ saveImages: true, maxImageMB: 1 });
+    expect(normalizeSettings({ maxImageMB: 500 }).maxImageMB).toBe(50);
+    expect(normalizeSettings({ maxImageMB: 'lots' }).maxImageMB).toBe(10);
+  });
+
   it('keeps valid strings, booleans and enum values', () => {
     const settings = normalizeSettings({ selfDisplayName: '  Jordan Lee  ', dateOrder: 'DMY', pauseWhenHidden: false, selectorOverrides: '{"author":["x"]}' });
     expect(settings).toMatchObject({ selfDisplayName: 'Jordan Lee', dateOrder: 'DMY', pauseWhenHidden: false, selectorOverrides: '{"author":["x"]}' });
