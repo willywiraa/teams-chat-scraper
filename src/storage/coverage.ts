@@ -1,0 +1,68 @@
+/**
+ * Coverage bookkeeping: which stretches of a conversation's timeline (in sort-key space)
+ * have been captured without gaps. Used for incremental updates and for resuming.
+ */
+import type { CoverageRange } from '../shared/types';
+
+export function isValidRange(range: CoverageRange | null | undefined): range is CoverageRange {
+  return (
+    !!range &&
+    Number.isFinite(range.oldest) &&
+    Number.isFinite(range.newest) &&
+    range.oldest <= range.newest &&
+    typeof range.reachedBeginning === 'boolean'
+  );
+}
+
+/** Adds a range, merging every range it overlaps or touches. Result is sorted oldest first. */
+export function mergeCoverage(ranges: readonly CoverageRange[], addition: CoverageRange): CoverageRange[] {
+  if (!isValidRange(addition)) return ranges.filter(isValidRange).map((range) => ({ ...range }));
+  let merged: CoverageRange = { ...addition };
+  const untouched: CoverageRange[] = [];
+  for (const range of ranges) {
+    if (!isValidRange(range)) continue;
+    if (range.oldest <= merged.newest && range.newest >= merged.oldest) {
+      merged = {
+        oldest: Math.min(range.oldest, merged.oldest),
+        newest: Math.max(range.newest, merged.newest),
+        reachedBeginning: range.reachedBeginning || merged.reachedBeginning,
+      };
+    } else {
+      untouched.push({ ...range });
+    }
+  }
+  return normalizeCoverage([...untouched, merged]);
+}
+
+export function mergeAllCoverage(ranges: readonly CoverageRange[], additions: readonly CoverageRange[]): CoverageRange[] {
+  return additions.reduce<CoverageRange[]>((acc, range) => mergeCoverage(acc, range), ranges.map((range) => ({ ...range })));
+}
+
+/** Sorts ranges oldest first and merges any that overlap or touch. */
+export function normalizeCoverage(ranges: readonly CoverageRange[]): CoverageRange[] {
+  const sorted = ranges.filter(isValidRange).sort((a, b) => a.oldest - b.oldest);
+  const result: CoverageRange[] = [];
+  for (const range of sorted) {
+    const last = result[result.length - 1];
+    if (last && range.oldest <= last.newest) {
+      last.newest = Math.max(last.newest, range.newest);
+      last.reachedBeginning = last.reachedBeginning || range.reachedBeginning;
+    } else {
+      result.push({ ...range });
+    }
+  }
+  return result;
+}
+
+export function findRange(ranges: readonly CoverageRange[], sortKey: number): CoverageRange | null {
+  return ranges.find((range) => sortKey >= range.oldest && sortKey <= range.newest) ?? null;
+}
+
+export type CoverageStatus = 'empty' | 'complete' | 'partial';
+
+/** Complete when one gap-free range runs from the beginning of the chat to the newest archived message. */
+export function coverageStatus(ranges: readonly CoverageRange[], newestSortKey: number | null): CoverageStatus {
+  if (ranges.length === 0) return 'empty';
+  const complete = ranges.some((range) => range.reachedBeginning && (newestSortKey === null || range.newest >= newestSortKey));
+  return complete ? 'complete' : 'partial';
+}

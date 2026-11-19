@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "Teams Chat Extractor",
+  "short_name": "Teams Extractor",
+  "description": "Archives Microsoft Teams Web conversations you can already see into local browser storage. No Graph API or app registration.",
+  "version": "0.0.0",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "unlimitedStorage", "scripting", "sidePanel"],
+  "host_permissions": [
+    "https://teams.microsoft.com/*",
+    "https://teams.cloud.microsoft/*",
+    "https://teams.live.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://teams.microsoft.com/*",
+        "https://teams.cloud.microsoft/*",
+        "https://teams.live.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_title": "Teams Chat Extractor",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "options_ui": {
+    "page": "archive.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,117 @@
+/**
+ * Message contracts between the extension contexts:
+ *   popup / side panel  --ContentCommand-->     content script (Teams tab)
+ *   content script      --BackgroundRequest-->  background service worker (owns writes to IndexedDB)
+ * Every handler answers with a Response envelope.
+ */
+import type { DiagnosticsReport } from '../extractor/diagnostics';
+import type { EngineProgress, EngineResult } from '../scraper/engine';
+import type {
+  ConversationIdentity,
+  ConversationRecord,
+  CoverageRange,
+  ExtractedMessage,
+  ScrapeMode,
+  SessionCounters,
+  SessionStatus,
+  StopReason,
+  UpsertStatus,
+} from './types';
+
+export type Response<T> = { ok: true; data: T } | { ok: false; error: string };
+
+/** Sessions without a heartbeat for this long are considered interrupted. */
+export const STALE_SESSION_MS = 90_000;
+export const HEARTBEAT_INTERVAL_MS = 15_000;
+
+export const TEAMS_URL_PATTERN = /^https:\/\/(teams\.microsoft\.com|teams\.cloud\.microsoft|teams\.live\.com)\//;
+
+// ------------------------------------------------------------- background
+
+export type BackgroundRequest =
+  | { type: 'session/begin'; conversation: ConversationIdentity; mode: ScrapeMode; rescan: boolean; resumeOf: string | null }
+  | {
+      type: 'session/batch';
+      sessionId: string;
+      conversation: ConversationIdentity;
+      messages: ExtractedMessage[];
+      segments: CoverageRange[];
+      counters: SessionCounters;
+      warnings: string[];
+    }
+  | { type: 'session/heartbeat'; sessionId: string; status: 'running' | 'paused'; counters: SessionCounters }
+  | {
+      type: 'session/end';
+      sessionId: string;
+      conversationKey: string;
+      status: SessionStatus;
+      stopReason: StopReason;
+      error: string | null;
+      counters: SessionCounters;
+      segments: CoverageRange[];
+      warnings: string[];
+    };
+
+export interface SessionBeginResponse {
+  sessionId: string;
+  coverage: CoverageRange[];
+  conversation: ConversationRecord | null;
+}
+
+export interface SessionBatchResponse {
+  statuses: Record<string, UpsertStatus>;
+}
+
+export interface SessionEndResponse {
+  replies: { resolved: number; unresolved: number };
+}
+
+const BACKGROUND_TYPES = new Set(['session/begin', 'session/batch', 'session/heartbeat', 'session/end']);
+
+export function isBackgroundRequest(value: unknown): value is BackgroundRequest {
+  return !!value && typeof value === 'object' && BACKGROUND_TYPES.has((value as { type?: unknown }).type as string);
+}
+
+// ---------------------------------------------------------- content script
+
+export type ContentCommand =
+  | { type: 'content/status' }
+  | { type: 'content/start'; mode: ScrapeMode; rescan: boolean; resumeOf: string | null }
+  | { type: 'content/pause' }
+  | { type: 'content/resume' }
+  | { type: 'content/stop' }
+  | { type: 'content/diagnostics' };
+
+const CONTENT_TYPES = new Set(['content/status', 'content/start', 'content/pause', 'content/resume', 'content/stop', 'content/diagnostics']);
+
+export function isContentCommand(value: unknown): value is ContentCommand {
+  return !!value && typeof value === 'object' && CONTENT_TYPES.has((value as { type?: unknown }).type as string);
+}
+
+export interface ActiveSessionInfo {
+  sessionId: string;
+  mode: ScrapeMode;
+  rescan: boolean;
+  startedAt: string;
+  conversation: ConversationIdentity;
+}
+
+export interface FinishedSessionInfo extends EngineResult {
+  sessionId: string;
+  mode: ScrapeMode;
+  conversationKey: string;
+  endedAt: string;
+}
+
+export interface ContentStatus {
+  state: 'idle' | 'running' | 'paused' | 'stopping';
+  conversation: ConversationIdentity | null;
+  conversationError: string | null;
+  /** Messages currently rendered (only computed while idle). */
+  visibleMessages: number | null;
+  session: ActiveSessionInfo | null;
+  progress: EngineProgress | null;
+  lastResult: FinishedSessionInfo | null;
+}
+
+export type ContentCommandResult = ContentStatus | { sessionId: string } | { accepted: boolean } | DiagnosticsReport;

@@ -1,0 +1,62 @@
+import { describe, expect, it } from 'vitest';
+import { buildSelectorProfile, DEFAULT_SELECTOR_PROFILE, findInvalidSelectors, SelectorOverrideError } from '../../src/extractor/selectors';
+import { DEFAULT_SETTINGS, normalizeSettings } from '../../src/shared/settings';
+
+describe('selector overrides', () => {
+  it('starts from an independent copy of the defaults', () => {
+    const profile = buildSelectorProfile('  ');
+    expect(profile).toEqual(DEFAULT_SELECTOR_PROFILE);
+    profile.author.push('.changed');
+    expect(DEFAULT_SELECTOR_PROFILE.author).not.toContain('.changed');
+  });
+
+  it('replaces only the overridden lists, including nested ones', () => {
+    const profile = buildSelectorProfile(
+      JSON.stringify({ version: 3, author: ['[data-qa="sender"]'], reply: { container: ['.quote'] }, messageId: [{ selector: '[data-msg]', attribute: 'data-msg', pattern: '^(\\d+)$' }] }),
+    );
+    expect(profile.author).toEqual(['[data-qa="sender"]']);
+    expect(profile.reply.container).toEqual(['.quote']);
+    expect(profile.reply.author).toEqual(DEFAULT_SELECTOR_PROFILE.reply.author);
+    expect(profile.messageId).toEqual([{ selector: '[data-msg]', attribute: 'data-msg', pattern: '^(\\d+)$' }]);
+    expect(profile.body).toEqual(DEFAULT_SELECTOR_PROFILE.body);
+  });
+
+  it('rejects malformed overrides with a helpful message', () => {
+    expect(() => buildSelectorProfile('{oops')).toThrow(SelectorOverrideError);
+    expect(() => buildSelectorProfile('[]')).toThrow(/must be a JSON object/);
+    expect(() => buildSelectorProfile('{"authr": ["x"]}')).toThrow(/Unknown selector field "authr"/);
+    expect(() => buildSelectorProfile('{"author": "x"}')).toThrow(/"author" must be an array of non-empty selector strings/);
+    expect(() => buildSelectorProfile('{"author": [""]}')).toThrow(SelectorOverrideError);
+    expect(() => buildSelectorProfile('{"reply": ["x"]}')).toThrow(/"reply" must be an object/);
+    expect(() => buildSelectorProfile('{"messageId": ["x"]}')).toThrow(/selector, attribute, pattern/);
+    expect(() => buildSelectorProfile('{"reply": {"nope": ["x"]}}')).toThrow(/"reply.nope"/);
+  });
+
+  it('reports selectors and patterns the browser cannot parse', () => {
+    expect(findInvalidSelectors(buildSelectorProfile(), document)).toEqual([]);
+    const profile = buildSelectorProfile(
+      JSON.stringify({ author: ['[[broken'], deletedPatterns: ['('], messageId: [{ selector: '[data-x]', attribute: 'data-x', pattern: '[' }] }),
+    );
+    const invalid = findInvalidSelectors(profile, document);
+    expect(invalid).toHaveLength(3);
+    expect(invalid).toEqual(expect.arrayContaining(['[[broken', 'pattern [', 'pattern (']));
+  });
+});
+
+describe('settings', () => {
+  it('uses the defaults for missing or unusable input', () => {
+    expect(normalizeSettings(undefined)).toEqual(DEFAULT_SETTINGS);
+    expect(normalizeSettings('nonsense')).toEqual(DEFAULT_SETTINGS);
+    expect(normalizeSettings({ scrollStepRatio: 'abc', settleQuietMs: Number.NaN, pauseWhenHidden: 'yes', dateOrder: 'XYZ' })).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it('clamps numbers into their allowed range and accepts numeric strings', () => {
+    const settings = normalizeSettings({ scrollIntervalMs: 10, seekIntervalMs: '450', scrollStepRatio: 9, maxSteps: 12.7, maxNoProgressPasses: 0 });
+    expect(settings).toMatchObject({ scrollIntervalMs: 250, seekIntervalMs: 450, scrollStepRatio: 3, maxSteps: 13, maxNoProgressPasses: 1 });
+  });
+
+  it('keeps valid strings, booleans and enum values', () => {
+    const settings = normalizeSettings({ selfDisplayName: '  Jordan Lee  ', dateOrder: 'DMY', pauseWhenHidden: false, selectorOverrides: '{"author":["x"]}' });
+    expect(settings).toMatchObject({ selfDisplayName: 'Jordan Lee', dateOrder: 'DMY', pauseWhenHidden: false, selectorOverrides: '{"author":["x"]}' });
+  });
+});

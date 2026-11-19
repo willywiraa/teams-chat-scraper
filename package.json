@@ -1,0 +1,26 @@
+{
+  "name": "teams-chat-extractor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Microsoft Edge extension that extracts and archives Microsoft Teams Web conversations locally.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "icons": "node scripts/generate-icons.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run test && npm run build"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
+    "fake-indexeddb": "^6.2.8",
+    "jsdom": "^31.0.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}
