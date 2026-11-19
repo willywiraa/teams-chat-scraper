@@ -7,6 +7,7 @@ This is the contract for moving archived Teams chats into other systems, such as
 | JSON | `*.json` | Canonical and lossless. Importing it restores the archive exactly, and re-importing is idempotent. |
 | NDJSON | `*.ndjson` | The same records, one JSON object per line, for streaming ingestion. |
 | Markdown | `*.md` | A human-readable transcript, not meant for machine ingestion. |
+| ZIP: chat + pictures | `*.zip` | For people: `chat.html` and `chat.md` with the pictures shown in place, and the pictures as files. Not importable. See [ZIP transcripts](#zip-transcripts). |
 
 **Stability promise:** within `formatVersion: 1`, fields are only ever *added*. Renaming, removing or changing the meaning of a field requires `formatVersion: 2`. Ignore fields you don't know.
 
@@ -130,6 +131,18 @@ The conversation line holds all conversation fields except `messages` and `image
 ## Markdown transcripts
 
 A Markdown transcript doesn't contain images. The attachment line of a message names each saved image by its file name, `<imageId>.<ext>` (for example `3f2a….png`). That is the name the image gets when you download it from the archive page. When the export was made without images, the line gives the `imageId` instead.
+
+## ZIP transcripts
+
+Made by `src/export/transcript.ts` (files stored uncompressed, UTF-8 names). With one conversation the files are at the top of the ZIP; with several, each conversation has its own folder (named after its title) and `index.html` links them.
+
+| File | Content |
+| --- | --- |
+| `chat.html` | The conversation message by message, each saved picture in its message. Self-contained: styles inline, no scripts, no remote content. Text comes from the `text` field and is escaped; only `http`/`https` links are kept. The archive page's **PDF (print)** prints this same page. |
+| `chat.md` | The Markdown transcript, with saved pictures as `![name](images/<file>)`. |
+| `images/<n>_<date>_<time>.<ext>` | The saved pictures, numbered in the order the messages show them; date and time are those of the first message showing the picture, in the exporting computer's time zone (`001_2026-11-02_1001.png`). A picture shown in several messages is one file. Saved pictures no message shows any more (for example after an edit) are left out; JSON exports keep them. |
+
+The ZIP is for reading, not for import: use a JSON export as the backup.
 
 ## Recommended ingestion
 

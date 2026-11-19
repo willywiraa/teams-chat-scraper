@@ -1,6 +1,7 @@
 /**
  * Serialisers for the archive export: JSON (canonical, lossless), NDJSON (streaming-friendly
- * for ingestion pipelines) and Markdown (human-readable transcript).
+ * for ingestion pipelines) and Markdown (human-readable transcript). The ZIP export with
+ * pictures and the printable page are in transcript.ts.
  */
 import { imageFileName } from '../shared/images';
 import { coverageStatus } from '../storage/coverage';
@@ -35,6 +36,11 @@ export interface MarkdownOptions {
   /** IANA time zone for displayed times; defaults to the runtime's zone. */
   timeZone?: string;
   locale?: string;
+  /**
+   * Relative paths of saved images (by image id), for a transcript written next to its
+   * pictures (the ZIP export). Images with a path are shown in place, as `![name](path)`.
+   */
+  imagePaths?: ReadonlyMap<string, string>;
 }
 
 function escapeMarkdownLine(line: string): string {
@@ -45,7 +51,18 @@ function escapeInline(text: string): string {
   return text.replace(/([\\*_`[\]])/g, '\\$1');
 }
 
-function formatParts(iso: string, options: MarkdownOptions): { day: string; time: string } {
+/** Web links only; anything else (javascript:, data:, file:, for example from an import) is not linked. */
+export function webLink(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
+export function formatParts(iso: string, options: Pick<MarkdownOptions, 'timeZone' | 'locale'>): { day: string; time: string } {
   const date = new Date(iso);
   const day = new Intl.DateTimeFormat(options.locale ?? 'en-GB', {
     timeZone: options.timeZone,
@@ -63,25 +80,33 @@ function formatParts(iso: string, options: MarkdownOptions): { day: string; time
   return { day, time };
 }
 
-function senderLabel(message: StoredMessage): string {
+export function senderLabel(message: StoredMessage): string {
   if (message.sender.name) return message.sender.name;
   if (message.sender.isSelf) return 'Me';
   return 'Unknown sender';
 }
 
-function attachmentLine(message: StoredMessage, images: Map<string, ExportedImageV1>): string | null {
-  if (message.attachments.length === 0) return null;
-  const parts = message.attachments.map((att) => {
+function attachmentLines(message: StoredMessage, images: Map<string, ExportedImageV1>, options: MarkdownOptions): string[] {
+  const lines: string[] = [];
+  const parts: string[] = [];
+  for (const att of message.attachments) {
     const label = escapeInline(att.name ?? att.kind);
+    const path = att.kind === 'image' && att.imageId ? options.imagePaths?.get(att.imageId) : undefined;
+    if (path) {
+      lines.push(`![${label}](${path})`);
+      continue;
+    }
     const prefix = att.kind === 'image' ? 'Image' : att.kind === 'card' ? 'Card' : att.kind === 'link-preview' ? 'Link' : 'File';
-    let text = att.url ? `${prefix}: [${label}](${att.url})` : `${prefix}: ${label}`;
+    const link = webLink(att.url);
+    let text = link ? `${prefix}: [${label}](${link})` : `${prefix}: ${label}`;
     if (att.kind === 'image' && att.imageId) {
       const image = images.get(att.imageId);
       text += image ? ` (saved as \`${imageFileName(image)}\`)` : ` (saved image \`${att.imageId}\`)`;
     }
-    return text;
-  });
-  return `_Attachments:_ ${parts.join(' · ')}`;
+    parts.push(text);
+  }
+  if (parts.length > 0) lines.push(`_Attachments:_ ${parts.join(' · ')}`);
+  return lines;
 }
 
 function conversationToMarkdown(conversation: ExportedConversationV1, byKey: Map<string, StoredMessage>, options: MarkdownOptions): string {
@@ -92,7 +117,12 @@ function conversationToMarkdown(conversation: ExportedConversationV1, byKey: Map
   lines.push(`- Type: ${conversation.type}`);
   if (conversation.participants.length) lines.push(`- Participants: ${conversation.participants.map(escapeInline).join(', ')}`);
   lines.push(`- Messages: ${conversation.messages.length}`);
-  if (images.size > 0) lines.push(`- Saved images: ${images.size} (in the JSON export, named here by file name)`);
+  if (options.imagePaths) {
+    const shown = new Set(conversation.messages.flatMap((m) => m.attachments.map((a) => (a.imageId ? options.imagePaths?.get(a.imageId) : undefined)).filter(Boolean)));
+    if (shown.size > 0) lines.push(`- Pictures: ${shown.size} (in the images folder, shown in place below)`);
+  } else if (images.size > 0) {
+    lines.push(`- Saved images: ${images.size} (in the JSON export, named here by file name)`);
+  }
   const status = coverageStatus(conversation.coverage, conversation.newestSortKey);
   lines.push(`- Archive coverage: ${status === 'complete' ? 'complete history' : status === 'partial' ? 'partial history' : 'unknown'}`);
   lines.push(`- Times shown in: ${zone}`, '', '---', '');
@@ -122,8 +152,8 @@ function conversationToMarkdown(conversation: ExportedConversationV1, byKey: Map
       for (const line of message.text.split('\n')) lines.push(escapeMarkdownLine(line));
       lines.push('');
     }
-    const attachments = attachmentLine(message, images);
-    if (attachments) lines.push(attachments, '');
+    const attachments = attachmentLines(message, images, options);
+    for (const line of attachments) lines.push(line, '');
   }
   return lines.join('\n');
 }
@@ -147,7 +177,7 @@ export function serializeArchive(archive: ArchiveExportV1, format: ExportFormat,
   }
 }
 
-export function exportFileName(archive: ArchiveExportV1, format: ExportFormat): string {
+export function exportFileName(archive: ArchiveExportV1, format: ExportFormat | 'zip'): string {
   const stamp = archive.exportedAt.replace(/[:]/g, '-').replace(/\..+$/, '');
   const single = archive.conversations.length === 1 ? archive.conversations[0] : undefined;
   const base = single ? (single.title ?? 'conversation').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 60) || 'conversation' : 'teams-archive';

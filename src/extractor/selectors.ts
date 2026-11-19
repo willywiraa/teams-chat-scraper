@@ -172,6 +172,10 @@ export const DEFAULT_SELECTOR_PROFILE: Readonly<SelectorProfile> = Object.freeze
     '[data-tid*="message-actions"]',
     '[data-tid*="edited"]',
     '[id^="edited-"]',
+    // Profile pictures, for example of the original sender in a forwarded message.
+    'img[src*="/profilepicture"]',
+    '.fui-Avatar',
+    '[data-tid*="avatar"]',
   ],
   loadingIndicator: ['[role="progressbar"]', '.fui-Spinner', '[data-tid*="loading"]', '[data-tid*="spinner"]'],
   chatTitle: [

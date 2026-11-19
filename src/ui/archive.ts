@@ -1,6 +1,7 @@
 /** Archive page: browse archived conversations, export / import, session log and settings. */
 import { exportFileName, serializeArchive, type ExportFormat } from '../export/exporters';
-import { buildArchiveExport } from '../export/format';
+import { buildArchiveExport, type ArchiveExportV1 } from '../export/format';
+import { buildTranscriptZip, transcriptHtml, type TranscriptImage } from '../export/transcript';
 import { importArchive } from '../export/import';
 import { buildSelectorProfile, DEFAULT_SELECTOR_PROFILE, findInvalidSelectors } from '../extractor/selectors';
 import { imageFileName } from '../shared/images';
@@ -17,6 +18,7 @@ import { coverageStatus } from '../storage/coverage';
 import { ArchiveRepository } from '../storage/repository';
 import {
   byId,
+  downloadBlob,
   downloadText,
   el,
   errorText,
@@ -35,6 +37,9 @@ const MIME: Record<ExportFormat, string> = {
   ndjson: 'application/x-ndjson',
   markdown: 'text/markdown',
 };
+
+/** The export choices: the archive formats, the ZIP with pictures, and the printable page. */
+type DownloadFormat = ExportFormat | 'zip' | 'pdf';
 
 type NumericSetting = keyof typeof SETTING_LIMITS;
 
@@ -66,11 +71,8 @@ function message(id: string, text: string, kind: 'notice' | 'error' | 'success' 
   element.hidden = text === '';
 }
 
-async function exportConversations(keys: string[] | 'all', format: ExportFormat): Promise<void> {
-  const repo = await repository();
-  const includeImages = byId<HTMLInputElement>('export-images').checked;
-  message('archive-message', 'Preparing the export…');
-  const archive = await buildArchiveExport(
+function buildExport(repo: ArchiveRepository, keys: string[] | 'all', includeImages: boolean): Promise<ArchiveExportV1> {
+  return buildArchiveExport(
     {
       getConversation: (key) => repo.getConversation(key),
       listConversations: () => repo.listConversations(),
@@ -80,6 +82,28 @@ async function exportConversations(keys: string[] | 'all', format: ExportFormat)
     keys,
     { generatorVersion: chrome.runtime.getManifest().version, includeImages },
   );
+}
+
+function exportSummary(archive: ArchiveExportV1, images: number): string {
+  const count = archive.conversations.reduce((sum, conversation) => sum + conversation.messages.length, 0);
+  return `${formatNumber(count)} messages${images > 0 ? ` and ${formatNumber(images)} images` : ''} from ${archive.conversations.length} conversation(s)`;
+}
+
+async function exportConversations(keys: string[] | 'all', format: DownloadFormat): Promise<void> {
+  // The print tab must be opened straight from the click, before anything is awaited.
+  if (format === 'pdf') return printConversations(keys, window.open('', '_blank'));
+  const repo = await repository();
+  message('archive-message', 'Preparing the export…');
+  if (format === 'zip') {
+    const archive = await buildExport(repo, keys, false);
+    const images = new Map(await Promise.all(archive.conversations.map(async (c) => [c.conversationKey, await repo.getImages(c.conversationKey)] as const)));
+    const parts = buildTranscriptZip(archive, images);
+    downloadBlob(exportFileName(archive, 'zip'), new Blob(parts as BlobPart[], { type: 'application/zip' }));
+    const pictures = [...images.values()].reduce((sum, list) => sum + list.length, 0);
+    message('archive-message', `Exported ${exportSummary(archive, pictures)} as a ZIP. Open chat.html in it to read the chat with its pictures.`, 'success');
+    return;
+  }
+  const archive = await buildExport(repo, keys, byId<HTMLInputElement>('export-images').checked);
   let text: string;
   try {
     text = serializeArchive(archive, format);
@@ -90,13 +114,59 @@ async function exportConversations(keys: string[] | 'all', format: ExportFormat)
     throw error;
   }
   downloadText(exportFileName(archive, format), text, MIME[format]);
-  const count = archive.conversations.reduce((sum, conversation) => sum + conversation.messages.length, 0);
   const images = archive.conversations.reduce((sum, conversation) => sum + (conversation.images?.length ?? 0), 0);
-  message(
-    'archive-message',
-    `Exported ${formatNumber(count)} messages${images > 0 ? ` and ${formatNumber(images)} images` : ''} from ${archive.conversations.length} conversation(s).`,
-    'success',
+  message('archive-message', `Exported ${exportSummary(archive, images)}.`, 'success');
+}
+
+/** Waits until the pictures of a page have loaded (or failed), at most `timeoutMs`. */
+function picturesLoaded(doc: Document, timeoutMs = 15_000): Promise<void> {
+  const pending = Array.from(doc.images).filter((img) => !img.complete);
+  const loaded = Promise.all(
+    pending.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          img.addEventListener('load', () => resolve(), { once: true });
+          img.addEventListener('error', () => resolve(), { once: true });
+        }),
+    ),
   );
+  return Promise.race([loaded.then(() => undefined), new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
+}
+
+/**
+ * Shows the conversations message by message, pictures in place, in a new tab and opens the
+ * print dialog there (choose "Save as PDF" as the printer).
+ */
+async function printConversations(keys: string[] | 'all', win: Window | null): Promise<void> {
+  if (!win) throw new Error('The browser blocked the new tab for printing. Allow pop-ups for this page, then try again.');
+  const urls: string[] = [];
+  try {
+    message('archive-message', 'Preparing the printable page…');
+    const repo = await repository();
+    const archive = await buildExport(repo, keys, false);
+    const entries = [];
+    for (const conversation of archive.conversations) {
+      const images = new Map<string, TranscriptImage>();
+      for (const image of await repo.getImages(conversation.conversationKey)) {
+        const src = URL.createObjectURL(new Blob([image.data], { type: image.mimeType }));
+        urls.push(src);
+        images.set(image.imageId, { src, width: image.width, height: image.height });
+      }
+      entries.push({ conversation, images });
+    }
+    win.document.open();
+    win.document.write(transcriptHtml(entries, { title: archive.conversations.length === 1 ? undefined : 'Teams chats' }));
+    win.document.close();
+    win.addEventListener('pagehide', () => urls.forEach((url) => URL.revokeObjectURL(url)), { once: true });
+    await picturesLoaded(win.document);
+    message('archive-message', `Opened ${exportSummary(archive, urls.length)} for printing. Choose "Save as PDF" as the printer.`, 'success');
+    win.focus();
+    win.print();
+  } catch (error) {
+    urls.forEach((url) => URL.revokeObjectURL(url));
+    win.close();
+    throw error;
+  }
 }
 
 // ------------------------------------------------------------------ images
@@ -150,9 +220,17 @@ function imageTile(image: StoredImage, caption: string): HTMLElement {
 
 function conversationRow(record: ConversationRecord, imageCount: number): HTMLTableRowElement {
   const status = coverageStatus(record.coverage, record.newestSortKey);
-  const format = el('select', { 'aria-label': 'Export format' }, el('option', { value: 'json' }, 'JSON'), el('option', { value: 'ndjson' }, 'NDJSON'), el('option', { value: 'markdown' }, 'Markdown'));
+  const format = el(
+    'select',
+    { 'aria-label': 'Export format' },
+    el('option', { value: 'json' }, 'JSON'),
+    el('option', { value: 'ndjson' }, 'NDJSON'),
+    el('option', { value: 'markdown' }, 'Markdown'),
+    el('option', { value: 'zip' }, 'ZIP: chat + pictures'),
+    el('option', { value: 'pdf' }, 'PDF (print)'),
+  );
   const exportButton = el('button', {
-    onclick: () => void exportConversations([record.conversationKey], format.value as ExportFormat).catch((e) => message('archive-message', errorText(e), 'error')),
+    onclick: () => void exportConversations([record.conversationKey], format.value as DownloadFormat).catch((e) => message('archive-message', errorText(e), 'error')),
   }, 'Export');
   const deleteButton = el('button', {
     className: 'danger',
@@ -338,7 +416,7 @@ function wire(): void {
     message('settings-message', 'Default selectors inserted. Edit only the entries you need, remove the rest, then save.');
   });
   byId('btn-export-all').addEventListener('click', () => {
-    const format = byId<HTMLSelectElement>('export-all-format').value as ExportFormat;
+    const format = byId<HTMLSelectElement>('export-all-format').value as DownloadFormat;
     exportConversations('all', format).catch((error) => message('archive-message', errorText(error), 'error'));
   });
   byId<HTMLInputElement>('import-file').addEventListener('change', async (event) => {

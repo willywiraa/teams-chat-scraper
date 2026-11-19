@@ -110,35 +110,42 @@ export class ImageCapture {
     }
     if (targets.size === 0) return;
 
-    const uploads = new Map<string, { image: CapturedImage; sources: string[] }>();
-    await forEachLimited([...targets.keys()], READ_CONCURRENCY, async (src) => {
+    // Images are read in parallel, then handled in page order, so they are stored in a stable order.
+    const sources = [...targets.keys()];
+    const reads = new Map<string, { outcome: ImageReadOutcome; imageId: string | null }>();
+    await forEachLimited(sources, READ_CONCURRENCY, async (src) => {
       const outcome = await this.read((targets.get(src) as Target).element);
+      reads.set(src, { outcome, imageId: outcome.status === 'ok' ? await sha256Hex(outcome.image.bytes) : null });
+    });
+
+    const uploads = new Map<string, { image: CapturedImage; sources: string[] }>();
+    for (const src of sources) {
+      const { outcome, imageId } = reads.get(src) as { outcome: ImageReadOutcome; imageId: string | null };
       if (outcome.status === 'pending') {
         const previous = this.sources.get(src);
         const attempts = (previous?.state === 'pending' ? previous.attempts : 0) + 1;
         if (attempts >= MAX_PENDING_ATTEMPTS) this.fail(src, 'the image did not finish loading');
         else this.sources.set(src, { state: 'pending', attempts });
-        return;
+        continue;
       }
       if (outcome.status === 'too-large') {
         this.fail(src, null);
         this.options.warn(`Images larger than ${Math.round((this.options.maxBytes / BYTES_PER_MB) * 10) / 10} MB were not saved (their name and link are kept).`);
-        return;
+        continue;
       }
-      if (outcome.status === 'failed') {
-        this.fail(src, outcome.reason);
-        return;
+      if (outcome.status === 'failed' || imageId === null) {
+        this.fail(src, outcome.status === 'failed' ? outcome.reason : null);
+        continue;
       }
       const { bytes, ...info } = outcome.image;
-      const imageId = await sha256Hex(bytes);
       if (this.savedIds.has(imageId)) {
         this.markSaved(src, imageId, targets);
-        return;
+        continue;
       }
       const upload = uploads.get(imageId);
       if (upload) upload.sources.push(src);
       else uploads.set(imageId, { image: { imageId, ...info, byteLength: bytes.byteLength, dataBase64: bytesToBase64(bytes) }, sources: [src] });
-    });
+    }
     if (uploads.size === 0) return;
 
     let result: ImageSaveResult;

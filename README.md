@@ -1,6 +1,6 @@
 # Teams Chat Extractor
 
-A Microsoft Edge extension that archives your Microsoft Teams chats on your own computer. It reads the conversations you open in **Teams Web** (teams.microsoft.com) and stores them in a local database you can export as JSON, NDJSON or Markdown.
+A Microsoft Edge extension that archives your Microsoft Teams chats on your own computer. It reads the conversations you open in **Teams Web** (teams.microsoft.com) and stores them in a local database you can export as JSON, NDJSON or Markdown, or as a readable chat with its pictures (ZIP or PDF).
 
 - **Uses your existing sign-in.** There's no Microsoft Graph API, no Entra ID app registration and no admin consent.
 - **Reads only what Teams shows you.** The extension reads the messages Teams renders in the open chat and scrolls that chat upwards like you would, so Teams loads older messages. It never reads tokens, cookies or network traffic, never calls Teams or Microsoft APIs and never changes anything in Teams. If your account can't see a message, the extension can't either. Images are copied from what the open chat displays (see [Images](#images)).
@@ -51,7 +51,11 @@ If a run was interrupted (tab closed or reloaded, browser closed, extension upda
 
 Open it from **Open archive & settings** in the popup, or via the extension's *Extension options*.
 
-- **Conversations**: each archived chat with its message count, number of saved images, archived period, completeness and last run. Click the image count to see the chat's images, with who sent each one and when, and to download them. You can **export** one chat (JSON, NDJSON or Markdown), **export all**, or **delete** a chat (with its images) from the archive. **Include images** decides whether exports contain the saved images.
+- **Conversations**: each archived chat with its message count, number of saved images, archived period, completeness and last run. Click the image count to see the chat's images, with who sent each one and when, and to download them. You can **export** one chat, **export all**, or **delete** a chat (with its images) from the archive. Export formats:
+  - **JSON**, **NDJSON**: the complete archive, for backups and other systems. **Include images** decides whether they contain the saved images.
+  - **Markdown**: a text transcript.
+  - **ZIP: chat + pictures**: `chat.html` (open it in the browser to read the chat message by message, with each picture where it was sent), `chat.md`, and an `images` folder with the pictures as files, named by number and message time (`001_2026-11-02_1001.png`). Exporting several chats gives one folder per chat and an `index.html`.
+  - **PDF (print)**: opens the same page in a new tab with the print dialog; choose **Save as PDF** as the printer. Allow pop-ups for the archive page if Edge blocks the tab.
 - **Import archive…** merges a JSON export back in. Use it to restore a backup or combine archives from two browser profiles. Importing the same file twice changes nothing.
 - **Recent sessions**: every run with its result, counters (including images saved and not saved) and warnings.
 - **Settings** (see below) and the storage used.
@@ -116,7 +120,8 @@ When **Save the images shown in messages** is on (the default), every picture th
 - Teams usually displays a preview size, so the saved copy may be smaller than the original upload.
 - Images the browser doesn't allow the extension to read (shown from another site without permission), images that never finish loading, and images above **Largest image to save** aren't saved. Their name and link are kept, the run counts them as *not saved*, and a warning explains why.
 - Emoji are kept as text, not as images.
-- Saved images are included in JSON and NDJSON exports (as base64) and restored by **Import archive…**. Markdown transcripts name each saved image by its file name (`<imageId>.png` and so on), which is also the name used when you download it from the archive page.
+- Saved images are included in JSON and NDJSON exports (as base64) and restored by **Import archive…**. The **ZIP: chat + pictures** and **PDF (print)** exports show each picture in its message. Markdown transcripts name each saved image by its file name (`<imageId>.png` and so on), which is also the name used when you download it from the archive page.
+- Profile pictures (for example of the original sender in a forwarded message) aren't message content and aren't saved.
 
 ## Data and privacy
 
@@ -161,7 +166,7 @@ src/
   extractor/   reads the Teams DOM: selectors, conversation detection, message parsing, diagnostics
   scraper/     the scroll-and-capture engine: pause/resume/stop, render detection, ordering
   storage/     IndexedDB archive: schema, merge rules, coverage, reply resolution
-  export/      export format v1, JSON / NDJSON / Markdown, import
+  export/      export format v1, JSON / NDJSON / Markdown, chat transcript with pictures (ZIP, print), import
   background/  service worker: routes captured batches into the archive
   content/     content script: runs the engine in the Teams tab
   ui/          popup / side panel and the archive & settings page

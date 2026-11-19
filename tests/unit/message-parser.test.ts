@@ -105,6 +105,22 @@ describe('parseItem', () => {
     ]);
   });
 
+  it('does not take the profile picture in a forwarded message for a picture in the message', () => {
+    // Shape of a forwarded message in new Teams: a header with the original sender's picture,
+    // name and a link to the original, then the forwarded content (here one pasted image).
+    const avatar = 'https://teams.example.invalid/api/mt/apac/beta/users/u1/profilepicturev2/8:orgid:u2?size=HR64x64';
+    const message = parseMessage({
+      id: '1705314700010',
+      author: 'Carol',
+      html:
+        `<div><div><span class="fui-Avatar"><img class="fui-Avatar__image" src="${avatar}"></span><span>Dan Original</span>` +
+        '<a href="https://teams.example.invalid/l/message/19:abc@unq.gbl.spaces/1705314600000"><span>1/15/2024 10:00 AM</span></a></div>' +
+        '<div><p><span itemtype="http://schema.skype.com/AMSImage"><img alt="image" src="blob:https://teams.example.invalid/1b2c"></span></p></div></div>',
+    });
+    expect(message.attachments).toEqual([{ kind: 'image', name: 'image', url: null }]);
+    expect(message.imageElements.map((element) => element?.getAttribute('alt'))).toEqual(['image']);
+  });
+
   it('handles an attachment-only message', () => {
     const message = parseMessage({ id: '1705314700002', author: 'Carol', attachments: [{ name: 'slides.pptx' }] });
     expect(message.content.text).toBe('');

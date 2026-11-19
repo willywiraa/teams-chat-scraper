@@ -105,7 +105,11 @@ export const TYPE_LABELS: Record<ConversationType, string> = {
 };
 
 export function downloadText(filename: string, text: string, mime: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  downloadBlob(filename, new Blob([text], { type: mime }));
+}
+
+export function downloadBlob(filename: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob);
   const anchor = el('a', { href: url, download: filename });
   document.body.append(anchor);
   anchor.click();
