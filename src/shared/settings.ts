@@ -11,6 +11,8 @@ export interface ScrapeSettings {
   seekIntervalMs: number;
   /** Scroll step as a fraction of the message viewport height. Reduced automatically if gaps appear. */
   scrollStepRatio: number;
+  /** Each scroll step is animated over this long (ms) for smooth scrolling; 0 jumps instead. */
+  scrollAnimationMs: number;
   /** The DOM must be free of mutations for this long before content counts as rendered (ms). */
   settleQuietMs: number;
   /** Upper bound for waiting on rendering after a scroll step (ms). */
@@ -43,10 +45,21 @@ export interface ScrapeSettings {
 
 export const SETTINGS_STORAGE_KEY = 'settings.v1';
 
+/**
+ * Stored with the settings. Settings saved under an older revision still holding a default of
+ * that time get the current default instead (revision 2 made scrolling faster).
+ */
+export const SETTINGS_REVISION = 2;
+
+const REPLACED_DEFAULTS: ReadonlyArray<{ before: number; key: NumericKey; value: number }> = [
+  { before: 2, key: 'scrollIntervalMs', value: 1200 },
+];
+
 export const DEFAULT_SETTINGS: Readonly<ScrapeSettings> = Object.freeze({
-  scrollIntervalMs: 1200,
+  scrollIntervalMs: 600,
   seekIntervalMs: 300,
   scrollStepRatio: 0.8,
+  scrollAnimationMs: 250,
   settleQuietMs: 350,
   settleTimeoutMs: 6000,
   topLoadTimeoutMs: 8000,
@@ -72,6 +85,7 @@ export const SETTING_LIMITS: Readonly<Record<NumericKey, readonly [number, numbe
   scrollIntervalMs: [250, 60000],
   seekIntervalMs: [100, 60000],
   scrollStepRatio: [0.2, 3],
+  scrollAnimationMs: [0, 2000],
   settleQuietMs: [100, 10000],
   settleTimeoutMs: [500, 120000],
   topLoadTimeoutMs: [1000, 120000],
@@ -98,6 +112,10 @@ export function normalizeSettings(input: unknown): ScrapeSettings {
   for (const key of Object.keys(SETTING_LIMITS) as NumericKey[]) {
     result[key] = clampNumber(source[key], SETTING_LIMITS[key], DEFAULT_SETTINGS[key]);
   }
+  const revision = typeof source.revision === 'number' ? source.revision : 1;
+  for (const { before, key, value } of REPLACED_DEFAULTS) {
+    if (revision < before && result[key] === value) result[key] = DEFAULT_SETTINGS[key];
+  }
   for (const key of ['maxNoProgressPasses', 'maxStallPasses', 'maxSteps', 'incrementalOverlap'] as const) {
     result[key] = Math.round(result[key]);
   }
@@ -109,4 +127,9 @@ export function normalizeSettings(input: unknown): ScrapeSettings {
   }
   if (typeof source.selectorOverrides === 'string') result.selectorOverrides = source.selectorOverrides;
   return result;
+}
+
+/** What is written to storage: the settings plus the revision they were saved under. */
+export function settingsForStorage(settings: ScrapeSettings): ScrapeSettings & { revision: number } {
+  return { ...settings, revision: SETTINGS_REVISION };
 }

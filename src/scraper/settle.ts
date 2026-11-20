@@ -54,12 +54,16 @@ export function waitForSettle(target: Node, options: SettleOptions): Promise<Set
         return;
       }
       const loading = options.isLoading?.() ?? false;
-      const quiet = current - lastMutation >= options.quietMs;
-      if (!loading && quiet && (!options.requireMutation || mutations > 0)) {
+      const quietFor = current - lastMutation;
+      const changed = !options.requireMutation || mutations > 0;
+      if (!loading && quietFor >= options.quietMs && changed) {
         finish(false, false);
         return;
       }
-      timer = setTimeout(tick, pollMs);
+      // Check again right when the quiet period would end, rather than up to a poll interval later.
+      const untilQuiet = options.quietMs - quietFor;
+      const next = !loading && changed && untilQuiet > 0 ? Math.max(1, Math.min(pollMs, untilQuiet)) : pollMs;
+      timer = setTimeout(tick, next);
     };
     timer = setTimeout(tick, pollMs);
   });

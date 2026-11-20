@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { serializeArchive, toNdjson } from '../../src/export/exporters';
+import { toJson } from '../../src/export/exporters';
 import { buildArchiveExport, ImportValidationError, type ArchiveExportV1 } from '../../src/export/format';
 import { importArchive } from '../../src/export/import';
 import { base64ToBytes, bytesToBase64, sha256Hex } from '../../src/shared/images';
@@ -238,7 +238,7 @@ describe('replies, deletion, export and import', () => {
     await upsert([message({ id: '1705314660000', text: 'Second (edited)' })], 's2');
 
     const exported = await buildArchiveExport(repo, 'all', { now: new Date('2024-02-01T00:00:00Z') });
-    const json = serializeArchive(exported, 'json');
+    const json = toJson(exported);
     const target = await openTestRepository();
     try {
       const noImages = { imagesInserted: 0, imagesUnchanged: 0 };
@@ -282,7 +282,7 @@ describe('replies, deletion, export and import', () => {
       byteLength: 3000,
       dataBase64: pasted.dataBase64,
     });
-    const json = serializeArchive(exported, 'json');
+    const json = toJson(exported);
     const target = await openTestRepository();
     try {
       expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 2, updated: 0, unchanged: 0, imagesInserted: 2, imagesUnchanged: 0 });
@@ -290,10 +290,6 @@ describe('replies, deletion, export and import', () => {
       expect(await target.getMessages(CK)).toEqual(await repo.getMessages(CK));
       expect(await target.getImages(CK)).toEqual(await repo.getImages(CK));
       expect(new Uint8Array((await target.getImage(CK, pasted.imageId))!.data)).toEqual(fakeImageBytes('https://example.invalid/pasted.png', 3000));
-      // NDJSON carries the same images as `image` records.
-      const ndjson = toNdjson(exported).trimEnd().split('\n').map((line) => JSON.parse(line));
-      expect(ndjson.map((line) => line.record)).toEqual(['header', 'conversation', 'message', 'message', 'image', 'image']);
-      expect(ndjson[1].images).toBeUndefined();
     } finally {
       target.close();
     }

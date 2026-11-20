@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildSelectorProfile, DEFAULT_SELECTOR_PROFILE, findInvalidSelectors, SelectorOverrideError } from '../../src/extractor/selectors';
-import { DEFAULT_SETTINGS, normalizeSettings } from '../../src/shared/settings';
+import { DEFAULT_SETTINGS, normalizeSettings, settingsForStorage } from '../../src/shared/settings';
 
 describe('selector overrides', () => {
   it('starts from an independent copy of the defaults', () => {
@@ -53,6 +53,18 @@ describe('settings', () => {
   it('clamps numbers into their allowed range and accepts numeric strings', () => {
     const settings = normalizeSettings({ scrollIntervalMs: 10, seekIntervalMs: '450', scrollStepRatio: 9, maxSteps: 12.7, maxNoProgressPasses: 0 });
     expect(settings).toMatchObject({ scrollIntervalMs: 250, seekIntervalMs: 450, scrollStepRatio: 3, maxSteps: 13, maxNoProgressPasses: 1 });
+  });
+
+  it('moves settings saved with the old scroll interval to the faster default, once', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({ scrollIntervalMs: 600, scrollAnimationMs: 250 });
+    // Saved before revision 2 with the then-default interval: the new default applies.
+    expect(normalizeSettings({ scrollIntervalMs: 1200, selfDisplayName: 'Jordan Lee' })).toMatchObject({ scrollIntervalMs: 600, selfDisplayName: 'Jordan Lee' });
+    // A value someone chose themselves is kept.
+    expect(normalizeSettings({ scrollIntervalMs: 2000 }).scrollIntervalMs).toBe(2000);
+    // Saved under the current revision, 1200 is a deliberate choice.
+    expect(normalizeSettings(settingsForStorage({ ...DEFAULT_SETTINGS, scrollIntervalMs: 1200 })).scrollIntervalMs).toBe(1200);
+    expect(normalizeSettings({ scrollAnimationMs: 0 }).scrollAnimationMs).toBe(0);
+    expect(normalizeSettings({ scrollAnimationMs: 99_999 }).scrollAnimationMs).toBe(2000);
   });
 
   it('normalises the image settings', () => {

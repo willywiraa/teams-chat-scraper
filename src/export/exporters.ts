@@ -1,35 +1,15 @@
 /**
- * Serialisers for the archive export: JSON (canonical, lossless), NDJSON (streaming-friendly
- * for ingestion pipelines) and Markdown (human-readable transcript). The ZIP export with
- * pictures and the printable page are in transcript.ts.
+ * Serialisers for the archive export: JSON (canonical, lossless) and the Markdown transcript
+ * written into the ZIP export next to its pictures. The ZIP export itself and the printable
+ * page are in transcript.ts.
  */
 import { imageFileName } from '../shared/images';
 import { coverageStatus } from '../storage/coverage';
 import type { StoredMessage } from '../shared/types';
 import type { ArchiveExportV1, ExportedConversationV1, ExportedImageV1 } from './format';
 
-export type ExportFormat = 'json' | 'ndjson' | 'markdown';
-
 export function toJson(archive: ArchiveExportV1): string {
   return `${JSON.stringify(archive, null, 2)}\n`;
-}
-
-/**
- * One JSON object per line, discriminated by `record`: a `header` line, then per conversation
- * a `conversation` line followed by its `message` lines and then its `image` lines. (`record`
- * is used rather than `type` because conversations already have a `type` field.)
- */
-export function toNdjson(archive: ArchiveExportV1): string {
-  const lines: string[] = [
-    JSON.stringify({ record: 'header', format: archive.format, formatVersion: archive.formatVersion, exportedAt: archive.exportedAt, generator: archive.generator }),
-  ];
-  for (const conversation of archive.conversations) {
-    const { messages, images, ...meta } = conversation;
-    lines.push(JSON.stringify({ record: 'conversation', ...meta }));
-    for (const message of messages) lines.push(JSON.stringify({ record: 'message', ...message }));
-    for (const image of images ?? []) lines.push(JSON.stringify({ record: 'image', ...image }));
-  }
-  return `${lines.join('\n')}\n`;
 }
 
 export interface MarkdownOptions {
@@ -164,23 +144,9 @@ export function toMarkdown(archive: ArchiveExportV1, options: MarkdownOptions = 
   return `${archive.conversations.map((conversation) => conversationToMarkdown(conversation, byKey, options)).join('\n\n')}\n`;
 }
 
-export function serializeArchive(archive: ArchiveExportV1, format: ExportFormat, options: MarkdownOptions = {}): string {
-  switch (format) {
-    case 'json':
-      return toJson(archive);
-    case 'ndjson':
-      return toNdjson(archive);
-    case 'markdown':
-      return toMarkdown(archive, options);
-    default:
-      throw new Error(`Unknown export format ${String(format)}`);
-  }
-}
-
-export function exportFileName(archive: ArchiveExportV1, format: ExportFormat | 'zip'): string {
+export function exportFileName(archive: ArchiveExportV1, format: 'json' | 'zip'): string {
   const stamp = archive.exportedAt.replace(/[:]/g, '-').replace(/\..+$/, '');
   const single = archive.conversations.length === 1 ? archive.conversations[0] : undefined;
   const base = single ? (single.title ?? 'conversation').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 60) || 'conversation' : 'teams-archive';
-  const extension = format === 'markdown' ? 'md' : format;
-  return `${base}-${stamp}.${extension}`;
+  return `${base}-${stamp}.${format}`;
 }

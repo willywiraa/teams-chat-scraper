@@ -103,6 +103,8 @@ const STEP_RECOVERY_PASSES = 10;
 const BOTTOM_ATTEMPTS = 4;
 const MAX_WARNINGS = 50;
 const NUDGE_DELAY_MS = 60;
+/** Longest scroll animation while passing through already-archived parts (keeps seeking quick). */
+const SEEK_ANIMATION_MS = 120;
 
 export function messageSignature(message: ExtractedMessage): string {
   return hashParts([
@@ -204,7 +206,7 @@ class ScrapeEngine {
       if (!list) {
         return this.finish('failed', 'container-lost', 'Message list not found. Open a chat in Teams Web, then run Diagnostics from the popup.');
       }
-      let driver = createScrollDriver(findScrollContainer(o.doc, o.profile, list));
+      let driver = this.driverFor(list);
       if (o.mode !== 'visible') await this.scrollToBottom(driver);
 
       let previousMoved: boolean | null = null;
@@ -223,7 +225,7 @@ class ScrapeEngine {
         if (!list.isConnected) {
           list = findMessageList(o.doc, o.profile);
           if (!list) return this.finish('failed', 'container-lost', 'The message list disappeared from the page.');
-          driver = createScrollDriver(findScrollContainer(o.doc, o.profile, list));
+          driver = this.driverFor(list);
         }
 
         const { messages, groupLinks, images } = this.parsePass(list);
@@ -256,7 +258,7 @@ class ScrapeEngine {
             backStep = Math.max(20, Math.round((backStep || lastUpStep) / 2));
             this.stepRatio = Math.max(MIN_STEP_RATIO, this.stepRatio / 2);
             this.connectedStreak = 0;
-            driver.scrollDown(backStep);
+            await driver.scrollDown(backStep, o.settings.scrollAnimationMs);
             await this.settleAfterScroll(driver, true);
             previousMoved = null;
             continue;
@@ -287,9 +289,11 @@ class ScrapeEngine {
         const viewport = driver.viewportHeight();
         const ratio = connection === 'ahead' ? Math.max(this.stepRatio, 1.5) : this.stepRatio;
         const step = Math.max(40, Math.round(viewport * ratio));
+        const seeking = this.inCovered && !o.rescan;
+        const animation = seeking ? Math.min(o.settings.scrollAnimationMs, SEEK_ANIMATION_MS) : o.settings.scrollAnimationMs;
         const stepStarted = this.now();
-        const move = driver.scrollUp(step);
-        lastUpStep = Math.abs(move.after - move.before);
+        const move = await driver.scrollUp(step, animation);
+        lastUpStep = move.distance;
         previousMoved = move.moved;
         previousAtTop = !move.moved && driver.isAtTop();
         if (previousAtTop) {
@@ -299,13 +303,17 @@ class ScrapeEngine {
           // Moved normally, or the list refuses to scroll (counted as a stall, never as the top).
           await this.settleAfterScroll(driver, true);
         }
-        const interval = this.inCovered && !o.rescan ? o.settings.seekIntervalMs : o.settings.scrollIntervalMs;
+        const interval = seeking ? o.settings.seekIntervalMs : o.settings.scrollIntervalMs;
         const remaining = interval - (this.now() - stepStarted);
         if (remaining > 0) await sleep(remaining, o.control.signal);
       }
     } catch (error) {
       return this.finish('failed', 'error', errorMessage(error));
     }
+  }
+
+  private driverFor(list: Element): ScrollDriver {
+    return createScrollDriver(findScrollContainer(this.options.doc, this.options.profile, list), { signal: this.options.control.signal });
   }
 
   private conversationUnchanged(): boolean {
@@ -359,10 +367,10 @@ class ScrapeEngine {
   /** At the top: scroll down a little and back up so Teams' history loader is triggered again. */
   private async nudge(driver: ScrollDriver, viewport: number): Promise<void> {
     const distance = Math.max(30, Math.round(viewport * 0.25));
-    const down = driver.scrollDown(distance);
+    const down = await driver.scrollDown(distance);
     if (!down.moved) return;
     await sleep(NUDGE_DELAY_MS, this.options.control.signal);
-    driver.scrollUp(distance + 50);
+    await driver.scrollUp(distance + 50);
     await waitForSettle(driver.element.parentElement ?? driver.element, {
       quietMs: this.options.settings.settleQuietMs,
       timeoutMs: this.options.settings.settleTimeoutMs,

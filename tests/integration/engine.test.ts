@@ -187,6 +187,24 @@ describe('full history extraction', () => {
     expect(replies.every((message) => message.replyTo?.resolution === 'message-id')).toBe(true);
   });
 
+  it('archives the complete history with smooth (animated) scroll steps', async () => {
+    const { sim, repository, expected, conversationKey } = await setup({ count: 150, participants: PEOPLE, selfName: 'Me', seed: 9, withRepliesEvery: 11 });
+    let scrollWrites = 0;
+    const setScrollTop = sim.setScrollTop.bind(sim);
+    sim.setScrollTop = (value: number) => {
+      scrollWrites++;
+      setScrollTop(value);
+    };
+    const result = await runEngine({ repository, mode: 'full', settings: { scrollAnimationMs: 40 } });
+
+    expect(result).toMatchObject({ status: 'completed', stopReason: 'reached-top', error: null });
+    expect(result.counters.gapsUnrecovered).toBe(0);
+    // Each step is spread over several frames instead of one jump.
+    expect(scrollWrites).toBeGreaterThan(result.counters.passes * 2);
+    await expectArchiveToMatch(repository, conversationKey, expected);
+    expect((await repository.getConversation(conversationKey))?.coverage).toHaveLength(1);
+  });
+
   it('closes gaps when a scroll step skips over unrendered messages', async () => {
     const { repository, expected, conversationKey } = await setup({ count: 300, participants: PEOPLE, seed: 5 }, { overscan: 0 });
     const result = await runEngine({ repository, mode: 'full', settings: { scrollStepRatio: 3 } });

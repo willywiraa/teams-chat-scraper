@@ -17,6 +17,7 @@ export function fastSettings(overrides: Partial<ScrapeSettings> = {}): ScrapeSet
     ...DEFAULT_SETTINGS,
     scrollIntervalMs: 0,
     seekIntervalMs: 0,
+    scrollAnimationMs: 0,
     settleQuietMs: 8,
     settleTimeoutMs: 200,
     topLoadTimeoutMs: 60,

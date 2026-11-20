@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exportFileName, serializeArchive, toMarkdown, toNdjson } from '../../src/export/exporters';
+import { exportFileName, toJson, toMarkdown } from '../../src/export/exporters';
 import { buildArchiveExport, EXPORT_FORMAT, EXPORT_FORMAT_VERSION, parseArchiveExport, type ArchiveExportV1, type ExportSource } from '../../src/export/format';
 import { ARCHIVE_SCHEMA_VERSION, EXTRACTOR_VERSION, type ConversationRecord, type StoredMessage } from '../../src/shared/types';
 import { sha256Hex, toArrayBuffer } from '../../src/shared/images';
@@ -71,18 +71,9 @@ describe('archive export', () => {
 
   it('serialises JSON that parses back to the same archive', async () => {
     const exported = await archive();
-    const json = serializeArchive(exported, 'json');
+    const json = toJson(exported);
     expect(json.endsWith('\n')).toBe(true);
     expect(parseArchiveExport(json)).toEqual(exported);
-  });
-
-  it('writes one record per line in NDJSON', async () => {
-    const lines = toNdjson(await archive()).trimEnd().split('\n').map((line) => JSON.parse(line));
-    expect(lines.map((line) => line.record)).toEqual(['header', 'conversation', 'message', 'message', 'message', 'message']);
-    expect(lines[0]).toMatchObject({ format: EXPORT_FORMAT, formatVersion: 1 });
-    expect(lines[1]).toMatchObject({ conversationKey: CK, type: 'group' });
-    expect(lines[1].messages).toBeUndefined();
-    expect(lines[2]).toMatchObject({ key: messages[0]!.key, text: messages[0]!.text });
   });
 
   it('renders a readable Markdown transcript', async () => {
@@ -97,7 +88,7 @@ describe('archive export', () => {
     expect(markdown).toContain('_Bob Brown joined the chat._ · 09:05');
     expect(markdown).toContain('**Bob Brown** · 09:10 _(edited)_');
     expect(markdown).toContain('> Replying to **Alice Andersen**: # Agenda Item one');
-    // Message text is kept verbatim apart from line-start markers (JSON/NDJSON are the lossless formats).
+    // Message text is kept verbatim apart from line-start markers (JSON is the lossless format).
     expect(markdown).toContain('Looks good *to me*');
     expect(markdown).toContain('_Attachments:_ File: [agenda\\_v2.docx](https://example.invalid/agenda_v2.docx)');
     expect(markdown).toMatch(/## Tuesday,? 16 January 2024/);
@@ -106,8 +97,8 @@ describe('archive export', () => {
 
   it('names export files after the conversation', async () => {
     const exported = await archive();
-    expect(exportFileName(exported, 'markdown')).toBe('Project-Alpha-2024-02-01T10-20-30.md');
-    expect(exportFileName({ ...exported, conversations: [] }, 'ndjson')).toBe('teams-archive-2024-02-01T10-20-30.ndjson');
+    expect(exportFileName(exported, 'json')).toBe('Project-Alpha-2024-02-01T10-20-30.json');
+    expect(exportFileName({ ...exported, conversations: [] }, 'zip')).toBe('teams-archive-2024-02-01T10-20-30.zip');
   });
 });
 
@@ -129,15 +120,12 @@ describe('images in exports', () => {
     return { exported: await buildArchiveExport(withImages, [CK], { now: new Date('2024-02-01T10:20:30.456Z') }), imageId };
   }
 
-  it('adds the images of each conversation as base64, after its messages in NDJSON', async () => {
+  it('adds the images of each conversation as base64', async () => {
     const { exported, imageId } = await withImage();
     expect(exported.conversations[0]?.images).toEqual([
       { key: `${CK}#img:${imageId}`, conversationKey: CK, imageId, mimeType: 'image/png', byteLength: 40, width: 4, height: 2, method: 'fetch', firstSavedAt: ctx.nowIso, sessionId: 's1', schemaVersion: 2, dataBase64: Buffer.from(fakeImageBytes('https://example.invalid/chart.png', 40)).toString('base64') },
     ]);
-    expect(parseArchiveExport(serializeArchive(exported, 'json'))).toEqual(exported);
-    const lines = toNdjson(exported).trimEnd().split('\n').map((line) => JSON.parse(line));
-    expect(lines.map((line) => line.record)).toEqual(['header', 'conversation', 'message', 'message', 'message', 'message', 'message', 'image']);
-    expect(lines[7]).toMatchObject({ record: 'image', imageId, conversationKey: CK });
+    expect(parseArchiveExport(toJson(exported))).toEqual(exported);
   });
 
   it('names saved images in the Markdown transcript', async () => {

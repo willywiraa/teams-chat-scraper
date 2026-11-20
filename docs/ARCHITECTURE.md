@@ -48,7 +48,7 @@ shared ◀── storage   ◀── background, export, ui
    - Pass sender names down group links captured in earlier windows. A run from one person can be longer than the rendered window.
    - Save the images displayed in the window that weren't saved yet (see [Images](#images)) and link them from their attachments.
    - Send new or changed messages to storage.
-   - Scroll up, wait until the page has settled (`settle.ts`: no DOM mutations for a quiet period and no loading spinner), and repeat.
+   - Scroll up (animated over `scrollAnimationMs` so the list glides; `scroll-driver.ts` applies it frame by frame as relative moves, so Teams' own position corrections survive), wait until the page has settled (`settle.ts`: no DOM mutations for a quiet period and no loading spinner), and repeat.
 
 ## Keys and duplicate prevention
 
@@ -166,4 +166,4 @@ The scraper doesn't need to change for this.
 
 - **Files**: use the export format ([EXPORT_FORMAT.md](EXPORT_FORMAT.md)). Ingest by `key`, which is stable and unique, and compare `contentHash` to detect changes. Exports can be repeated at any time.
 - **In-extension sync**: a future module in `background/` can read the archive through `ArchiveRepository` (`listConversations`, `getMessages`, or the streaming `forEachMessage`) and use `lastExtractedAt` / `lastSeenAt` to find what changed. The natural trigger point is `session/end` in `background/router.ts`.
-- **New file formats**: add a serialiser next to `toJson` / `toNdjson` / `toMarkdown` in `export/exporters.ts`.
+- **New file formats**: add a serialiser next to `toJson` / `toMarkdown` in `export/exporters.ts`.

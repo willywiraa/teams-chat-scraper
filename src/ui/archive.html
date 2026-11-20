@@ -20,12 +20,10 @@
           <div class="button-row">
             <select id="export-all-format" aria-label="Export format">
               <option value="json">JSON (full archive)</option>
-              <option value="ndjson">NDJSON</option>
-              <option value="markdown">Markdown transcript</option>
               <option value="zip">ZIP: chat + pictures</option>
               <option value="pdf">PDF (print)</option>
             </select>
-            <label class="check small" for="export-images" title="For JSON and NDJSON: saved images make these exports much larger. ZIP and PDF always show the pictures."><input type="checkbox" id="export-images" checked /> Include images</label>
+            <label class="check small" for="export-images" title="For JSON: saved images make the export much larger. ZIP and PDF always show the pictures."><input type="checkbox" id="export-images" checked /> Include images</label>
             <button id="btn-export-all">Export all</button>
             <label class="button" for="import-file">Import archive…</label>
             <input type="file" id="import-file" accept=".json,application/json" hidden />

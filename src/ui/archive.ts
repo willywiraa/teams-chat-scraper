@@ -1,5 +1,5 @@
 /** Archive page: browse archived conversations, export / import, session log and settings. */
-import { exportFileName, serializeArchive, type ExportFormat } from '../export/exporters';
+import { exportFileName, toJson } from '../export/exporters';
 import { buildArchiveExport, type ArchiveExportV1 } from '../export/format';
 import { buildTranscriptZip, transcriptHtml, type TranscriptImage } from '../export/transcript';
 import { importArchive } from '../export/import';
@@ -10,7 +10,9 @@ import {
   DEFAULT_SETTINGS,
   normalizeSettings,
   SETTING_LIMITS,
+  SETTINGS_REVISION,
   SETTINGS_STORAGE_KEY,
+  settingsForStorage,
   type ScrapeSettings,
 } from '../shared/settings';
 import type { ConversationRecord, SessionCounters, StoredImage } from '../shared/types';
@@ -32,14 +34,8 @@ import {
   TYPE_LABELS,
 } from './common';
 
-const MIME: Record<ExportFormat, string> = {
-  json: 'application/json',
-  ndjson: 'application/x-ndjson',
-  markdown: 'text/markdown',
-};
-
-/** The export choices: the archive formats, the ZIP with pictures, and the printable page. */
-type DownloadFormat = ExportFormat | 'zip' | 'pdf';
+/** The export choices: the full archive as JSON, the ZIP with pictures, and the printable page. */
+type DownloadFormat = 'json' | 'zip' | 'pdf';
 
 type NumericSetting = keyof typeof SETTING_LIMITS;
 
@@ -47,6 +43,7 @@ const NUMBER_FIELDS: Array<{ key: NumericSetting; label: string; step?: number }
   { key: 'scrollIntervalMs', label: 'Scroll interval while capturing (ms)' },
   { key: 'seekIntervalMs', label: 'Scroll interval through archived parts (ms)' },
   { key: 'scrollStepRatio', label: 'Scroll step (fraction of the visible height)', step: 0.05 },
+  { key: 'scrollAnimationMs', label: 'Smooth scrolling: animation per step (ms, 0 = off)' },
   { key: 'settleQuietMs', label: 'Render quiet period (ms)' },
   { key: 'settleTimeoutMs', label: 'Maximum render wait per step (ms)' },
   { key: 'topLoadTimeoutMs', label: 'Wait for older history at the top (ms)' },
@@ -106,14 +103,14 @@ async function exportConversations(keys: string[] | 'all', format: DownloadForma
   const archive = await buildExport(repo, keys, byId<HTMLInputElement>('export-images').checked);
   let text: string;
   try {
-    text = serializeArchive(archive, format);
+    text = toJson(archive);
   } catch (error) {
     if (error instanceof RangeError) {
       throw new Error('The export is too large for one file. Export conversations one at a time, or without images.');
     }
     throw error;
   }
-  downloadText(exportFileName(archive, format), text, MIME[format]);
+  downloadText(exportFileName(archive, 'json'), text, 'application/json');
   const images = archive.conversations.reduce((sum, conversation) => sum + (conversation.images?.length ?? 0), 0);
   message('archive-message', `Exported ${exportSummary(archive, images)}.`, 'success');
 }
@@ -224,8 +221,6 @@ function conversationRow(record: ConversationRecord, imageCount: number): HTMLTa
     'select',
     { 'aria-label': 'Export format' },
     el('option', { value: 'json' }, 'JSON'),
-    el('option', { value: 'ndjson' }, 'NDJSON'),
-    el('option', { value: 'markdown' }, 'Markdown'),
     el('option', { value: 'zip' }, 'ZIP: chat + pictures'),
     el('option', { value: 'pdf' }, 'PDF (print)'),
   );
@@ -378,6 +373,7 @@ function readSettings(): ScrapeSettings {
   raw.pauseWhenHidden = byId<HTMLInputElement>('pauseWhenHidden').checked;
   raw.saveImages = byId<HTMLInputElement>('saveImages').checked;
   raw.selectorOverrides = byId<HTMLTextAreaElement>('selectorOverrides').value;
+  raw.revision = SETTINGS_REVISION;
   return normalizeSettings(raw);
 }
 
@@ -397,7 +393,7 @@ async function saveSettings(event: Event): Promise<void> {
     message('settings-message', errorText(error), 'error');
     return;
   }
-  await chrome.storage.local.set({ [SETTINGS_STORAGE_KEY]: settings });
+  await chrome.storage.local.set({ [SETTINGS_STORAGE_KEY]: settingsForStorage(settings) });
   fillSettings(settings);
   message('settings-message', 'Saved. New settings apply to the next extraction run.', 'success');
 }
