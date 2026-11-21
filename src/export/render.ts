@@ -179,7 +179,7 @@ h1 { font-size: 22px; line-height: 1.3; margin: 0 0 8px; overflow-wrap: anywhere
 .summary { list-style: none; margin: 0 0 20px; padding: 0; color: #555; font-size: 13px; }
 .day { margin: 28px 0 12px; padding-bottom: 4px; border-bottom: 1px solid #e3e3e3; color: #555; font-size: 13px; font-weight: 600; }
 .msg { margin: 0 48px 10px 0; padding: 8px 12px; border: 1px solid #e3e3e3; border-radius: 8px; background: #f7f7f7; break-inside: avoid; }
-.msg.self { margin: 0 0 10px 48px; background: #eef0fb; border-color: #d9ddf5; }
+.msg.self { margin: 0 0 10px 48px; background: #eaf1fb; border-color: #cddcf3; }
 .meta { margin-bottom: 2px; color: #616161; font-size: 12px; }
 .who { margin-right: 8px; color: #1f1f1f; font-weight: 600; }
 .flags { margin-left: 6px; font-style: italic; }
@@ -194,7 +194,7 @@ figcaption { color: #616161; font-size: 12px; }
 .missing { color: #8a5300; }
 .system { margin: 8px 0; color: #666; font-size: 13px; text-align: center; }
 section + section { margin-top: 48px; break-before: page; }
-a { color: #4f52b2; }
+a { color: #1f5fbf; }
 @media print {
   body { max-width: none; padding: 0; font-size: 11pt; }
   .msg, .msg.self { margin-left: 0; margin-right: 0; }

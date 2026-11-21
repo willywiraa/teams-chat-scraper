@@ -252,7 +252,7 @@ Compared with the selectors of the reference exporter (all unverified against yo
 
 Each phase works test-first, ends with `npm run check` and a short manual checklist in Edge, and is committed and pushed to `main`.
 
-**Status (21 November 2026):** Phases 0, 1, 2 and 3 are built, except the Phase 1 selector fixes.
+**Status (21 November 2026):** Phases 0 to 4 are built, except the Phase 1 selector fixes and the name (decision 1).
 
 - **Phase 0:** Diagnostics includes the identifier probe.
 - **Phase 1 (extension 1.2.0):** database version 3, the resolver, title history, renaming, and manual merge with a journal.
@@ -274,6 +274,11 @@ Each phase works test-first, ends with `npm run check` and a short manual checkl
   - Import reads JSON with a streaming scanner and the package (stored or deflated, also re-zipped inside a folder) file by file. It checks the whole file before writing anything.
   - G4 is fixed: an import writes the conversation entry first and counts messages per batch, so an interrupted import leaves a visible, partial entry that importing again completes.
   - Decision 2 is covered without a choice: the package has JSON Lines records and a Markdown transcript per chat, with the pictures named by their SHA-256. It is documented in [EXPORT_FORMAT.md](EXPORT_FORMAT.md#knowledge-package).
+- **Phase 4 (extension 1.5.0):**
+  - The logo is an archive box shaped like a speech bubble (overhanging lid, handle slot, speech tail), white on a blue tile (`#1f5fbf`). Nothing in it, or in the colours, is taken from Teams.
+  - One description (`scripts/logo.ts`) gives the SVG master, the 16, 32, 48 and 128 px icons, and the store logo (300 × 300) and small tile (440 × 280). The master's edges lie on whole pixels at 32 and 48 px; 16 px has its own pixel-aligned variant. A test fails when a committed file no longer matches the description.
+  - The accent changes from the Teams purple to blue in both themes, and in exported HTML. A test keeps every text colour pair at WCAG AA contrast (4.5:1) in both themes.
+  - The store tile has no text, so it doesn't depend on the name. A README note says the project isn't affiliated with Microsoft. The name itself waits for decision 1.
 - **Next:** the selector fixes, which wait for two Diagnostics reports from your Teams: one from a 1:1 chat and one from a group chat.
 
 | Phase | Content | Size |

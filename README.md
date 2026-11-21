@@ -191,7 +191,7 @@ npm run build
 npm run check
 ```
 
-`npm run check` runs all three. `npm run watch` rebuilds on every change, and `npm run icons` regenerates the PNG icons.
+`npm run check` runs all three. `npm run watch` rebuilds on every change. `npm run icons` regenerates the logo files from the one description in `scripts/logo.ts` (it needs Node.js 22.18 or newer, which runs TypeScript directly); a test fails when the committed files no longer match it.
 
 ```
 src/
@@ -204,6 +204,9 @@ src/
   background/  service worker: routes captured batches into the archive
   content/     content script: runs the engine in the Teams tab
   ui/          popup / side panel and the archive & settings page
+icons/         the logo: SVG masters (logo.svg, and logo-16.svg for 16 px) and the extension's PNG icons
+store/         store listing images (300 × 300 logo, 440 × 280 tile); not part of the extension
+scripts/       build, and the logo description and generator
 tests/
   unit/         parsing, dates, ordering, coverage, merge rules, controls, exports, diagnostics
   integration/  engine on a simulated virtualised Teams chat, archive repository, end-to-end pipeline
@@ -213,3 +216,7 @@ tests/
 The integration tests run the real engine against a simulated Teams message list. The simulator renders only the messages near the viewport, loads older history with a delay when you scroll to the top, groups consecutive messages from one sender, and can drop ids, timestamps or authors. The tests cover 1:1 and group chats, multi-paragraph messages, attachments, replies, missing metadata, a 2,000-message history, interrupted and resumed sessions, pause/resume/stop, incremental updates, edits and duplicate prevention.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it works, and [docs/EXPORT_FORMAT.md](docs/EXPORT_FORMAT.md) for the export format you can build an import into another system on.
+
+## Trademarks
+
+This is an independent project. It is not affiliated with, endorsed by or sponsored by Microsoft. Microsoft, Microsoft Teams and Microsoft Edge are trademarks of the Microsoft group of companies, and are named here only to say what the extension works with. The extension's logo and colours are its own and don't use Microsoft's.

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Chat archive logo">
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="#1f5fbf"/>
+  <rect x="24" y="24" width="80" height="16" rx="6" fill="#ffffff"/>
+  <rect x="32" y="48" width="64" height="40" rx="8" fill="#ffffff"/>
+  <polygon points="40,84 64,84 32,104" fill="#ffffff"/>
+  <rect x="48" y="64" width="32" height="8" rx="4" fill="#1f5fbf"/>
+</svg>
