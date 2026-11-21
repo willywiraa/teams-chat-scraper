@@ -125,6 +125,28 @@ describe('parseRenderedConversation', () => {
     expect(parse(fixtures).filter((m) => m.text !== 'weak').every((m) => m.alternateKeys.length === 0)).toBe(true);
   });
 
+  it('also looks for such messages under the fingerprints of archive entries merged into this one', () => {
+    const fixtures: FixtureMessage[] = [
+      { id: '1705314600000', author: 'Alice', time: '2024-01-15T10:30:00Z', paragraphs: ['before'] },
+      { id: null, time: null, paragraphs: ['weak'] },
+      { id: '1705314660000', author: 'Bob', time: '2024-01-15T10:31:00Z', paragraphs: ['after'] },
+    ];
+    renderStaticChat(fixtures);
+    const detected = detectConversation(document, URL, profile);
+    if (!detected) throw new Error('no conversation');
+    const options = { profile, selfDisplayName: null, referenceMs: new Date(2024, 0, 17, 12).getTime(), dateOrder: 'MDY' as const };
+    const before = parseRenderedConversation(document, { ...options, conversation: detected }).messages;
+    const merged = parseRenderedConversation(document, { ...options, conversation: { ...detected, conversationKey: 'title:merged', mergedKeys: [detected.conversationKey] } }).messages;
+
+    const moved = (key: string) => key.replace(`${detected.conversationKey}#`, 'title:merged#');
+    const weakBefore = before.find((m) => m.text === 'weak') as ExtractedMessage;
+    const weakNow = merged.find((m) => m.text === 'weak') as ExtractedMessage;
+    expect(weakNow.key).toMatch(/^title:merged#fp:/);
+    expect(weakNow.alternateKeys).toEqual(expect.arrayContaining([moved(weakBefore.key), ...weakBefore.alternateKeys.map(moved)]));
+    expect(weakNow.alternateKeys).toHaveLength(3);
+    expect(merged.filter((m) => m.text !== 'weak').every((m) => m.alternateKeys.length === 0)).toBe(true);
+  });
+
   it('links messages shown without an author to the message they continue', () => {
     const result = parseResult([
       { id: '1705314600000', author: 'Alice', time: '2024-01-15T10:30:00Z', paragraphs: ['a1'] },

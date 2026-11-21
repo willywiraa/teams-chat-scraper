@@ -4,7 +4,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { BYTES_PER_MB } from '../../src/shared/images';
-import type { StoredMessage } from '../../src/shared/types';
+import { ARCHIVE_SCHEMA_VERSION, type StoredMessage } from '../../src/shared/types';
 import type { ArchiveRepository } from '../../src/storage/repository';
 import { ChatSimulator, generateConversation } from '../helpers/chat-simulator';
 import { detect, openTestRepository, repositorySink, runEngine } from '../helpers/fixtures';
@@ -84,7 +84,7 @@ describe('saving displayed images', () => {
     const saved = await repository.getImages(conversationKey);
     expect(saved).toHaveLength(3);
     const diagram = await repository.getImage(conversationKey, await imageIdOf(DIAGRAM));
-    expect(diagram).toMatchObject({ key: `${conversationKey}#img:${await imageIdOf(DIAGRAM)}`, conversationKey, mimeType: 'image/png', byteLength: 64, width: 32, height: 16, method: 'fetch', schemaVersion: 2 });
+    expect(diagram).toMatchObject({ key: `${conversationKey}#img:${await imageIdOf(DIAGRAM)}`, conversationKey, mimeType: 'image/png', byteLength: 64, width: 32, height: 16, method: 'fetch', schemaVersion: ARCHIVE_SCHEMA_VERSION });
     expect(new Uint8Array(diagram!.data)).toEqual(fakeImageBytes(DIAGRAM));
     expect(await repository.countImages(conversationKey)).toBe(3);
   });

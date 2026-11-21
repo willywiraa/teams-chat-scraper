@@ -2,21 +2,23 @@
  * IndexedDB layout (database "teams-chat-archive", owned by the extension origin).
  *
  *  conversations  key: conversationKey
+ *                 byAlias                    aliases (multi-entry)            other keys a conversation is known by, since version 3
  *  messages       key: key (`<conversationKey>#<messageId>` or `#fp:<fingerprint>`)
  *                 byConversationSort         [conversationKey, sortKey]      ordered reads, counts
  *                 byConversationFingerprint  [conversationKey, fingerprint]  duplicate detection without ids
  *                 byAlias                    aliases (multi-entry)            other keys a message is known by
+ *                 byMessageId                messageId                        which conversations hold a Teams message, since version 3
  *  sessions       key: sessionId
  *                 byConversationStarted      [conversationKey, startedAt]
  *                 byStatus                   status
- *  meta           key: key (free-form key/value, e.g. schema info)
+ *  meta           key: key (free-form key/value: schema info, `merge:<conversationKey>` merge journals)
  *  images         key: key (`<conversationKey>#img:<imageId>`), since version 2
  *                 byConversationImage        [conversationKey, imageId]       images of a conversation
  *
  * Add migrations to `upgradeArchiveDb` and bump DB_VERSION; never edit a released step.
  */
 export const DB_NAME = 'teams-chat-archive';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 
 export const STORES = {
   conversations: 'conversations',
@@ -33,9 +35,15 @@ export const INDEXES = {
   sessionsByConversation: 'byConversationStarted',
   sessionsByStatus: 'byStatus',
   imagesByConversation: 'byConversationImage',
+  conversationsByAlias: 'byAlias',
+  messagesByMessageId: 'byMessageId',
 } as const;
 
-export function upgradeArchiveDb(db: IDBDatabase, oldVersion: number): void {
+/**
+ * Brings a database at `oldVersion` up to DB_VERSION. `tx` is the upgrade transaction, which
+ * gives access to stores created by earlier versions.
+ */
+export function upgradeArchiveDb(db: IDBDatabase, oldVersion: number, tx: IDBTransaction): void {
   if (oldVersion < 1) {
     db.createObjectStore(STORES.conversations, { keyPath: 'conversationKey' });
 
@@ -54,5 +62,11 @@ export function upgradeArchiveDb(db: IDBDatabase, oldVersion: number): void {
     // Version 2 (extractor 1.1): saved images. Existing stores and records are left untouched.
     const images = db.createObjectStore(STORES.images, { keyPath: 'key' });
     images.createIndex(INDEXES.imagesByConversation, ['conversationKey', 'imageId'], { unique: true });
+  }
+  if (oldVersion < 3) {
+    // Version 3 (extension 1.2): conversation identity. Indexes only; records are left untouched
+    // (the new conversation fields are optional). Messages without a Teams id are not indexed.
+    tx.objectStore(STORES.conversations).createIndex(INDEXES.conversationsByAlias, 'aliases', { unique: false, multiEntry: true });
+    tx.objectStore(STORES.messages).createIndex(INDEXES.messagesByMessageId, 'messageId', { unique: false });
   }
 }

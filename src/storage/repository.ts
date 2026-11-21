@@ -9,11 +9,13 @@
  */
 import {
   ARCHIVE_SCHEMA_VERSION,
+  conversationLabel,
   isReliableSortSource,
   type ConversationIdentity,
   type ConversationRecord,
   type CoverageRange,
   type ExtractedMessage,
+  type IdentityEvidence,
   type ImageSaveStatus,
   type SessionRecord,
   type SessionStatus,
@@ -22,6 +24,19 @@ import {
   type UpsertStatus,
 } from '../shared/types';
 import { imageKey } from '../shared/images';
+import {
+  cleanDisplayName,
+  combineConversations,
+  decideConversation,
+  mergeTitleHistories,
+  noteTitle,
+  rekeyImage,
+  rekeyMessage,
+  titleHistoryOf,
+  withConversationAliases,
+  type ConversationResolution,
+  type MessageOverlap,
+} from './conversation-identity';
 import { mergeAllCoverage } from './coverage';
 import { openDatabase, prefixRange, requestToPromise, transactionDone } from './idb';
 import { absorbDuplicate, mergeImported, mergeObservation } from './merge';
@@ -34,6 +49,8 @@ export interface UpsertBatchInput {
   sessionId: string;
   /** Contiguous ranges captured by the session so far; merged into the conversation coverage. */
   segments?: CoverageRange[];
+  /** Other keys the conversation is known by, such as the key detected in Teams when it differs. */
+  aliases?: string[];
   now?: Date;
 }
 
@@ -53,10 +70,57 @@ export interface ImportResult {
   unchanged: number;
 }
 
+export interface MergeOptions {
+  now?: Date;
+  /** A session of the entry being merged that reported within this time is still running (ms). */
+  staleSessionMs?: number;
+  /** Messages moved per transaction. */
+  messageChunk?: number;
+  /** Images moved per transaction. */
+  imageChunk?: number;
+  /** Called after each step. Throwing interrupts the merge; resumePendingMerges() finishes it. */
+  onProgress?: (progress: MergeProgress) => void | Promise<void>;
+}
+
+export interface MergeProgress {
+  sourceKey: string;
+  targetKey: string;
+  messagesMoved: number;
+  imagesMoved: number;
+  sessionsMoved: number;
+}
+
+export interface MergeOutcome extends MergeProgress {
+  /** The entry the other one was merged into, as it is now. */
+  target: ConversationRecord;
+}
+
+/** Kept in the meta store while a merge runs, so an interrupted merge can be finished. */
+export interface MergeJournal {
+  key: string;
+  sourceKey: string;
+  targetKey: string;
+  startedAt: string;
+}
+
 const IMPORT_CHUNK = 500;
+const MERGE_MESSAGE_CHUNK = 200;
+const MERGE_IMAGE_CHUNK = 20;
+const MERGE_SESSION_CHUNK = 200;
+const DEFAULT_STALE_SESSION_MS = 90_000;
+const MERGE_JOURNAL_PREFIX = 'merge:';
+/** Merged entries point to the entry they went into; a chain longer than this is broken. */
+const MAX_MERGE_HOPS = 16;
+/** Messages shown in a chat that are compared with the archive to identify it. */
+const MAX_EVIDENCE_MESSAGES = 60;
+/** Archived messages read to check whether an entry contradicts the messages shown. */
+const MAX_CONTRADICTION_READ = 400;
 const ACTIVE_STATUSES = ['running', 'paused'] as const;
 /** Final statuses reported by the tab itself (unlike 'interrupted', which the background infers). */
 const ENDED_STATUSES: readonly SessionStatus[] = ['completed', 'stopped', 'failed'];
+
+const journalKey = (sourceKey: string) => `${MERGE_JOURNAL_PREFIX}${sourceKey}`;
+const journalRange = () => IDBKeyRange.bound(MERGE_JOURNAL_PREFIX, `${MERGE_JOURNAL_PREFIX}￿`);
 
 function newConversationRecord(identity: ConversationIdentity, nowIso: string): ConversationRecord {
   return {
@@ -75,18 +139,28 @@ function newConversationRecord(identity: ConversationIdentity, nowIso: string): 
     lastExtractedAt: nowIso,
     lastSessionId: null,
     schemaVersion: ARCHIVE_SCHEMA_VERSION,
+    aliases: [],
+    mergedFrom: [],
+    mergedInto: null,
+    titleHistory: [],
+    displayName: null,
   };
 }
 
-function applyIdentity(existing: ConversationRecord | undefined, identity: ConversationIdentity, nowIso: string): ConversationRecord {
-  if (!existing) return newConversationRecord(identity, nowIso);
-  const next: ConversationRecord = { ...existing, coverage: existing.coverage.map((r) => ({ ...r })), participants: [...existing.participants] };
-  if (identity.title) next.title = identity.title;
-  if (identity.threadId && !next.threadId) next.threadId = identity.threadId;
-  if (identity.typeSource === 'thread-id' || next.type === 'unknown') {
-    next.type = identity.type;
-    next.typeSource = identity.typeSource;
+function applyIdentity(existing: ConversationRecord | undefined, identity: ConversationIdentity, nowIso: string, aliases: readonly string[] = []): ConversationRecord {
+  const next: ConversationRecord = existing
+    ? { ...existing, coverage: existing.coverage.map((r) => ({ ...r })), participants: [...existing.participants] }
+    : newConversationRecord(identity, nowIso);
+  if (existing) {
+    if (identity.title) next.title = identity.title;
+    if (identity.threadId && !next.threadId) next.threadId = identity.threadId;
+    if (identity.typeSource === 'thread-id' || next.type === 'unknown') {
+      next.type = identity.type;
+      next.typeSource = identity.typeSource;
+    }
   }
+  next.titleHistory = noteTitle(existing ? titleHistoryOf(existing) : [], identity.title, nowIso);
+  next.aliases = withConversationAliases(next, aliases);
   return next;
 }
 
@@ -102,11 +176,39 @@ function maxOrNull(a: number | null, b: number | null): number | null {
   return Math.max(a, b);
 }
 
+type ShownMessage = IdentityEvidence['messages'][number];
+
+/** Well-formed messages of the evidence, one per Teams id (at most MAX_EVIDENCE_MESSAGES, newest kept). */
+function evidenceMessages(evidence: IdentityEvidence | null): ShownMessage[] {
+  const byId = new Map<string, ShownMessage>();
+  for (const item of Array.isArray(evidence?.messages) ? evidence.messages : []) {
+    if (!item || typeof item.messageId !== 'string' || !item.messageId || typeof item.contentHash !== 'string') continue;
+    const sortKey = typeof item.sortKey === 'number' && Number.isFinite(item.sortKey) ? item.sortKey : null;
+    byId.set(item.messageId, { messageId: item.messageId, contentHash: item.contentHash, sortKey });
+  }
+  return Array.from(byId.values()).slice(-MAX_EVIDENCE_MESSAGES);
+}
+
+/**
+ * True when entry `conversationKey` holds messages with Teams ids from the time span of the
+ * messages shown, and not one of its messages from that span is among them: a different chat.
+ */
+async function contradicts(messages: IDBObjectStore, conversationKey: string, shown: ShownMessage[]): Promise<boolean> {
+  const times = shown.map((item) => item.sortKey).filter((time): time is number => time !== null);
+  if (times.length < 2) return false;
+  const span = IDBKeyRange.bound([conversationKey, Math.min(...times)], [conversationKey, Math.max(...times)]);
+  const archived = (await requestToPromise(messages.index(INDEXES.messagesBySort).getAll(span, MAX_CONTRADICTION_READ))) as StoredMessage[];
+  if (archived.filter((message) => message.messageId).length < 2) return false;
+  const ids = new Set(shown.map((item) => item.messageId));
+  const hashes = new Set(shown.map((item) => item.contentHash));
+  return !archived.some((message) => (message.messageId !== null && ids.has(message.messageId)) || hashes.has(message.contentHash));
+}
+
 export class ArchiveRepository {
   private constructor(private readonly db: IDBDatabase) {}
 
   static async open(factory: IDBFactory = indexedDB, name: string = DB_NAME): Promise<ArchiveRepository> {
-    const db = await openDatabase(factory, name, DB_VERSION, (database, oldVersion) => upgradeArchiveDb(database, oldVersion));
+    const db = await openDatabase(factory, name, DB_VERSION, upgradeArchiveDb);
     return new ArchiveRepository(db);
   }
 
@@ -144,7 +246,10 @@ export class ArchiveRepository {
 
     try {
       const existingConversation = (await requestToPromise(conversations.get(conversationKey))) as ConversationRecord | undefined;
-      const conversation = applyIdentity(existingConversation, input.conversation, nowIso);
+      if (existingConversation?.mergedInto) {
+        throw new Error(`This chat's archive entry was merged into ${existingConversation.mergedInto}. Start the extraction again.`);
+      }
+      const conversation = applyIdentity(existingConversation, input.conversation, nowIso, input.aliases);
       const participants = new Set(conversation.participants);
       const statuses: Record<string, UpsertStatus> = {};
       let inserted = 0;
@@ -281,10 +386,292 @@ export class ArchiveRepository {
     return conversation;
   }
 
+  /**
+   * Finds the archive entry an open chat belongs to (see conversation-identity.ts). `evidence`
+   * holds messages shown in the chat; without it only the detected key and aliases count.
+   * Reads only: the entry learns the detected key as an alias with the next batch.
+   */
+  async resolveConversation(identity: ConversationIdentity, evidence: IdentityEvidence | null = null): Promise<ConversationResolution> {
+    const tx = this.db.transaction([STORES.conversations, STORES.messages], 'readonly');
+    const conversations = tx.objectStore(STORES.conversations);
+    const messages = tx.objectStore(STORES.messages);
+    const live = this.liveRecordReader(conversations);
+
+    const detectedKey = identity.conversationKey;
+    const direct = await live(detectedKey);
+    const aliased: ConversationRecord[] = [];
+    for (const record of (await requestToPromise(conversations.index(INDEXES.conversationsByAlias).getAll(detectedKey))) as ConversationRecord[]) {
+      const current = await live(record.conversationKey);
+      if (current && current.conversationKey !== direct?.conversationKey && !aliased.some((entry) => entry.conversationKey === current.conversationKey)) {
+        aliased.push(current);
+      }
+    }
+
+    const shown = evidenceMessages(evidence);
+    const overlaps = new Map<string, MessageOverlap>();
+    const byMessageId = messages.index(INDEXES.messagesByMessageId);
+    for (const item of shown) {
+      for (const stored of (await requestToPromise(byMessageId.getAll(item.messageId))) as StoredMessage[]) {
+        const record = await live(stored.conversationKey);
+        if (!record) continue;
+        const overlap = overlaps.get(record.conversationKey) ?? { record, ids: 0, sameContent: 0 };
+        overlap.ids++;
+        if (stored.contentHash === item.contentHash) overlap.sameContent++;
+        overlaps.set(record.conversationKey, overlap);
+      }
+    }
+
+    const contradicted = new Set<string>();
+    for (const candidate of [direct, ...aliased]) {
+      if (candidate && (await contradicts(messages, candidate.conversationKey, shown))) contradicted.add(candidate.conversationKey);
+    }
+    return decideConversation({ identity, direct, aliased, overlaps: Array.from(overlaps.values()), contradicted });
+  }
+
+  /** Reads conversation records, following entries that were merged into another one. */
+  private liveRecordReader(conversations: IDBObjectStore): (key: string) => Promise<ConversationRecord | null> {
+    const cache = new Map<string, ConversationRecord | null>();
+    return async (key) => {
+      const cached = cache.get(key);
+      if (cached !== undefined) return cached;
+      let record = (await requestToPromise(conversations.get(key))) as ConversationRecord | undefined;
+      for (let hops = 0; record?.mergedInto && hops < MAX_MERGE_HOPS; hops++) {
+        record = (await requestToPromise(conversations.get(record.mergedInto))) as ConversationRecord | undefined;
+      }
+      const live = record && !record.mergedInto ? record : null;
+      cache.set(key, live);
+      return live;
+    };
+  }
+
+  /** Sets the name shown for an entry in the archive and exports; null shows the Teams title. */
+  async renameConversation(conversationKey: string, name: string | null): Promise<ConversationRecord> {
+    const tx = this.db.transaction(STORES.conversations, 'readwrite');
+    const done = transactionDone(tx);
+    const store = tx.objectStore(STORES.conversations);
+    const record = (await requestToPromise(store.get(conversationKey))) as ConversationRecord | undefined;
+    if (!record) {
+      await done;
+      throw new Error(`No archived conversation ${conversationKey}`);
+    }
+    record.displayName = cleanDisplayName(name);
+    await requestToPromise(store.put(record));
+    await done;
+    return record;
+  }
+
+  /**
+   * Moves every message, image and session of entry `sourceKey` into entry `targetKey` and
+   * removes the source entry; its key and aliases become aliases of the target. Runs in small
+   * transactions; if it is interrupted, resumePendingMerges() finishes it. Refused for two
+   * chats with different Teams ids and while the source is being extracted.
+   */
+  async mergeConversations(sourceKey: string, targetKey: string, options: MergeOptions = {}): Promise<MergeOutcome> {
+    await this.beginMerge(sourceKey, targetKey, options);
+    return this.continueMerge(sourceKey, targetKey, options);
+  }
+
+  /** Merges that were started but not finished (the page closed, the browser stopped). */
+  async pendingMerges(): Promise<MergeJournal[]> {
+    const tx = this.db.transaction(STORES.meta, 'readonly');
+    return (await requestToPromise(tx.objectStore(STORES.meta).getAll(journalRange()))) as MergeJournal[];
+  }
+
+  /** Finishes interrupted merges; returns how many were finished. */
+  async resumePendingMerges(options: MergeOptions = {}): Promise<number> {
+    const journals = await this.pendingMerges();
+    for (const journal of journals) await this.continueMerge(journal.sourceKey, journal.targetKey, options);
+    return journals.length;
+  }
+
+  private async beginMerge(sourceKey: string, targetKey: string, options: MergeOptions): Promise<void> {
+    const now = options.now ?? new Date();
+    const staleMs = options.staleSessionMs ?? DEFAULT_STALE_SESSION_MS;
+    const tx = this.db.transaction([STORES.conversations, STORES.sessions, STORES.meta], 'readwrite');
+    const done = transactionDone(tx);
+    const conversations = tx.objectStore(STORES.conversations);
+    const meta = tx.objectStore(STORES.meta);
+    const fail = async (message: string): Promise<never> => {
+      tx.abort();
+      await done.catch(() => undefined);
+      throw new Error(message);
+    };
+    if (sourceKey === targetKey) return fail('A conversation cannot be merged into itself.');
+    const source = (await requestToPromise(conversations.get(sourceKey))) as ConversationRecord | undefined;
+    const target = (await requestToPromise(conversations.get(targetKey))) as ConversationRecord | undefined;
+    if (!source || !target) return fail('Both conversations must be in the archive.');
+    if (target.mergedInto) return fail(`“${conversationLabel(target)}” is being merged into another conversation.`);
+    if (source.mergedInto && source.mergedInto !== targetKey) return fail(`“${conversationLabel(source)}” is already being merged into another conversation.`);
+    if (source.threadId && target.threadId && source.threadId !== target.threadId) {
+      return fail('These are two different Teams chats: their Teams chat ids differ.');
+    }
+    const journals = (await requestToPromise(meta.getAll(journalRange()))) as MergeJournal[];
+    if (journals.some((journal) => journal.targetKey === sourceKey)) {
+      return fail(`Another conversation is still being merged into “${conversationLabel(source)}”. Try again when that merge is done.`);
+    }
+    const sessions = (await requestToPromise(tx.objectStore(STORES.sessions).index(INDEXES.sessionsByConversation).getAll(prefixRange(sourceKey)))) as SessionRecord[];
+    const running = sessions.some((session) => (ACTIVE_STATUSES as readonly string[]).includes(session.status) && Date.parse(session.updatedAt) > now.getTime() - staleMs);
+    if (running) return fail(`An extraction of “${conversationLabel(source)}” is running. Stop it first.`);
+
+    if (!source.mergedInto) {
+      await requestToPromise(conversations.put({ ...source, mergedInto: targetKey } satisfies ConversationRecord));
+    }
+    // Lookups of the source's keys find the target from now on.
+    await requestToPromise(conversations.put({ ...target, aliases: withConversationAliases(target, [sourceKey, ...(source.aliases ?? [])]) } satisfies ConversationRecord));
+    const existing = await requestToPromise(meta.get(journalKey(sourceKey)));
+    if (!existing) {
+      await requestToPromise(meta.put({ key: journalKey(sourceKey), sourceKey, targetKey, startedAt: now.toISOString() } satisfies MergeJournal));
+    }
+    await done;
+  }
+
+  private async continueMerge(sourceKey: string, targetKey: string, options: MergeOptions): Promise<MergeOutcome> {
+    const progress: MergeProgress = { sourceKey, targetKey, messagesMoved: 0, imagesMoved: 0, sessionsMoved: 0 };
+    const report = async () => options.onProgress?.({ ...progress });
+    for (;;) {
+      for (let moved = -1; moved !== 0; ) {
+        moved = await this.moveMessages(sourceKey, targetKey, options.messageChunk ?? MERGE_MESSAGE_CHUNK);
+        progress.messagesMoved += moved;
+        if (moved > 0) await report();
+      }
+      for (let moved = -1; moved !== 0; ) {
+        moved = await this.moveImages(sourceKey, targetKey, options.imageChunk ?? MERGE_IMAGE_CHUNK);
+        progress.imagesMoved += moved;
+        if (moved > 0) await report();
+      }
+      for (let moved = -1; moved !== 0; ) {
+        moved = await this.moveSessions(sourceKey, targetKey, MERGE_SESSION_CHUNK);
+        progress.sessionsMoved += moved;
+      }
+      const finished = await this.finishMerge(sourceKey, targetKey);
+      if (finished === 'retry') continue;
+      await this.resolveReplies(targetKey);
+      await report();
+      const target = (await this.getConversation(targetKey)) ?? finished;
+      if (!target) throw new Error('The conversation the other one was merged into is no longer in the archive.');
+      return { ...progress, target };
+    }
+  }
+
+  /** Moves up to `limit` messages of the source entry; returns how many were moved. */
+  private async moveMessages(sourceKey: string, targetKey: string, limit: number): Promise<number> {
+    const tx = this.db.transaction(STORES.messages, 'readwrite');
+    const done = transactionDone(tx);
+    const store = tx.objectStore(STORES.messages);
+    const batch = (await requestToPromise(store.index(INDEXES.messagesBySort).getAll(prefixRange(sourceKey), limit))) as StoredMessage[];
+    for (const message of batch) {
+      await this.placeMovedMessage(store, rekeyMessage(message, sourceKey, targetKey), targetKey);
+      await requestToPromise(store.delete(message.key));
+    }
+    await done;
+    return batch.length;
+  }
+
+  /** Stores a moved message, folding it into a copy of the same message the target already has. */
+  private async placeMovedMessage(store: IDBObjectStore, moved: StoredMessage, targetKey: string): Promise<void> {
+    const foldInto = async (existing: StoredMessage) => {
+      const merged = mergeImported(existing, { ...moved, key: existing.key, aliases: [...moved.aliases, moved.key] });
+      await requestToPromise(store.put(merged.record));
+    };
+    const sameKey = (await requestToPromise(store.get(moved.key))) as StoredMessage | undefined;
+    if (sameKey) return foldInto(sameKey);
+    if (moved.fingerprintStrong) {
+      const sameFingerprint = (await requestToPromise(store.index(INDEXES.messagesByFingerprint).getAll([targetKey, moved.fingerprint]))) as StoredMessage[];
+      if (moved.idSource === 'fingerprint') {
+        const match = sameFingerprint.find((m) => m.idSource === 'dom') ?? sameFingerprint[0];
+        if (match) return foldInto(match);
+      } else {
+        const duplicate = sameFingerprint.find((m) => m.idSource === 'fingerprint');
+        if (duplicate) {
+          await requestToPromise(store.delete(duplicate.key));
+          await requestToPromise(store.put(absorbDuplicate(moved, duplicate)));
+          return;
+        }
+      }
+    } else if (moved.idSource === 'fingerprint') {
+      for (const candidate of [moved.key, ...moved.aliases]) {
+        const aliased = ((await requestToPromise(store.index(INDEXES.messagesByAlias).getAll(candidate))) as StoredMessage[]).find((m) => m.conversationKey === targetKey);
+        if (aliased) return foldInto(aliased);
+      }
+    }
+    await requestToPromise(store.put(moved));
+  }
+
+  private async moveImages(sourceKey: string, targetKey: string, limit: number): Promise<number> {
+    const tx = this.db.transaction(STORES.images, 'readwrite');
+    const done = transactionDone(tx);
+    const store = tx.objectStore(STORES.images);
+    const batch = (await requestToPromise(store.index(INDEXES.imagesByConversation).getAll(prefixRange(sourceKey), limit))) as StoredImage[];
+    for (const image of batch) {
+      const moved = rekeyImage(image, targetKey);
+      // Images are keyed by their content hash: one the target already has is the same picture.
+      if ((await requestToPromise(store.getKey(moved.key))) === undefined) await requestToPromise(store.put(moved));
+      await requestToPromise(store.delete(image.key));
+    }
+    await done;
+    return batch.length;
+  }
+
+  private async moveSessions(sourceKey: string, targetKey: string, limit: number): Promise<number> {
+    const tx = this.db.transaction(STORES.sessions, 'readwrite');
+    const done = transactionDone(tx);
+    const store = tx.objectStore(STORES.sessions);
+    const batch = (await requestToPromise(store.index(INDEXES.sessionsByConversation).getAll(prefixRange(sourceKey), limit))) as SessionRecord[];
+    for (const session of batch) {
+      await requestToPromise(store.put({ ...session, conversationKey: targetKey, detectedKey: session.detectedKey ?? sourceKey } satisfies SessionRecord));
+    }
+    await done;
+    return batch.length;
+  }
+
+  /**
+   * Combines the two records and removes the source entry and the journal, once nothing is left
+   * under the source key ('retry' otherwise). Null when another run already finished the merge.
+   */
+  private async finishMerge(sourceKey: string, targetKey: string): Promise<ConversationRecord | null | 'retry'> {
+    const tx = this.db.transaction([STORES.conversations, STORES.messages, STORES.images, STORES.meta], 'readwrite');
+    const done = transactionDone(tx);
+    const conversations = tx.objectStore(STORES.conversations);
+    const meta = tx.objectStore(STORES.meta);
+    const messages = tx.objectStore(STORES.messages).index(INDEXES.messagesBySort);
+    const journal = await requestToPromise(meta.get(journalKey(sourceKey)));
+    if (!journal) {
+      await done;
+      return null;
+    }
+    const left = (await requestToPromise(messages.count(prefixRange(sourceKey)))) + (await requestToPromise(tx.objectStore(STORES.images).index(INDEXES.imagesByConversation).count(prefixRange(sourceKey))));
+    if (left > 0) {
+      await done;
+      return 'retry';
+    }
+    const source = (await requestToPromise(conversations.get(sourceKey))) as ConversationRecord | undefined;
+    const target = (await requestToPromise(conversations.get(targetKey))) as ConversationRecord | undefined;
+    const base = target ?? (source ? { ...source, conversationKey: targetKey, mergedInto: null } : null);
+    if (!base) {
+      await requestToPromise(meta.delete(journalKey(sourceKey)));
+      await done;
+      return null;
+    }
+    const next = source && target ? combineConversations(target, source) : { ...base };
+    next.schemaVersion = ARCHIVE_SCHEMA_VERSION;
+    next.messageCount = await requestToPromise(messages.count(prefixRange(targetKey)));
+    await requestToPromise(conversations.put(next));
+    if (source) await requestToPromise(conversations.delete(sourceKey));
+    await requestToPromise(meta.delete(journalKey(sourceKey)));
+    await done;
+    return next;
+  }
+
   /** Deletes a conversation with all its messages, images and sessions. */
   async deleteConversation(conversationKey: string): Promise<{ messages: number; images: number; sessions: number }> {
-    const tx = this.db.transaction([STORES.messages, STORES.images, STORES.sessions, STORES.conversations], 'readwrite');
+    const tx = this.db.transaction([STORES.messages, STORES.images, STORES.sessions, STORES.conversations, STORES.meta], 'readwrite');
     const done = transactionDone(tx);
+    const journals = (await requestToPromise(tx.objectStore(STORES.meta).getAll(journalRange()))) as MergeJournal[];
+    if (journals.some((journal) => journal.sourceKey === conversationKey || journal.targetKey === conversationKey)) {
+      tx.abort();
+      await done.catch(() => undefined);
+      throw new Error('This conversation is being merged with another one. Try again when the merge is done.');
+    }
     const deleteVia = (index: IDBIndex) =>
       new Promise<number>((resolve, reject) => {
         let count = 0;
@@ -501,13 +888,19 @@ export class ArchiveRepository {
     const done = transactionDone(tx);
     const conversations = tx.objectStore(STORES.conversations);
     const existing = (await requestToPromise(conversations.get(key))) as ConversationRecord | undefined;
+    // A merge that was running when the export was made is not continued here.
+    const { mergedInto: _mergedInto, ...fields } = incoming;
     const base: ConversationRecord = existing
       ? { ...existing }
-      : { ...incoming, participants: [], coverage: [], messageCount: 0, oldestSortKey: null, newestSortKey: null };
+      : { ...fields, participants: [], coverage: [], messageCount: 0, oldestSortKey: null, newestSortKey: null, aliases: [], mergedFrom: [], mergedInto: null, titleHistory: [], displayName: null };
     if (!existing || incoming.lastExtractedAt > existing.lastExtractedAt) {
       base.title = incoming.title ?? base.title;
       base.lastSessionId = incoming.lastSessionId ?? base.lastSessionId;
     }
+    base.aliases = withConversationAliases(base, Array.isArray(incoming.aliases) ? incoming.aliases : []);
+    base.mergedFrom = Array.from(new Set([...(base.mergedFrom ?? []), ...(Array.isArray(incoming.mergedFrom) ? incoming.mergedFrom : [])])).filter((other) => other !== key);
+    base.titleHistory = mergeTitleHistories(existing ? titleHistoryOf(existing) : [], titleHistoryOf(incoming));
+    base.displayName = base.displayName ?? cleanDisplayName(incoming.displayName);
     base.threadId = base.threadId ?? incoming.threadId;
     if (base.type === 'unknown') {
       base.type = incoming.type;

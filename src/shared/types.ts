@@ -6,7 +6,7 @@
  */
 
 /** Bumped whenever the stored record shape changes (see storage/schema.ts for migrations). */
-export const ARCHIVE_SCHEMA_VERSION = 2;
+export const ARCHIVE_SCHEMA_VERSION = 3;
 
 /** Bumped whenever DOM parsing rules change in a way that can alter extracted values. */
 export const EXTRACTOR_VERSION = '1.1.0';
@@ -23,6 +23,12 @@ export interface ConversationIdentity {
   type: ConversationType;
   keySource: 'dom' | 'url' | 'title';
   typeSource: 'thread-id' | 'unknown';
+  /**
+   * Keys of archive entries that were merged into this conversation's entry. A message with
+   * neither a Teams id nor an exact time keeps the fingerprint made under such a key, so the
+   * page parser also looks for it under those. Only set while an extraction runs.
+   */
+  mergedKeys?: string[];
 }
 
 export type TimestampSource =
@@ -200,9 +206,17 @@ export interface CoverageRange {
   reachedBeginning: boolean;
 }
 
+/** A title Teams showed for a conversation, and when. */
+export interface TitleSighting {
+  title: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
 export interface ConversationRecord {
   conversationKey: string;
   threadId: string | null;
+  /** The title Teams showed most recently. */
   title: string | null;
   type: ConversationType;
   keySource: ConversationIdentity['keySource'];
@@ -216,6 +230,33 @@ export interface ConversationRecord {
   lastExtractedAt: string;
   lastSessionId: string | null;
   schemaVersion: number;
+  /**
+   * Other keys this conversation is known by (indexed): the key detected after the chat was
+   * renamed, the keys of archive entries merged into it, a thread id key learned later.
+   * The conversation key itself never changes. Since schema 3; absent in older records.
+   */
+  aliases?: string[];
+  /** Keys of the archive entries that were merged into this one. Since schema 3. */
+  mergedFrom?: string[];
+  /** Set on an entry that is being merged into another one: that entry's key. Since schema 3. */
+  mergedInto?: string | null;
+  /** Titles Teams showed for this conversation, oldest first. Since schema 3. */
+  titleHistory?: TitleSighting[];
+  /** Name given in the archive; shown instead of the Teams title. Since schema 3. */
+  displayName?: string | null;
+}
+
+/** Name shown for an archive entry: the name given in the archive, else the Teams title. */
+export function conversationLabel(record: Pick<ConversationRecord, 'conversationKey' | 'title' | 'displayName'>): string {
+  return record.displayName || record.title || record.conversationKey;
+}
+
+/**
+ * Messages shown in the open chat that have a Teams message id. Identifies the chat in the
+ * archive when Teams shows no chat id: a renamed chat still shows its archived messages.
+ */
+export interface IdentityEvidence {
+  messages: Array<{ messageId: string; contentHash: string; sortKey: number | null }>;
 }
 
 export type ScrapeMode = 'visible' | 'incremental' | 'full';
@@ -264,7 +305,13 @@ export interface SessionCounters {
 
 export interface SessionRecord {
   sessionId: string;
+  /** The archive entry the session writes to. */
   conversationKey: string;
+  /**
+   * The key detected in Teams, when it differs from `conversationKey` (a renamed chat, or a chat
+   * with the same title as another one). Recorded as an alias of the entry. Since schema 3.
+   */
+  detectedKey?: string | null;
   conversationTitle: string | null;
   mode: ScrapeMode;
   rescan: boolean;

@@ -3,10 +3,11 @@
  * inferring senders of grouped messages, deriving timestamps and building
  * de-duplication keys.
  */
+import { attachmentSignature, messageFingerprint, STRONG_TIMESTAMP_SOURCES, type FingerprintParts } from '../shared/fingerprint';
 import { hashParts, normalizeForHash } from '../shared/hash';
 import type { DateOrder } from '../shared/time';
 import { epochFromMessageId, toIso } from '../shared/time';
-import type { ConversationIdentity, ExtractedMessage, Sender, SortKeySource, TimestampSource } from '../shared/types';
+import { isReliableSortSource, type ConversationIdentity, type ExtractedMessage, type IdentityEvidence, type Sender, type SortKeySource, type TimestampSource } from '../shared/types';
 import { firstNonEmptyMatches, outermost, unionMatches } from './dom';
 import { parseItem, type RawMessage } from './message-parser';
 import type { SelectorProfile } from './selectors';
@@ -53,7 +54,6 @@ export interface RenderedImage {
 
 /** Max difference between a message-id time and a displayed time for both to be trusted together. */
 const ID_TIME_TOLERANCE_MS = 36 * 3_600_000;
-const STRONG_TIMESTAMP_SOURCES: ReadonlySet<TimestampSource> = new Set(['datetime-attr', 'title-attr', 'aria-label']);
 
 export function findMessageList(doc: Document, profile: SelectorProfile): Element | null {
   return firstNonEmptyMatches(doc, profile.messageList).elements[0] ?? null;
@@ -66,10 +66,6 @@ export function collectItems(list: Element, profile: SelectorProfile): Element[]
     (el) => !primary.some((item) => item.contains(el) || el.contains(item)),
   );
   return outermost([...primary, ...extras]);
-}
-
-function attachmentSignature(message: RawMessage): string {
-  return message.attachments.map((att) => `${att.kind}:${att.name ?? ''}`).join(',');
 }
 
 interface Draft {
@@ -199,9 +195,9 @@ export function parseRenderedConversation(doc: Document, options: PageParseOptio
     }
     const strongTime = STRONG_TIMESTAMP_SOURCES.has(raw.timestampSource) ? toIso(raw.timestampMs) : null;
     const normalizedText = normalizeForHash(raw.content.text);
-    const attachments = attachmentSignature(raw);
-    const fingerprintWith = (anchor: string | null) =>
-      hashParts([conversationKey, raw.kind, sender.isSelf ? 'self' : 'other', strongTime, normalizedText, attachments, raw.replyTo?.preview, anchor ?? '']);
+    const attachments = attachmentSignature(raw.attachments);
+    const parts: Omit<FingerprintParts, 'anchor'> = { kind: raw.kind, isSelf: sender.isSelf, strongTime, normalizedText, attachments, replyPreview: raw.replyTo?.preview };
+    const fingerprintWith = (anchor: string | null, namespace = conversationKey) => messageFingerprint(namespace, { ...parts, anchor });
 
     let key: string;
     let fingerprint: string;
@@ -214,9 +210,14 @@ export function parseRenderedConversation(doc: Document, options: PageParseOptio
       key = occurrenceKey(conversationKey, fingerprint, fingerprintOccurrences);
     } else {
       const anchors = weakAnchors(drafts, index);
-      fingerprint = fingerprintWith(anchors.newer ?? anchors.older);
+      const choices = anchors.newer && anchors.older ? [anchors.newer, anchors.older] : [anchors.newer ?? anchors.older];
+      fingerprint = fingerprintWith(choices[0] ?? null);
       key = occurrenceKey(conversationKey, fingerprint, fingerprintOccurrences);
-      if (anchors.newer && anchors.older) alternateKeys.push(`${conversationKey}#fp:${fingerprintWith(anchors.older)}`);
+      for (const anchor of choices.slice(1)) alternateKeys.push(`${conversationKey}#fp:${fingerprintWith(anchor)}`);
+      // Such a message merged in from another archive entry keeps the fingerprint made under that entry's key.
+      for (const mergedKey of conversation.mergedKeys ?? []) {
+        for (const anchor of choices) alternateKeys.push(`${conversationKey}#fp:${fingerprintWith(anchor, mergedKey)}`);
+      }
     }
     keyByDraft[index] = key;
 
@@ -255,6 +256,26 @@ export function parseRenderedConversation(doc: Document, options: PageParseOptio
   });
 
   return { listElement: list, itemCount: items.length, skipped, dividers, messages, groupLinks: groupLinks(drafts, keyByDraft), images, warnings };
+}
+
+/** Most messages sent to the archive to identify a chat. */
+export const MAX_EVIDENCE_MESSAGES = 60;
+
+type EvidenceSource = Pick<ExtractedMessage, 'messageId' | 'contentHash' | 'sortKey' | 'sortKeySource'>;
+
+/**
+ * The messages with a Teams id (the newest ones, in timeline order), for finding the chat in
+ * the archive. Carries ids, content hashes and times only, no content.
+ */
+export function identityEvidence(messages: readonly EvidenceSource[], limit = MAX_EVIDENCE_MESSAGES): IdentityEvidence {
+  const withId = messages.filter((message): message is EvidenceSource & { messageId: string } => typeof message.messageId === 'string' && message.messageId.length > 0);
+  return {
+    messages: withId.slice(-limit).map((message) => ({
+      messageId: message.messageId,
+      contentHash: message.contentHash,
+      sortKey: isReliableSortSource(message.sortKeySource) ? message.sortKey : null,
+    })),
+  };
 }
 
 /** Key for a message without a Teams id; identical messages within one pass are numbered. */

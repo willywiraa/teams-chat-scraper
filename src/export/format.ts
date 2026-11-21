@@ -119,6 +119,17 @@ export function parseArchiveExport(input: string | unknown): ArchiveExportV1 {
     assert(typeof conversation.conversationKey === 'string' && conversation.conversationKey, `${where}.conversationKey is required`);
     assert(Array.isArray(conversation.messages), `${where}.messages must be an array`);
     assert(Array.isArray(conversation.coverage ?? []), `${where}.coverage must be an array`);
+    // Identity fields, added with schema 3 (extension 1.2); absent in older exports.
+    const strings = (value: unknown) => Array.isArray(value) && value.every((item) => typeof item === 'string');
+    assert(conversation.aliases === undefined || strings(conversation.aliases), `${where}.aliases must be an array of strings`);
+    assert(conversation.mergedFrom === undefined || strings(conversation.mergedFrom), `${where}.mergedFrom must be an array of strings`);
+    assert(conversation.displayName == null || typeof conversation.displayName === 'string', `${where}.displayName must be a string or null`);
+    assert(
+      conversation.titleHistory === undefined ||
+        (Array.isArray(conversation.titleHistory) &&
+          conversation.titleHistory.every((seen) => seen && typeof seen.title === 'string' && typeof seen.firstSeenAt === 'string' && typeof seen.lastSeenAt === 'string')),
+      `${where}.titleHistory must be an array of {title, firstSeenAt, lastSeenAt}`,
+    );
     conversation.messages.forEach((message, mi) => {
       const at = `${where}.messages[${mi}]`;
       assert(message && typeof message === 'object', `${at} must be an object`);

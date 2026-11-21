@@ -28,6 +28,9 @@ async function captured(src: string, size = 80): Promise<CapturedImage> {
   return { imageId: await sha256Hex(bytes), mimeType: 'image/png', byteLength: bytes.byteLength, width: 8, height: 8, method: 'fetch', dataBase64: bytesToBase64(bytes) };
 }
 
+/** Import summary fields of an archive that went into entries with its own keys. */
+const sameEntry = { joinedExisting: 0, keptSeparate: 0 };
+
 const saveImages = (images: CapturedImage[], conversationKey = CK, sessionId = 's1') =>
   saveCapturedImages(repo, conversationKey, images, { sessionId, nowIso: '2024-01-15T12:00:00.000Z' });
 
@@ -241,7 +244,7 @@ describe('replies, deletion, export and import', () => {
     const json = toJson(exported);
     const target = await openTestRepository();
     try {
-      const noImages = { imagesInserted: 0, imagesUnchanged: 0 };
+      const noImages = { imagesInserted: 0, imagesUnchanged: 0, joinedExisting: 0, keptSeparate: 0 };
       expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 3, updated: 0, unchanged: 0, ...noImages });
       expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 0, updated: 0, unchanged: 3, ...noImages });
       expect(await target.getMessages(CK)).toEqual(await repo.getMessages(CK));
@@ -285,8 +288,8 @@ describe('replies, deletion, export and import', () => {
     const json = toJson(exported);
     const target = await openTestRepository();
     try {
-      expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 2, updated: 0, unchanged: 0, imagesInserted: 2, imagesUnchanged: 0 });
-      expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 0, updated: 0, unchanged: 2, imagesInserted: 0, imagesUnchanged: 2 });
+      expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 2, updated: 0, unchanged: 0, imagesInserted: 2, imagesUnchanged: 0, ...sameEntry });
+      expect(await importArchive(target, json)).toEqual({ conversations: 1, inserted: 0, updated: 0, unchanged: 2, imagesInserted: 0, imagesUnchanged: 2, ...sameEntry });
       expect(await target.getMessages(CK)).toEqual(await repo.getMessages(CK));
       expect(await target.getImages(CK)).toEqual(await repo.getImages(CK));
       expect(new Uint8Array((await target.getImage(CK, pasted.imageId))!.data)).toEqual(fakeImageBytes('https://example.invalid/pasted.png', 3000));
@@ -299,7 +302,7 @@ describe('replies, deletion, export and import', () => {
     delete older.conversations[0]!.images;
     const fresh = await openTestRepository();
     try {
-      expect(await importArchive(fresh, older)).toEqual({ conversations: 1, inserted: 2, updated: 0, unchanged: 0, imagesInserted: 0, imagesUnchanged: 0 });
+      expect(await importArchive(fresh, older)).toEqual({ conversations: 1, inserted: 2, updated: 0, unchanged: 0, imagesInserted: 0, imagesUnchanged: 0, ...sameEntry });
       expect((await fresh.getMessages(CK))[0]?.attachments[0]?.imageId).toBe(pasted.imageId);
       expect(await fresh.countImages(CK)).toBe(0);
       expect((await buildArchiveExport(repo, 'all', { includeImages: false })).conversations[0]?.images).toBeUndefined();
