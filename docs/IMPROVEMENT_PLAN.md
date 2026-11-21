@@ -252,7 +252,7 @@ Compared with the selectors of the reference exporter (all unverified against yo
 
 Each phase works test-first, ends with `npm run check` and a short manual checklist in Edge, and is committed and pushed to `main`.
 
-**Status (21 November 2026):** Phases 0, 1 and 2 are built, except the Phase 1 selector fixes.
+**Status (21 November 2026):** Phases 0, 1, 2 and 3 are built, except the Phase 1 selector fixes.
 
 - **Phase 0:** Diagnostics includes the identifier probe.
 - **Phase 1 (extension 1.2.0):** database version 3, the resolver, title history, renaming, and manual merge with a journal.
@@ -265,6 +265,15 @@ Each phase works test-first, ends with `npm run check` and a short manual checkl
   - Archived images aren't read again.
   - Statuses use the same labels in the popup and on the archive page.
   - Decision 3 is taken as recommended: a capture has no "to", and keeps the newer messages it passes.
+- **Phase 3 (extension 1.4.0):**
+  - One **Export…** dialog for one, several or all chats: format, packaging, period (all, 24 hours, 7 days, 30 days, custom with From included and Before not) and content (pictures, attachments, replies, system messages, edit history).
+  - Formats: HTML (one file with embedded pictures, or a ZIP), PDF (print), Markdown and plain text (added to the plan's list, since the old ZIP already had Markdown), CSV (UTF-8 with BOM, formula-safe), JSON v1 (only the optional `selection` field added) and the knowledge package.
+  - The dialog remembers the last choices and starts with HTML. Presets: **Knowledge system** and **Full backup**.
+  - Records of a period or without system messages count what they hold, limit coverage to the period, and keep `lastUpdate` only when the period has no end.
+  - Everything is written in parts: messages are read 500 at a time, text goes into Blobs every 4 MB, ZIP files are written in parts.
+  - Import reads JSON with a streaming scanner and the package (stored or deflated, also re-zipped inside a folder) file by file. It checks the whole file before writing anything.
+  - G4 is fixed: an import writes the conversation entry first and counts messages per batch, so an interrupted import leaves a visible, partial entry that importing again completes.
+  - Decision 2 is covered without a choice: the package has JSON Lines records and a Markdown transcript per chat, with the pictures named by their SHA-256. It is documented in [EXPORT_FORMAT.md](EXPORT_FORMAT.md#knowledge-package).
 - **Next:** the selector fixes, which wait for two Diagnostics reports from your Teams: one from a 1:1 chat and one from a group chat.
 
 | Phase | Content | Size |
@@ -282,7 +291,7 @@ Order: identity before export, because exports and updates depend on stable conv
 ## 5. Decisions needed
 
 1. **Name.** Keep "Teams Chat Extractor", or choose a distinct name with "for Microsoft Teams" as a descriptor (recommended for a store listing)?
-2. **Knowledge system.** Which one will you use (Obsidian, Notion, a custom database, something else)? It decides the package layout of the preset, for example Markdown with an images folder versus JSONL.
+2. **Knowledge system.** Which one will you use (Obsidian, Notion, a custom database, something else)? It decides the package layout of the preset, for example Markdown with an images folder versus JSONL. *Phase 3 builds a package with both, JSON Lines records and a Markdown transcript per chat; say which system you use if it needs another layout.*
 3. **Capture "To".** Should a capture with a range also save the newer messages it passes (recommended), or save only the range? *Built as recommended in Phase 2; say if you want a "to" date for captures.*
 4. **Diagnostics.** Run the Phase 0 report in a 1:1 chat and a group chat once it is built.
 5. **File attachments.** Keep names and links only (recommended), or download files? That needs extra SharePoint and OneDrive permissions.

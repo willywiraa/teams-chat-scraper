@@ -128,6 +128,8 @@ export interface MergeJournal {
 }
 
 const IMPORT_CHUNK = 500;
+/** Messages read at a time by `messagePages` (exports). */
+const MESSAGE_PAGE = 500;
 const MERGE_MESSAGE_CHUNK = 200;
 const MERGE_IMAGE_CHUNK = 20;
 const MERGE_SESSION_CHUNK = 200;
@@ -353,6 +355,24 @@ export class ArchiveRepository {
     const tx = this.db.transaction(STORES.messages, 'readonly');
     const index = tx.objectStore(STORES.messages).index(INDEXES.messagesBySort);
     return (await requestToPromise(index.getAll(prefixRange(conversationKey), limit))) as StoredMessage[];
+  }
+
+  /**
+   * Messages of a conversation in timeline order, in pages, limited to a sort-key range (`from`
+   * inclusive, `to` exclusive; null is open). Only the keys are read up front, so a large
+   * conversation is never held whole.
+   */
+  async *messagePages(conversationKey: string, range: { from: number | null; to: number | null } = { from: null, to: null }, pageSize = MESSAGE_PAGE): AsyncGenerator<StoredMessage[]> {
+    const span = IDBKeyRange.bound([conversationKey, range.from ?? -Infinity], range.to === null ? [conversationKey, []] : [conversationKey, range.to], false, range.to !== null);
+    const keysTx = this.db.transaction(STORES.messages, 'readonly');
+    const keys = (await requestToPromise(keysTx.objectStore(STORES.messages).index(INDEXES.messagesBySort).getAllKeys(span))) as string[];
+    for (let start = 0; start < keys.length; start += pageSize) {
+      const tx = this.db.transaction(STORES.messages, 'readonly');
+      const store = tx.objectStore(STORES.messages);
+      const page = await Promise.all(keys.slice(start, start + pageSize).map((key) => requestToPromise(store.get(key)) as Promise<StoredMessage | undefined>));
+      // A message merged away or deleted since the keys were read is left out.
+      yield page.filter((message): message is StoredMessage => message !== undefined && message.conversationKey === conversationKey);
+    }
   }
 
   async countMessages(conversationKey: string): Promise<number> {
@@ -790,13 +810,19 @@ export class ArchiveRepository {
    * have at least one attachment with a saved image. A run then need not read those images again.
    */
   async archivedImages(conversationKey: string, keys: readonly string[]): Promise<Record<string, ArchivedImages>> {
-    const tx = this.db.transaction(STORES.messages, 'readonly');
+    const tx = this.db.transaction([STORES.messages, STORES.images], 'readonly');
     const store = tx.objectStore(STORES.messages);
+    const images = tx.objectStore(STORES.images);
     const found: Record<string, ArchivedImages> = {};
     for (const key of new Set(keys)) {
       const message = (await requestToPromise(store.get(key))) as StoredMessage | undefined;
       if (!message || message.conversationKey !== conversationKey) continue;
-      const imageIds = message.attachments.map((attachment) => (attachment.kind === 'image' && attachment.imageId) || null);
+      // Only images that are stored (an interrupted import may have written a message before its images).
+      const imageIds: Array<string | null> = [];
+      for (const attachment of message.attachments) {
+        const imageId = attachment.kind === 'image' ? attachment.imageId : null;
+        imageIds.push(imageId && (await requestToPromise(images.getKey(imageKey(conversationKey, imageId)))) !== undefined ? imageId : null);
+      }
       if (imageIds.some((imageId) => imageId !== null)) found[key] = { contentHash: message.contentHash, imageIds };
     }
     return found;
@@ -839,6 +865,29 @@ export class ArchiveRepository {
     const tx = this.db.transaction(STORES.images, 'readonly');
     const index = tx.objectStore(STORES.images).index(INDEXES.imagesByConversation);
     return (await requestToPromise(index.getAll(prefixRange(conversationKey)))) as StoredImage[];
+  }
+
+  /** The saved images of a conversation without their bytes, oldest first (read one at a time). */
+  async imageCatalog(conversationKey: string): Promise<Array<Omit<StoredImage, 'data'>>> {
+    const tx = this.db.transaction(STORES.images, 'readonly');
+    const done = transactionDone(tx);
+    const request = tx.objectStore(STORES.images).index(INDEXES.imagesByConversation).openCursor(prefixRange(conversationKey));
+    const found: Array<Omit<StoredImage, 'data'>> = [];
+    await new Promise<void>((resolve, reject) => {
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve();
+          return;
+        }
+        const { data: _data, ...info } = cursor.value as StoredImage;
+        found.push(info);
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+    await done;
+    return found.sort((a, b) => a.firstSavedAt.localeCompare(b.firstSavedAt) || a.imageId.localeCompare(b.imageId));
   }
 
   async countImages(conversationKey: string): Promise<number> {
@@ -964,25 +1013,93 @@ export class ArchiveRepository {
 
   // ------------------------------------------------------------------ import
 
-  /** Merges an exported conversation (see export/format.ts) into the archive. Idempotent. */
+  /**
+   * Merges an exported conversation (see export/format.ts) into the archive. Idempotent. The same
+   * as `beginImport`, `importMessages` and `finishImport` in turn.
+   */
   async importConversation(incoming: ConversationRecord, messages: StoredMessage[]): Promise<ImportResult> {
+    await this.beginImport(incoming);
+    const result = await this.importMessages(incoming.conversationKey, messages);
+    await this.finishImport(incoming);
+    return result;
+  }
+
+  /**
+   * Starts importing a conversation: makes its entry when there is none yet, so the messages
+   * written next always belong to a visible entry. The entry gets its identity (title, name,
+   * aliases) but no coverage and no last update: those are merged by `finishImport`, once every
+   * message is stored. An interrupted import so leaves a partial entry that importing again
+   * completes, never messages without an entry or coverage without messages.
+   */
+  async beginImport(incoming: ConversationRecord): Promise<void> {
+    const tx = this.db.transaction(STORES.conversations, 'readwrite');
+    const done = transactionDone(tx);
+    const conversations = tx.objectStore(STORES.conversations);
+    const existing = (await requestToPromise(conversations.get(incoming.conversationKey))) as ConversationRecord | undefined;
+    if (!existing) {
+      // A merge that was running when the export was made is not continued here.
+      const { mergedInto: _mergedInto, ...fields } = incoming;
+      const entry: ConversationRecord = {
+        ...fields,
+        participants: [],
+        coverage: [],
+        messageCount: 0,
+        oldestSortKey: null,
+        newestSortKey: null,
+        aliases: withConversationAliases({ conversationKey: incoming.conversationKey, aliases: [] }, Array.isArray(incoming.aliases) ? incoming.aliases : []),
+        mergedFrom: [],
+        mergedInto: null,
+        titleHistory: titleHistoryOf(incoming),
+        displayName: cleanDisplayName(incoming.displayName),
+        lastUpdate: null,
+        schemaVersion: ARCHIVE_SCHEMA_VERSION,
+      };
+      await requestToPromise(conversations.put(entry));
+    }
+    await done;
+  }
+
+  /** Writes imported messages into the entry `beginImport` made, in chunks, keeping its message count. */
+  async importMessages(conversationKey: string, messages: readonly StoredMessage[]): Promise<ImportResult> {
     const result: ImportResult = { inserted: 0, updated: 0, unchanged: 0 };
-    const key = incoming.conversationKey;
+    for (const message of messages) {
+      if (message.conversationKey !== conversationKey) throw new Error(`Imported message ${message.key} does not belong to ${conversationKey}`);
+    }
     for (let start = 0; start < messages.length; start += IMPORT_CHUNK) {
       const chunk = messages.slice(start, start + IMPORT_CHUNK);
-      const tx = this.db.transaction(STORES.messages, 'readwrite');
+      const tx = this.db.transaction([STORES.messages, STORES.conversations], 'readwrite');
       const done = transactionDone(tx);
       const store = tx.objectStore(STORES.messages);
-      for (const message of chunk) {
-        if (message.conversationKey !== key) throw new Error(`Imported message ${message.key} does not belong to ${key}`);
-        const existing = (await requestToPromise(store.get(message.key))) as StoredMessage | undefined;
-        const merged = mergeImported(existing, message);
-        if (merged.status !== 'unchanged') await requestToPromise(store.put(merged.record));
-        result[merged.status]++;
+      const conversations = tx.objectStore(STORES.conversations);
+      try {
+        const entry = (await requestToPromise(conversations.get(conversationKey))) as ConversationRecord | undefined;
+        if (!entry) throw new Error(`There is no archive entry ${conversationKey} to import into`);
+        let inserted = 0;
+        for (const message of chunk) {
+          const existing = (await requestToPromise(store.get(message.key))) as StoredMessage | undefined;
+          const merged = mergeImported(existing, message);
+          if (merged.status !== 'unchanged') await requestToPromise(store.put(merged.record));
+          if (merged.status === 'inserted') inserted++;
+          result[merged.status]++;
+        }
+        if (inserted > 0) await requestToPromise(conversations.put({ ...entry, messageCount: entry.messageCount + inserted }));
+        await done;
+      } catch (error) {
+        try {
+          tx.abort();
+        } catch {
+          // Already finished or aborted.
+        }
+        await done.catch(() => undefined);
+        throw error;
       }
-      await done;
     }
+    return result;
+  }
 
+  /** Finishes an import: merges the entry's fields, coverage and last update, and recounts its messages. */
+  async finishImport(incoming: ConversationRecord): Promise<void> {
+    const key = incoming.conversationKey;
     const tx = this.db.transaction([STORES.messages, STORES.conversations], 'readwrite');
     const done = transactionDone(tx);
     const conversations = tx.objectStore(STORES.conversations);
@@ -1016,6 +1133,5 @@ export class ArchiveRepository {
     base.messageCount = await requestToPromise(tx.objectStore(STORES.messages).index(INDEXES.messagesBySort).count(prefixRange(key)));
     await requestToPromise(conversations.put(base));
     await done;
-    return result;
   }
 }

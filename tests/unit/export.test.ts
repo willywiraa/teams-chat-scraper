@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exportFileName, toJson, toMarkdown } from '../../src/export/exporters';
-import { buildArchiveExport, EXPORT_FORMAT, EXPORT_FORMAT_VERSION, parseArchiveExport, type ArchiveExportV1, type ExportSource } from '../../src/export/format';
+import { buildArchiveExport, EXPORT_FORMAT, EXPORT_FORMAT_VERSION, parseArchiveExport, toJson, type ArchiveExportV1, type ExportSource } from '../../src/export/format';
 import { ARCHIVE_SCHEMA_VERSION, EXTRACTOR_VERSION, type ConversationRecord, type StoredMessage } from '../../src/shared/types';
 import { sha256Hex, toArrayBuffer } from '../../src/shared/images';
 import { createStoredMessage } from '../../src/storage/merge';
@@ -76,38 +75,6 @@ describe('archive export', () => {
     expect(parseArchiveExport(json)).toEqual(exported);
   });
 
-  it('renders a readable Markdown transcript', async () => {
-    const markdown = toMarkdown(await archive(), { timeZone: 'UTC', locale: 'en-GB' });
-    expect(markdown).toContain('# Project Alpha');
-    expect(markdown).toContain('- Participants: Alice Andersen, Bob Brown');
-    expect(markdown).toContain('- Archive coverage: complete history');
-    // The exact date wording depends on the ICU version shipped with the browser / Node.
-    expect(markdown).toMatch(/## Monday,? 15 January 2024/);
-    expect(markdown).toContain('**Alice Andersen** · 09:00');
-    expect(markdown).toContain('\\# Agenda\nItem one\n\n\\- not a list');
-    expect(markdown).toContain('_Bob Brown joined the chat._ · 09:05');
-    expect(markdown).toContain('**Bob Brown** · 09:10 _(edited)_');
-    expect(markdown).toContain('> Replying to **Alice Andersen**: # Agenda Item one');
-    // Message text is kept verbatim apart from line-start markers (JSON is the lossless format).
-    expect(markdown).toContain('Looks good *to me*');
-    expect(markdown).toContain('_Attachments:_ File: [agenda\\_v2.docx](https://example.invalid/agenda_v2.docx)');
-    expect(markdown).toMatch(/## Tuesday,? 16 January 2024/);
-    expect(markdown).toContain('**Me** · 08:30');
-  });
-
-  it('names export files after the conversation', async () => {
-    const exported = await archive();
-    expect(exportFileName(exported, 'json')).toBe('Project-Alpha-2024-02-01T10-20-30.json');
-    expect(exportFileName({ ...exported, conversations: [] }, 'zip')).toBe('teams-archive-2024-02-01T10-20-30.zip');
-  });
-
-  it('uses the name given in the archive, and still mentions the Teams title', async () => {
-    const exported = await archive();
-    const named = { ...exported, conversations: exported.conversations.map((conversation) => ({ ...conversation, displayName: 'Budget 2024' })) };
-    expect(exportFileName(named, 'zip')).toBe('Budget-2024-2024-02-01T10-20-30.zip');
-    const markdown = toMarkdown(named, { timeZone: 'UTC', locale: 'en-GB' });
-    expect(markdown).toMatch(/^# Budget 2024\n\n- Title in Teams: Project Alpha\n/);
-  });
 });
 
 describe('images in exports', () => {
@@ -134,13 +101,6 @@ describe('images in exports', () => {
       { key: `${CK}#img:${imageId}`, conversationKey: CK, imageId, mimeType: 'image/png', byteLength: 40, width: 4, height: 2, method: 'fetch', firstSavedAt: ctx.nowIso, sessionId: 's1', schemaVersion: 2, dataBase64: Buffer.from(fakeImageBytes('https://example.invalid/chart.png', 40)).toString('base64') },
     ]);
     expect(parseArchiveExport(toJson(exported))).toEqual(exported);
-  });
-
-  it('names saved images in the Markdown transcript', async () => {
-    const { exported, imageId } = await withImage();
-    const markdown = toMarkdown(exported, { timeZone: 'UTC', locale: 'en-GB' });
-    expect(markdown).toContain('- Saved images: 1 (in the JSON export, named here by file name)');
-    expect(markdown).toContain(`_Attachments:_ Image: [chart.png](https://example.invalid/chart.png) (saved as \`${imageId}.png\`) · Image: image (saved image \`${'f'.repeat(64)}\`)`);
   });
 
   it('rejects malformed images and accepts exports without any', async () => {

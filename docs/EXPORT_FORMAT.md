@@ -1,13 +1,49 @@
 # Export format v1
 
-This is the contract for moving archived Teams chats into other systems, such as a knowledge management system. The format is produced by `src/export/format.ts` and `src/export/exporters.ts`, and read back by the archive page's **Import archive…**.
+This is the contract for moving archived Teams chats into other systems, such as a knowledge management system. Exports are written by `src/export/pipeline.ts` (records in `src/export/format.ts`, transcripts in `src/export/render.ts`), and read back by the archive page's **Import archive…** (`src/export/import.ts`).
 
-| Format | File | Use |
-| --- | --- | --- |
-| JSON | `*.json` | Canonical and lossless. Importing it restores the archive exactly, and re-importing is idempotent. |
-| ZIP: chat + pictures | `*.zip` | For people: `chat.html` and `chat.md` with the pictures shown in place, and the pictures as files. Not importable. See [ZIP transcripts](#zip-transcripts). |
+The archive page's **Export…** dialog chooses the conversations (one, several or all), the format, the packaging, a period and what to include. It remembers the last choices; the first time it suggests an HTML page.
 
-**Stability promise:** within `formatVersion: 1`, fields are only ever *added*. Renaming, removing or changing the meaning of a field requires `formatVersion: 2`. Ignore fields you don't know.
+| Format | Packaging | Importable | Use |
+| --- | --- | --- | --- |
+| HTML page | one `.html` file (pictures embedded) or a ZIP with the pictures as files | no | Reading in a browser. See [Transcripts](#transcripts). |
+| PDF (print) | a printable page in a new tab | no | Choose **Save as PDF** as the printer. It prints the HTML page. |
+| Markdown | `.md` file, or a ZIP when pictures are included | no | Reading, wikis, notes. |
+| Plain text | `.txt` file, or a ZIP when pictures are included | no | Anything that reads text. |
+| CSV | `.csv` file, or a ZIP when pictures are included | no | Spreadsheets. See [CSV](#csv). |
+| JSON | one `.json` file | **yes** | Canonical records. See [JSON structure](#json-structure). |
+| Knowledge package | ZIP | **yes** | Records as JSON Lines, a Markdown transcript and the pictures as files. See [Knowledge package](#knowledge-package). |
+
+Two presets set the dialog in one click:
+
+- **Knowledge system**: the knowledge package with pictures, attachments, replies and edit history, without system messages ("X added Y to the chat").
+- **Full backup**: the knowledge package with everything. A JSON file with images holds the same records; the package is easier on memory for large archives.
+
+**Stability promise:** within `formatVersion: 1`, fields are only ever *added*. Renaming, removing or changing the meaning of a field requires `formatVersion: 2`. Ignore fields you don't know. The same holds for the package's own `formatVersion`.
+
+## What an export holds
+
+**Period.** All archived messages, the last 24 hours, the last 7 days, the last 30 days, or a custom period. A custom period is read in the exporting computer's time zone: **From** is included and **Before** is not, so 1 November 00:00 to 8 November 00:00 is exactly the first seven days of November. Either end may be left empty. A message is in the period when its `sortKey` is.
+
+**Content.**
+
+| Choice | Off means |
+| --- | --- |
+| Pictures | No saved pictures. Formats that can't embed pictures (Markdown, text, CSV) are written as one file without them; with them they become a ZIP. |
+| File attachments | Transcripts don't list attachments. Records always keep them, because they are part of the message (its `contentHash`). |
+| Reply context | Transcripts don't show what a reply quotes. Records always keep `replyTo`. |
+| System messages | Messages with `kind: "system"` are left out, of records too. |
+| Edit history | Earlier versions are left out: records have `previousVersions: []`. |
+
+**Records of a part of a conversation.** When a period is set or system messages are left out, a conversation record (JSON and package) describes what the export holds rather than the whole archive entry:
+
+- `messageCount`, `oldestSortKey` and `newestSortKey` count and span the exported messages;
+- `coverage` is limited to the period; a range keeps `reachedBeginning: true` only if the period starts before it;
+- `lastUpdate` is kept only when the period has no end (it reaches the newest messages), else it is null.
+
+So importing a period adds its messages and says truthfully which stretch of the chat they cover; importing the whole archive later completes it without duplicates.
+
+**Images in records.** Without a period, a record export holds every saved image of the conversation, also those no message shows any more (for example after an edit). With a period it holds the images the exported messages show.
 
 ## JSON structure
 
@@ -16,7 +52,8 @@ This is the contract for moving archived Teams chats into other systems, such as
   "format": "teams-chat-archive",
   "formatVersion": 1,
   "exportedAt": "2024-02-01T10:20:30.456Z",
-  "generator": { "name": "teams-chat-extractor", "version": "1.3.0", "extractorVersion": "1.1.0", "schemaVersion": 3 },
+  "generator": { "name": "teams-chat-extractor", "version": "1.4.0", "extractorVersion": "1.1.0", "schemaVersion": 3 },
+  "selection": { "from": null, "to": null, "images": true, "systemMessages": true, "editHistory": true },
   "conversations": [
     {
       "conversationKey": "teams:19:abc…@thread.v2",
@@ -30,7 +67,21 @@ This is the contract for moving archived Teams chats into other systems, such as
 }
 ```
 
-All timestamps are ISO-8601 strings in UTC. Numbers named `…SortKey`, `oldest` and `newest` are epoch milliseconds and can be fractional.
+All timestamps are ISO-8601 strings in UTC. Numbers named `…SortKey`, `oldest` and `newest` are epoch milliseconds and can be fractional. The file is written one message per line, so it can be read in parts.
+
+### Selection
+
+`selection` (added in 1.4, optional) says what the export was made with:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `from` | string \| null | Start of the period (included), or null for no start. |
+| `to` | string \| null | End of the period (not included), or null for no end. |
+| `images` | boolean | Whether saved images were included. |
+| `systemMessages` | boolean | Whether system messages were included. |
+| `editHistory` | boolean | Whether earlier versions of edited messages were included. |
+
+An export without `selection` (made before 1.4) holds the whole archive.
 
 ### Conversation fields
 
@@ -48,15 +99,15 @@ All timestamps are ISO-8601 strings in UTC. Numbers named `…SortKey`, `oldest`
 | `keySource` | `dom` \| `url` \| `title` | Where the identity came from. `title` is the weakest. |
 | `typeSource` | `thread-id` \| `unknown` | How `type` was determined. |
 | `participants` | string[] | Display names of everyone who posted a captured message, sorted. |
-| `messageCount` | number | Number of message records. |
+| `messageCount` | number | Number of message records (in the export, for a [part of a conversation](#what-an-export-holds)). |
 | `oldestSortKey`, `newestSortKey` | number \| null | Range of reliably dated messages. |
 | `coverage` | `{ oldest, newest, reachedBeginning }[]` | Stretches of the timeline captured without gaps (see below). |
 | `firstExtractedAt`, `lastExtractedAt` | string | First and most recent extraction. |
-| `lastUpdate` | `{ sessionId, mode, at, newestSortKey }` | null (optional) | The most recent run after which the archive held every message, without a gap, from the previous update (or the beginning) up to `newestSortKey`. `at` is when that run ended, `mode` is `full` or `incremental`. Unlike `lastExtractedAt`, stopped runs that left a gap don't change it. Import keeps the one with the newer `newestSortKey`. Added in 1.3. |
+| `lastUpdate` | `{ sessionId, mode, at, newestSortKey }` \| null (optional) | The most recent run after which the archive held every message, without a gap, from the previous update (or the beginning) up to `newestSortKey`. `at` is when that run ended, `mode` is `full` or `incremental`. Unlike `lastExtractedAt`, stopped runs that left a gap don't change it. Import keeps the one with the newer `newestSortKey`. Added in 1.3. |
 | `lastSessionId` | string \| null | Most recent extraction session. |
 | `schemaVersion` | number | Archive schema version of the record. |
 | `messages` | message[] | Ordered by `sortKey` ascending. |
-| `images` | image[] (optional) | Saved images of the conversation, ordered by `firstSavedAt` (see [Image fields](#image-fields)). Added in 1.1. It is absent in older exports and in exports made with **Include images** off. |
+| `images` | image[] (optional) | Saved images of the conversation, ordered by `firstSavedAt` (see [Image fields](#image-fields)). Added in 1.1. It is absent in older exports and in exports made without pictures. |
 
 **Coverage.** `coverage` is how a consumer can tell how complete the history is. If one range has `reachedBeginning: true` and its `newest` is at least `newestSortKey`, the archive holds the chat's complete history up to its last extraction. Several ranges mean there are stretches in between that were never captured.
 
@@ -84,7 +135,7 @@ All timestamps are ISO-8601 strings in UTC. Numbers named `…SortKey`, `oldest`
 | `replyTo` | object \| null | Quoted reply: `messageId`, `senderName`, `timestampRaw` and `preview` (the quoted text as shown), plus `resolvedKey` (the `key` of the quoted message when known) and `resolution` (`message-id`, `content-match` or `unresolved`). |
 | `isEdited` | boolean | Teams showed the message as edited, or a content change was observed. |
 | `isDeleted` | boolean | Teams showed the message as deleted. |
-| `previousVersions` | `{ text, html, contentHash, replacedAt }[]` | Earlier contents observed before an edit or deletion, oldest first (at most 20). |
+| `previousVersions` | `{ text, html, contentHash, replacedAt }[]` | Earlier contents observed before an edit or deletion, oldest first (at most 20). Empty in exports made without edit history. |
 | `contentHash` | string | Hash of the visible content. It changes whenever the text, attachments or deleted state change. |
 | `fingerprint`, `fingerprintStrong` | string, boolean | Internal de-duplication data. |
 | `firstSeenAt`, `lastSeenAt` | string | First and most recent time the extractor saw the message. |
@@ -108,9 +159,9 @@ Images are content-addressed: `imageId` is the SHA-256 of the bytes, so an image
 | `firstSavedAt` | string | When the image was first saved. |
 | `sessionId` | string \| null | Session that saved it. |
 | `schemaVersion` | number | Archive schema version of the record. |
-| `dataBase64` | string | The image bytes, standard base64 with padding. |
+| `dataBase64` | string | The image bytes, standard base64 with padding. (In the knowledge package the bytes are a file instead.) |
 
-The saved copy is the picture as Teams displayed it, which may be a preview size rather than the original upload. An import checks that `dataBase64` has `byteLength` bytes whose SHA-256 is `imageId`, and rejects the whole file otherwise.
+The saved copy is the picture as Teams displayed it, which may be a preview size rather than the original upload. An import checks that the bytes are `byteLength` long and that their SHA-256 is `imageId`, and rejects the whole file otherwise.
 
 ### Identity changes
 
@@ -120,17 +171,90 @@ Messages that Teams rendered *without* an id are rare and are keyed by fingerpri
 
 **Import.** An imported conversation joins the archive entry of the same chat, found the way a run finds it: by key, by `aliases`, or by holding messages with the same Teams ids. It then takes that entry's key, and its own key becomes an alias. A conversation whose title key belongs to an archived chat with other messages is imported under a new `local:` key instead, so two chats are never mixed.
 
-## ZIP transcripts
+## Knowledge package
 
-Made by `src/export/transcript.ts` (files stored uncompressed, UTF-8 names). With one conversation the files are at the top of the ZIP; with several, each conversation has its own folder (named after its title) and `index.html` links them.
+A ZIP (files stored uncompressed, UTF-8 names) with the same records as the JSON export, one file per kind, so a system can read it line by line and pick up the pictures as files. Added in 1.4.
+
+```text
+manifest.json
+conversations/
+  Project-Alpha-120d474f/
+    conversation.json
+    messages.jsonl
+    images.jsonl
+    images/<imageId>.<ext>
+    transcript.md
+```
 
 | File | Content |
 | --- | --- |
-| `chat.html` | The conversation message by message, each saved picture in its message. Self-contained: styles inline, no scripts, no remote content. Text comes from the `text` field and is escaped; only `http`/`https` links are kept. The archive page's **PDF (print)** prints this same page. |
-| `chat.md` | The Markdown transcript, with saved pictures as `![name](images/<file>)`. |
-| `images/<n>_<date>_<time>.<ext>` | The saved pictures, numbered in the order the messages show them; date and time are those of the first message showing the picture, in the exporting computer's time zone (`001_2026-11-02_1001.png`). A picture shown in several messages is one file. Saved pictures no message shows any more (for example after an edit) are left out; JSON exports keep them. |
+| `manifest.json` | What the package holds (below). Written last. |
+| `conversations/<name>-<hash>/` | One folder per conversation: its name (letters and digits, others as `-`) and the first 8 hex characters of the SHA-256 of its `conversationKey`. Use the manifest's `folder` rather than building the name. |
+| `conversation.json` | The [conversation record](#conversation-fields) without `messages` and `images`. |
+| `messages.jsonl` | One [message record](#message-fields) per line, in timeline order. Lines end with `\n`. |
+| `images.jsonl` | One [image record](#image-fields) per line without `dataBase64`, plus `file`: the picture's path from the conversation folder (`images/<imageId>.<ext>`). Empty without pictures. |
+| `images/<imageId>.<ext>` | The picture bytes. The name is the SHA-256 of the bytes, so a picture is one file however many messages show it, and a system can check it. |
+| `transcript.md` | The conversation as [Markdown](#transcripts), the pictures shown in place from `images/`. For people, and for systems that index Markdown. |
 
-The ZIP is for reading, not for import: use a JSON export as the backup.
+`manifest.json`:
+
+```jsonc
+{
+  "format": "teams-chat-archive-package",
+  "formatVersion": 1,
+  "exportedAt": "2024-02-01T10:20:30.456Z",
+  "generator": { "name": "teams-chat-extractor", "version": "1.4.0", "extractorVersion": "1.1.0", "schemaVersion": 3 },
+  "records": { "format": "teams-chat-archive", "formatVersion": 1 },   // the record format of the .json and .jsonl files
+  "selection": { "from": null, "to": null, "images": true, "systemMessages": false, "editHistory": true },
+  "timeZone": "Europe/Berlin",                                            // of the times in the transcripts
+  "conversations": [
+    { "conversationKey": "teams:19:abc…@thread.v2", "name": "Project Alpha", "folder": "conversations/Project-Alpha-120d474f", "messages": 4, "images": 3 }
+  ]
+}
+```
+
+A package can be zipped again, for example inside a folder and compressed by Windows: import finds `manifest.json` at the top or in one folder, and reads stored and deflated files.
+
+## Transcripts
+
+HTML, PDF, Markdown, plain text and CSV are for reading. They show each conversation's name, type, participants, message count, how much history the archive holds, the period and the time zone, then the messages day by day: sender, time, text, reply context, attachments, pictures, *(edited)* and *(deleted)* marks and, when chosen, earlier versions. Text is escaped for each format; only `http` and `https` links are kept.
+
+| Packaging | Files |
+| --- | --- |
+| One file | All selected conversations one after another in one file. Its name is the conversation's (or `teams-archive`) and the export time: `Project-Alpha-2024-02-01T10-20-30.html`. |
+| ZIP | With one conversation the files are at the top of the ZIP; with several, each conversation has its own folder (named after it), and an HTML export adds `index.html` linking them. A folder holds `chat.html`, `chat.md`, `chat.txt` or `messages.csv`, and `images/`. |
+
+- **HTML**: self-contained: styles inline, no scripts, no remote content. As one file the pictures are embedded (`data:` addresses), so the file can be large. **PDF (print)** prints this page.
+- **Markdown**: pictures as `![name](images/<file>)`. Markdown characters in messages are escaped, so a message's text reads as it did in Teams.
+- **Plain text**: each message as a `time sender` line followed by its text, indented.
+- **Pictures in a ZIP**: `images/<n>_<date>_<time>.<ext>`, numbered in the order the messages show them; date and time are those of the first message showing the picture, in the export's time zone (`001_2026-11-02_1001.png`). A picture shown in several messages is one file. Saved pictures no message shows any more are left out; the records formats keep them.
+
+### CSV
+
+One row per message, for spreadsheets: UTF-8 with a byte order mark (so Excel reads it as UTF-8), comma-separated, cells quoted when they hold `"`, `,` or a line break, rows ending with CRLF. A cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return (or their full-width forms) gets a leading `'`, so a spreadsheet shows it as text instead of running it as a formula.
+
+| Column | Meaning |
+| --- | --- |
+| `conversation`, `conversation_key` | The conversation's name and key. |
+| `message_key`, `message_id` | The message's `key` and Teams id. |
+| `time` | When it was sent, `YYYY-MM-DD hh:mm:ss` in the export's time zone. |
+| `time_utc` | The same as ISO-8601 UTC. |
+| `sender`, `sender_id`, `from_me` | Display name, Teams user id, and `yes` when sent by the archiving user. |
+| `kind`, `text` | `message` or `system`, and the plain text. |
+| `reply_to_sender`, `reply_to_text`, `reply_to_key` | What a reply quotes (with **Reply context**). |
+| `attachments` | One line per attachment: `File: name <url>` (with **File attachments**). |
+| `pictures` | The picture files, one per line, from the conversation folder (with **Pictures**, in a ZIP). |
+| `edited`, `deleted` | `yes` or `no`. |
+| `earlier_versions` | Earlier versions, `[replaced <time>] text`, separated by `---` lines (with **Edit history**). |
+
+## Import
+
+**Import archive…** reads a JSON export (any version 1 file) or a knowledge package (`.zip`); it tells them apart by their first bytes. Both are read in parts, so large files don't have to fit in memory as text.
+
+1. **Checking**: the whole file is read and every conversation, message and image checked (an image's bytes against its `byteLength` and SHA-256). A damaged or cut-off file is refused before anything is written.
+2. **Importing**: conversation by conversation, its messages in batches of 500 and its pictures. Messages are merged by `key` (an import never removes anything), and records are joined to the archive entry of the same chat (see [Identity changes](#identity-changes)).
+
+Re-importing a file changes nothing. If an import is interrupted, for example because the tab was closed, the conversation it was writing is in the archive with the messages written so far and without coverage, so it shows as partial; importing the file again completes it.
 
 ## Recommended ingestion
 
@@ -138,5 +262,6 @@ The ZIP is for reading, not for import: use a JSON export as the backup.
 2. Treat a changed `contentHash` for a known `key` as an edit. `previousVersions` holds what was replaced.
 3. Remove message records whose key appears in another record's `aliases`, and conversations whose key appears in another conversation's `mergedFrom`.
 4. Store images by `key` (or by `imageId` per conversation). An image never changes, so one already ingested can be skipped. Resolve an attachment's `imageId` within its conversation's images.
-5. To fetch only new data, export again later. Exports always contain the full archive, so any export can be re-ingested with this upsert logic.
+5. To fetch only new data, export the last days (for example **Last 7 days**) and upsert them: the period's records say which stretch they cover. An export of all archived messages can always be re-ingested with the same upsert logic.
 6. Use `coverage` and `lastUpdate` to show how complete and how current each chat is.
+7. Systems that index documents rather than records can take each conversation's `transcript.md` from the knowledge package.

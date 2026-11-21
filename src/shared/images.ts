@@ -121,6 +121,13 @@ export function imageMetadataError(image: unknown, maxBytes: number = MAX_IMAGE_
 
 export type DecodedImage = { ok: true; bytes: Uint8Array<ArrayBuffer> } | { ok: false; error: string };
 
+/** Checks that image bytes (read from a file) are what the image's fields say; returns the problem, or null. */
+export async function imageBytesError(image: { imageId: string; byteLength: number }, bytes: Uint8Array): Promise<string | null> {
+  if (bytes.byteLength !== image.byteLength) return `byteLength ${image.byteLength} does not match the data (${bytes.byteLength} bytes)`;
+  if ((await sha256Hex(bytes)) !== image.imageId) return 'imageId does not match the SHA-256 of the data';
+  return null;
+}
+
 /**
  * Validates an image sent as base64 and decodes it: the fields must be well formed, the data
  * must have the stated length, and its SHA-256 must equal `imageId`.

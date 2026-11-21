@@ -1,8 +1,5 @@
 /** Archive page: browse archived conversations, export / import, session log and settings. */
-import { exportFileName, toJson } from '../export/exporters';
-import { buildArchiveExport, type ArchiveExportV1 } from '../export/format';
-import { buildTranscriptZip, transcriptHtml, type TranscriptImage } from '../export/transcript';
-import { importArchive } from '../export/import';
+import { importArchiveFile } from '../export/import';
 import { buildSelectorProfile, DEFAULT_SELECTOR_PROFILE, findInvalidSelectors } from '../extractor/selectors';
 import { imageFileName } from '../shared/images';
 import { STALE_SESSION_MS } from '../shared/protocol';
@@ -22,8 +19,6 @@ import { ArchiveRepository } from '../storage/repository';
 import {
   byId,
   captureLabel,
-  downloadBlob,
-  downloadText,
   el,
   errorText,
   formatAgo,
@@ -35,9 +30,7 @@ import {
   STOP_REASON_LABELS,
   TYPE_LABELS,
 } from './common';
-
-/** The export choices: the full archive as JSON, the ZIP with pictures, and the printable page. */
-type DownloadFormat = 'json' | 'zip' | 'pdf';
+import { ExportDialog } from './export-dialog';
 
 type NumericSetting = keyof typeof SETTING_LIMITS;
 
@@ -71,102 +64,12 @@ function message(id: string, text: string, kind: 'notice' | 'error' | 'success' 
   element.hidden = text === '';
 }
 
-function buildExport(repo: ArchiveRepository, keys: string[] | 'all', includeImages: boolean): Promise<ArchiveExportV1> {
-  return buildArchiveExport(
-    {
-      getConversation: (key) => repo.getConversation(key),
-      listConversations: () => repo.listConversations(),
-      getMessages: (key) => repo.getMessages(key),
-      getImages: (key) => repo.getImages(key),
-    },
-    keys,
-    { generatorVersion: chrome.runtime.getManifest().version, includeImages },
-  );
-}
+/** The export dialog, made on first use. */
+let exportDialog: ExportDialog | null = null;
 
-function exportSummary(archive: ArchiveExportV1, images: number): string {
-  const count = archive.conversations.reduce((sum, conversation) => sum + conversation.messages.length, 0);
-  return `${formatNumber(count)} messages${images > 0 ? ` and ${formatNumber(images)} images` : ''} from ${archive.conversations.length} conversation(s)`;
-}
-
-async function exportConversations(keys: string[] | 'all', format: DownloadFormat): Promise<void> {
-  // The print tab must be opened straight from the click, before anything is awaited.
-  if (format === 'pdf') return printConversations(keys, window.open('', '_blank'));
-  const repo = await repository();
-  message('archive-message', 'Preparing the export…');
-  if (format === 'zip') {
-    const archive = await buildExport(repo, keys, false);
-    const images = new Map(await Promise.all(archive.conversations.map(async (c) => [c.conversationKey, await repo.getImages(c.conversationKey)] as const)));
-    const parts = buildTranscriptZip(archive, images);
-    downloadBlob(exportFileName(archive, 'zip'), new Blob(parts as BlobPart[], { type: 'application/zip' }));
-    const pictures = [...images.values()].reduce((sum, list) => sum + list.length, 0);
-    message('archive-message', `Exported ${exportSummary(archive, pictures)} as a ZIP. Open chat.html in it to read the chat with its pictures.`, 'success');
-    return;
-  }
-  const archive = await buildExport(repo, keys, byId<HTMLInputElement>('export-images').checked);
-  let text: string;
-  try {
-    text = toJson(archive);
-  } catch (error) {
-    if (error instanceof RangeError) {
-      throw new Error('The export is too large for one file. Export conversations one at a time, or without images.');
-    }
-    throw error;
-  }
-  downloadText(exportFileName(archive, 'json'), text, 'application/json');
-  const images = archive.conversations.reduce((sum, conversation) => sum + (conversation.images?.length ?? 0), 0);
-  message('archive-message', `Exported ${exportSummary(archive, images)}.`, 'success');
-}
-
-/** Waits until the pictures of a page have loaded (or failed), at most `timeoutMs`. */
-function picturesLoaded(doc: Document, timeoutMs = 15_000): Promise<void> {
-  const pending = Array.from(doc.images).filter((img) => !img.complete);
-  const loaded = Promise.all(
-    pending.map(
-      (img) =>
-        new Promise<void>((resolve) => {
-          img.addEventListener('load', () => resolve(), { once: true });
-          img.addEventListener('error', () => resolve(), { once: true });
-        }),
-    ),
-  );
-  return Promise.race([loaded.then(() => undefined), new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
-}
-
-/**
- * Shows the conversations message by message, pictures in place, in a new tab and opens the
- * print dialog there (choose "Save as PDF" as the printer).
- */
-async function printConversations(keys: string[] | 'all', win: Window | null): Promise<void> {
-  if (!win) throw new Error('The browser blocked the new tab for printing. Allow pop-ups for this page, then try again.');
-  const urls: string[] = [];
-  try {
-    message('archive-message', 'Preparing the printable page…');
-    const repo = await repository();
-    const archive = await buildExport(repo, keys, false);
-    const entries = [];
-    for (const conversation of archive.conversations) {
-      const images = new Map<string, TranscriptImage>();
-      for (const image of await repo.getImages(conversation.conversationKey)) {
-        const src = URL.createObjectURL(new Blob([image.data], { type: image.mimeType }));
-        urls.push(src);
-        images.set(image.imageId, { src, width: image.width, height: image.height });
-      }
-      entries.push({ conversation, images });
-    }
-    win.document.open();
-    win.document.write(transcriptHtml(entries, { title: archive.conversations.length === 1 ? undefined : 'Teams chats' }));
-    win.document.close();
-    win.addEventListener('pagehide', () => urls.forEach((url) => URL.revokeObjectURL(url)), { once: true });
-    await picturesLoaded(win.document);
-    message('archive-message', `Opened ${exportSummary(archive, urls.length)} for printing. Choose "Save as PDF" as the printer.`, 'success');
-    win.focus();
-    win.print();
-  } catch (error) {
-    urls.forEach((url) => URL.revokeObjectURL(url));
-    win.close();
-    throw error;
-  }
+async function openExport(selected?: string[]): Promise<void> {
+  exportDialog ??= new ExportDialog({ repository, notify: (text, kind) => message('archive-message', text, kind) });
+  await exportDialog.open(await (await repository()).listConversations(), selected);
 }
 
 // ------------------------------------------------------------------ images
@@ -249,16 +152,10 @@ async function renameRecord(record: ConversationRecord): Promise<void> {
 function conversationRow(record: ConversationRecord, imageCount: number): HTMLTableRowElement {
   const status = coverageStatus(record.coverage, record.newestSortKey);
   const merging = Boolean(record.mergedInto);
-  const format = el(
-    'select',
-    { 'aria-label': 'Export format' },
-    el('option', { value: 'json' }, 'JSON'),
-    el('option', { value: 'zip' }, 'ZIP: chat + pictures'),
-    el('option', { value: 'pdf' }, 'PDF (print)'),
-  );
   const exportButton = el('button', {
-    onclick: () => void exportConversations([record.conversationKey], format.value as DownloadFormat).catch((e) => message('archive-message', errorText(e), 'error')),
-  }, 'Export');
+    title: 'Export this chat: HTML, PDF, Markdown, text, CSV, JSON or a knowledge package',
+    onclick: () => void openExport([record.conversationKey]).catch((e) => message('archive-message', errorText(e), 'error')),
+  }, 'Export…');
   const renameButton = el('button', {
     disabled: merging,
     title: 'Give this chat a name in the archive',
@@ -312,7 +209,7 @@ function conversationRow(record: ConversationRecord, imageCount: number): HTMLTa
       record.lastUpdate ? formatAgo(record.lastUpdate.at) : '–',
       el('div', { className: 'muted small' }, `last run ${formatDateTime(record.lastExtractedAt)}`),
     ),
-    el('td', { className: 'actions' }, format, exportButton, renameButton, mergeButton, deleteButton),
+    el('td', { className: 'actions' }, exportButton, renameButton, mergeButton, deleteButton),
   );
 }
 
@@ -585,8 +482,7 @@ function wire(): void {
     message('settings-message', 'Default selectors inserted. Edit only the entries you need, remove the rest, then save.');
   });
   byId('btn-export-all').addEventListener('click', () => {
-    const format = byId<HTMLSelectElement>('export-all-format').value as DownloadFormat;
-    exportConversations('all', format).catch((error) => message('archive-message', errorText(error), 'error'));
+    openExport().catch((error) => message('archive-message', errorText(error), 'error'));
   });
   byId<HTMLInputElement>('import-file').addEventListener('change', async (event) => {
     const input = event.target as HTMLInputElement;
@@ -594,7 +490,16 @@ function wire(): void {
     input.value = '';
     if (!file) return;
     try {
-      const summary = await importArchive(await repository(), await file.text());
+      message('archive-message', `Checking ${file.name}…`);
+      const summary = await importArchiveFile(await repository(), file, {
+        onProgress: (progress) =>
+          message(
+            'archive-message',
+            progress.phase === 'checking'
+              ? `Checking ${file.name}: ${formatNumber(progress.messages)} messages so far. Nothing is written until the whole file has been checked.`
+              : `Importing: ${formatNumber(progress.messages)} messages written (${progress.conversations} conversations finished)…`,
+          ),
+      });
       const images = summary.imagesInserted + summary.imagesUnchanged;
       const placed = [
         summary.joinedExisting > 0 ? `${summary.joinedExisting} added to an entry of the same chat under another name` : '',

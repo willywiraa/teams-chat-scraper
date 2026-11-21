@@ -28,12 +28,37 @@ export interface ExportedConversationV1 extends ConversationRecord {
   images?: ExportedImageV1[];
 }
 
+/**
+ * What an export holds when it was made with a date range or content options (added in 1.4).
+ * Absent in older exports, which hold everything (images unless made without them).
+ */
+export interface ExportSelectionV1 {
+  /** Message time range, `from` inclusive and `to` exclusive (ISO, UTC); null is open. */
+  from: string | null;
+  to: string | null;
+  images: boolean;
+  systemMessages: boolean;
+  editHistory: boolean;
+}
+
+export interface ExportGeneratorV1 {
+  name: string;
+  version: string;
+  extractorVersion: string;
+  schemaVersion: number;
+}
+
 export interface ArchiveExportV1 {
   format: typeof EXPORT_FORMAT;
   formatVersion: typeof EXPORT_FORMAT_VERSION;
   exportedAt: string;
-  generator: { name: string; version: string; extractorVersion: string; schemaVersion: number };
+  generator: ExportGeneratorV1;
+  selection?: ExportSelectionV1;
   conversations: ExportedConversationV1[];
+}
+
+export function exportGenerator(version: string = EXTRACTOR_VERSION): ExportGeneratorV1 {
+  return { name: 'teams-chat-extractor', version, extractorVersion: EXTRACTOR_VERSION, schemaVersion: ARCHIVE_SCHEMA_VERSION };
 }
 
 export interface ExportSource {
@@ -82,14 +107,14 @@ export async function buildArchiveExport(
     format: EXPORT_FORMAT,
     formatVersion: EXPORT_FORMAT_VERSION,
     exportedAt: (options.now ?? new Date()).toISOString(),
-    generator: {
-      name: 'teams-chat-extractor',
-      version: options.generatorVersion ?? EXTRACTOR_VERSION,
-      extractorVersion: EXTRACTOR_VERSION,
-      schemaVersion: ARCHIVE_SCHEMA_VERSION,
-    },
+    generator: exportGenerator(options.generatorVersion),
     conversations,
   };
+}
+
+/** The whole export as one JSON text, for small archives and tests (the archive page writes JSON in parts). */
+export function toJson(archive: ArchiveExportV1): string {
+  return `${JSON.stringify(archive, null, 2)}\n`;
 }
 
 export class ImportValidationError extends Error {}
@@ -98,27 +123,18 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new ImportValidationError(message);
 }
 
-/** Parses and validates an exported archive (JSON text or an already parsed object). */
-export function parseArchiveExport(input: string | unknown): ArchiveExportV1 {
-  let data: unknown = input;
-  if (typeof input === 'string') {
-    try {
-      data = JSON.parse(input);
-    } catch (error) {
-      throw new ImportValidationError(`Not valid JSON: ${(error as Error).message}`);
-    }
-  }
-  assert(data && typeof data === 'object', 'Archive must be a JSON object');
-  const archive = data as Partial<ArchiveExportV1>;
-  assert(archive.format === EXPORT_FORMAT, `Unsupported format "${String(archive.format)}"`);
-  assert(archive.formatVersion === EXPORT_FORMAT_VERSION, `Unsupported format version ${String(archive.formatVersion)}`);
-  assert(Array.isArray(archive.conversations), '"conversations" must be an array');
-  archive.conversations.forEach((conversation, ci) => {
-    const where = `conversations[${ci}]`;
-    assert(conversation && typeof conversation === 'object', `${where} must be an object`);
-    assert(typeof conversation.conversationKey === 'string' && conversation.conversationKey, `${where}.conversationKey is required`);
-    assert(Array.isArray(conversation.messages), `${where}.messages must be an array`);
-    assert(Array.isArray(conversation.coverage ?? []), `${where}.coverage must be an array`);
+/** Checks the format fields of an export (or of the records of a knowledge package). */
+export function validateExportHeader(header: { format?: unknown; formatVersion?: unknown }): void {
+  assert(header.format === EXPORT_FORMAT, `Unsupported format "${String(header.format)}"`);
+  assert(header.formatVersion === EXPORT_FORMAT_VERSION, `Unsupported format version ${String(header.formatVersion)}`);
+}
+
+/** Checks the fields of an exported conversation, apart from its messages and images. */
+export function validateConversationFields(value: unknown, where: string): asserts value is ConversationRecord {
+  assert(value && typeof value === 'object' && !Array.isArray(value), `${where} must be an object`);
+  const conversation = value as Partial<ExportedConversationV1>;
+  assert(typeof conversation.conversationKey === 'string' && conversation.conversationKey, `${where}.conversationKey is required`);
+  assert(Array.isArray(conversation.coverage ?? []), `${where}.coverage must be an array`);
     // Identity fields, added with schema 3 (extension 1.2); absent in older exports.
     const strings = (value: unknown) => Array.isArray(value) && value.every((item) => typeof item === 'string');
     assert(conversation.aliases === undefined || strings(conversation.aliases), `${where}.aliases must be an array of strings`);
@@ -136,27 +152,56 @@ export function parseArchiveExport(input: string | unknown): ArchiveExportV1 {
       update == null ||
         (typeof update === 'object' && typeof update.sessionId === 'string' && typeof update.at === 'string' && typeof update.newestSortKey === 'number' && Number.isFinite(update.newestSortKey)),
       `${where}.lastUpdate must be null or {sessionId, mode, at, newestSortKey}`,
-    );
-    conversation.messages.forEach((message, mi) => {
-      const at = `${where}.messages[${mi}]`;
-      assert(message && typeof message === 'object', `${at} must be an object`);
-      assert(typeof message.key === 'string' && message.key, `${at}.key is required`);
-      assert(message.conversationKey === conversation.conversationKey, `${at}.conversationKey does not match its conversation`);
-      assert(typeof message.sortKey === 'number' && Number.isFinite(message.sortKey), `${at}.sortKey must be a finite number`);
-      assert(typeof message.text === 'string', `${at}.text must be a string`);
-      assert(typeof message.contentHash === 'string', `${at}.contentHash must be a string`);
-      assert(typeof message.fingerprint === 'string', `${at}.fingerprint must be a string`);
-      assert(typeof message.firstSeenAt === 'string' && typeof message.lastSeenAt === 'string', `${at} needs firstSeenAt/lastSeenAt`);
-    });
+  );
+}
+
+/**
+ * Checks an exported message. `conversationKey` is its conversation's key; null skips that check
+ * (when reading in parts, it is made once the conversation's key is known).
+ */
+export function validateMessage(value: unknown, conversationKey: string | null, at: string): asserts value is StoredMessage {
+  assert(value && typeof value === 'object' && !Array.isArray(value), `${at} must be an object`);
+  const message = value as Partial<StoredMessage>;
+  assert(typeof message.key === 'string' && message.key, `${at}.key is required`);
+  assert(conversationKey === null || message.conversationKey === conversationKey, `${at}.conversationKey does not match its conversation`);
+  assert(typeof message.sortKey === 'number' && Number.isFinite(message.sortKey), `${at}.sortKey must be a finite number`);
+  assert(typeof message.text === 'string', `${at}.text must be a string`);
+  assert(typeof message.contentHash === 'string', `${at}.contentHash must be a string`);
+  assert(typeof message.fingerprint === 'string', `${at}.fingerprint must be a string`);
+  assert(typeof message.firstSeenAt === 'string' && typeof message.lastSeenAt === 'string', `${at} needs firstSeenAt/lastSeenAt`);
+}
+
+/** Checks the descriptive fields of an exported image (`withData`: and that it has `dataBase64`). */
+export function validateImageFields(value: unknown, conversationKey: string, at: string, withData = true): asserts value is Omit<ExportedImageV1, 'dataBase64'> {
+  const problem = imageMetadataError(withData || !value || typeof value !== 'object' ? value : { dataBase64: '', ...value });
+  assert(problem === null, `${at}: ${problem}`);
+  const image = value as Partial<ExportedImageV1>;
+  assert(image.conversationKey === undefined || image.conversationKey === conversationKey, `${at}.conversationKey does not match its conversation`);
+  assert(image.key === undefined || image.key === imageKey(conversationKey, image.imageId as string), `${at}.key does not match its image id`);
+}
+
+/** Parses and validates an exported archive (JSON text or an already parsed object). */
+export function parseArchiveExport(input: string | unknown): ArchiveExportV1 {
+  let data: unknown = input;
+  if (typeof input === 'string') {
+    try {
+      data = JSON.parse(input);
+    } catch (error) {
+      throw new ImportValidationError(`Not valid JSON: ${(error as Error).message}`);
+    }
+  }
+  assert(data && typeof data === 'object', 'Archive must be a JSON object');
+  const archive = data as Partial<ArchiveExportV1>;
+  validateExportHeader(archive);
+  assert(Array.isArray(archive.conversations), '"conversations" must be an array');
+  archive.conversations.forEach((conversation, ci) => {
+    const where = `conversations[${ci}]`;
+    validateConversationFields(conversation, where);
+    assert(Array.isArray(conversation.messages), `${where}.messages must be an array`);
+    conversation.messages.forEach((message, mi) => validateMessage(message, conversation.conversationKey, `${where}.messages[${mi}]`));
     // Exports made before extractor 1.1 have no images.
     assert(conversation.images === undefined || Array.isArray(conversation.images), `${where}.images must be an array`);
-    (conversation.images ?? []).forEach((image, ii) => {
-      const at = `${where}.images[${ii}]`;
-      const problem = imageMetadataError(image);
-      assert(problem === null, `${at}: ${problem}`);
-      assert(image.conversationKey === undefined || image.conversationKey === conversation.conversationKey, `${at}.conversationKey does not match its conversation`);
-      assert(image.key === undefined || image.key === imageKey(conversation.conversationKey, image.imageId), `${at}.key does not match its image id`);
-    });
+    (conversation.images ?? []).forEach((image, ii) => validateImageFields(image, conversation.conversationKey, `${where}.images[${ii}]`));
   });
   return archive as ArchiveExportV1;
 }

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project Alpha</title><style>
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 880px; padding: 24px 16px 48px; background: #fff; color: #1f1f1f;
+  font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif; }
+h1 { font-size: 22px; line-height: 1.3; margin: 0 0 8px; overflow-wrap: anywhere; }
+.summary { list-style: none; margin: 0 0 20px; padding: 0; color: #555; font-size: 13px; }
+.day { margin: 28px 0 12px; padding-bottom: 4px; border-bottom: 1px solid #e3e3e3; color: #555; font-size: 13px; font-weight: 600; }
+.msg { margin: 0 48px 10px 0; padding: 8px 12px; border: 1px solid #e3e3e3; border-radius: 8px; background: #f7f7f7; break-inside: avoid; }
+.msg.self { margin: 0 0 10px 48px; background: #eef0fb; border-color: #d9ddf5; }
+.meta { margin-bottom: 2px; color: #616161; font-size: 12px; }
+.who { margin-right: 8px; color: #1f1f1f; font-weight: 600; }
+.flags { margin-left: 6px; font-style: italic; }
+.text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.reply { margin: 2px 0 6px; padding: 2px 10px; border-left: 3px solid #b8b8b8; color: #555; font-size: 13px; overflow-wrap: anywhere; }
+.history { margin: 6px 0 0; padding: 2px 10px; border-left: 3px dashed #c8c8c8; color: #555; font-size: 13px; }
+.history .text { color: #555; }
+figure { margin: 8px 0 2px; }
+figure img { display: block; width: auto; height: auto; max-width: 100%; max-height: 640px; border: 1px solid #ddd; border-radius: 4px; background: #fff; }
+figcaption { color: #616161; font-size: 12px; }
+.att { margin: 6px 0 0; padding-left: 18px; color: #444; font-size: 13px; overflow-wrap: anywhere; }
+.missing { color: #8a5300; }
+.system { margin: 8px 0; color: #666; font-size: 13px; text-align: center; }
+section + section { margin-top: 48px; break-before: page; }
+a { color: #4f52b2; }
+@media print {
+  body { max-width: none; padding: 0; font-size: 11pt; }
+  .msg, .msg.self { margin-left: 0; margin-right: 0; }
+  figure img { max-height: 20cm; }
+  a { color: inherit; text-decoration: none; }
+}
+</style></head><body>
+<section><h1>Project Alpha</h1>
+<ul class="summary"><li>Participants: Alice Andersen, Bob Brown</li><li>Messages: 5 · Pictures: 2</li><li>Archived history: complete · Times shown in UTC</li></ul>
+<h2 class="day">Monday, 15 January 2024</h2>
+<article class="msg"><div class="meta"><span class="who">Alice Andersen</span>09:00</div><div class="text"># Agenda
+Here is &lt;b&gt;the&lt;/b&gt; plan &amp; more
+
+- not a list</div></article>
+<p class="system">Bob Brown joined the chat. · 09:05</p>
+<article class="msg"><div class="meta"><span class="who">Bob Brown</span>09:10<span class="flags">(edited)</span></div><blockquote class="reply">Replying to <b>Alice Andersen</b>: # Agenda</blockquote><div class="text">Looks good *to me*</div><figure><img src="data:image/jpeg;base64,iVBORw0KGgro0CXdexs8Uj3lcivSN+ORfPMjoxCymr2IbudqdoCBlpKlmjfNRgssH5g=" alt="image" width="4" height="2"></figure><ul class="att"><li>File: <a href="https://example.invalid/agenda_v2.docx">agenda_v2.docx</a></li><li class="missing">Picture not saved: lost.png</li></ul><div class="history"><div class="meta">Earlier version, replaced 15 Jan 2024, 09:12</div><div class="text">Looks fine</div></div></article>
+<article class="msg"><div class="meta"><span class="who">Alice Andersen</span>09:20</div><div class="text">=1+1, &quot;quoted&quot;</div><figure><img src="data:image/png;base64,iVBORw0KGgrToavwUR5267U80a/HKcfTf1lAU6VP6PTG1Z39wq/yMg==" alt="chart.png" width="4" height="2"><figcaption>chart.png</figcaption></figure><figure><img src="data:image/jpeg;base64,iVBORw0KGgro0CXdexs8Uj3lcivSN+ORfPMjoxCymr2IbudqdoCBlpKlmjfNRgssH5g=" alt="image" width="4" height="2"></figure></article>
+<h2 class="day">Tuesday, 16 January 2024</h2>
+<article class="msg self"><div class="meta"><span class="who">Me</span>08:30</div><div class="text">Next day</div></article>
+</section>
+</body></html>

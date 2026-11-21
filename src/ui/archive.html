@@ -18,15 +18,9 @@
         <div class="section-head">
           <h2>Conversations</h2>
           <div class="button-row">
-            <select id="export-all-format" aria-label="Export format">
-              <option value="json">JSON (full archive)</option>
-              <option value="zip">ZIP: chat + pictures</option>
-              <option value="pdf">PDF (print)</option>
-            </select>
-            <label class="check small" for="export-images" title="For JSON: saved images make the export much larger. ZIP and PDF always show the pictures."><input type="checkbox" id="export-images" checked /> Include images</label>
-            <button id="btn-export-all">Export all</button>
-            <label class="button" for="import-file">Import archive…</label>
-            <input type="file" id="import-file" accept=".json,application/json" hidden />
+            <button id="btn-export-all" title="HTML, PDF, Markdown, text, CSV, JSON or a knowledge package; one, several or all chats">Export…</button>
+            <label class="button" for="import-file" title="A JSON export or a knowledge package (ZIP)">Import archive…</label>
+            <input type="file" id="import-file" accept=".json,.zip,application/json,application/zip" hidden />
           </div>
         </div>
         <p id="archive-message" class="notice small" hidden></p>
@@ -48,7 +42,7 @@
         <p id="no-conversations" class="muted" hidden>Nothing archived yet. Open a chat in Teams Web and click the toolbar button.</p>
         <p class="muted small">
           Data is stored only in this browser profile (IndexedDB of this extension). Removing the extension deletes it, so export a
-          JSON backup regularly; importing it restores everything without creating duplicates.
+          backup regularly (Export… → Full backup); importing it restores everything without creating duplicates.
         </p>
       </section>
 
@@ -110,6 +104,44 @@
       <div class="button-row">
         <button type="button" id="btn-merge-confirm" class="danger">Merge</button>
         <button type="button" id="btn-merge-cancel">Cancel</button>
+      </div>
+    </dialog>
+    <dialog id="export-dialog" class="image-dialog export-dialog" aria-labelledby="export-dialog-title">
+      <div class="section-head">
+        <h2 id="export-dialog-title">Export</h2>
+        <div class="button-row">
+          <span class="muted small">Presets:</span>
+          <button type="button" id="btn-preset-knowledge" title="The knowledge package with pictures, attachments, reply context and edit history, without system messages">Knowledge system</button>
+          <button type="button" id="btn-preset-backup" title="The knowledge package with everything; importable">Full backup</button>
+        </div>
+      </div>
+      <fieldset class="export-section">
+        <legend>Conversations</legend>
+        <div class="button-row small">
+          <button type="button" class="link" id="btn-export-select-all">Select all</button>
+          <button type="button" class="link" id="btn-export-select-none">Select none</button>
+          <span id="export-selected-count" class="muted"></span>
+        </div>
+        <div id="export-conversations" class="export-list"></div>
+      </fieldset>
+      <div class="export-grid">
+        <label class="field" for="export-format"><span>Format</span><select id="export-format"></select></label>
+        <label class="field" for="export-packaging"><span>Packaging</span><select id="export-packaging"></select></label>
+        <label class="field" for="export-range"><span>Messages</span><select id="export-range"></select></label>
+      </div>
+      <div id="export-period" class="export-grid" hidden>
+        <label class="field" for="export-from"><span>From (included)</span><input type="datetime-local" id="export-from" /></label>
+        <label class="field" for="export-to"><span>Before (not included)</span><input type="datetime-local" id="export-to" /></label>
+      </div>
+      <fieldset class="export-section">
+        <legend>Content</legend>
+        <div id="export-content" class="export-content"></div>
+      </fieldset>
+      <p id="export-explain" class="muted small"></p>
+      <p id="export-message" class="small" hidden></p>
+      <div class="button-row">
+        <button type="button" id="btn-export-run" class="primary">Export</button>
+        <button type="button" id="btn-export-cancel">Close</button>
       </div>
     </dialog>
     <script src="archive.js"></script>

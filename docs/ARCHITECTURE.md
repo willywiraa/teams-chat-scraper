@@ -200,6 +200,7 @@ History:
 - Version 2 (extension 1.1): adds the `images` store. The upgrade only creates the new store, so all existing records stay as they are. Messages stored before it simply have no `imageId` on their attachments.
 - Version 3 (extension 1.2): adds the indexes `conversations.byAlias` and `messages.byMessageId`. The upgrade only creates indexes, so all records stay as they are. The new conversation fields (`aliases`, `mergedFrom`, `mergedInto`, `titleHistory` and `displayName`) are optional: a record written before simply lacks them, which reads as empty, and gets them the next time a run writes it. Messages without a Teams id aren't in `byMessageId`.
 - Extension 1.3 adds optional fields without a database upgrade: `lastUpdate` on conversations, and `captureFrom` and `continuesFrom` on sessions. Records written before lack them: a conversation without `lastUpdate` continues from its newest archived message, and a session begun before 1.3 never becomes a last update.
+- Extension 1.4 (exports and streaming import) changes nothing in the database.
 
 `tests/integration/migration.test.ts` opens a version 1 and a version 2 database with data, and checks that everything survives the upgrade.
 
@@ -209,6 +210,25 @@ Versioning:
 
 - To change the stored shape, add a migration step to `upgradeArchiveDb`, bump `DB_VERSION` and `ARCHIVE_SCHEMA_VERSION`, and never edit a released step.
 - Bump `EXTRACTOR_VERSION` when parsing changes could alter extracted values. Records carry the version that last wrote them, so a re-parse after an upgrade isn't mistaken for an edit.
+
+## Export and import
+
+Everything in `export/` works on an `ExportReader` (`pipeline.ts`), which `ArchiveRepository` provides and tests replace with an in-memory one. No export holds a whole conversation in memory:
+
+- `ArchiveRepository.messagePages(key, range)` reads a conversation's messages in timeline order, 500 at a time, limited to a period (`sortKey` from included, to excluded) through the `byConversationSort` index. `imageCatalog(key)` lists a conversation's images without their bytes, and `getImage` reads one when it is written.
+- `runExport` reads each conversation twice. A first pass counts the messages it will write, finds their reliable oldest and newest times, the pictures they show (in order of appearance) and the messages that replies point to without quoting them. The second pass writes, page by page.
+- Text goes to a `BlobSink` (`sink.ts`), which turns it into a `Blob` every 4 MB, so the browser can keep a large export on disk instead of in one string. ZIPs are written by `ZipWriter` (`zip.ts`): files are stored, written in parts (several at once), and placed in the archive when closed; the central directory comes last.
+- The renderers (`render.ts`) turn a conversation header, a day heading and a message into HTML, Markdown, text or a CSV row. Pictures come from a `PictureSource`: embedded as `data:` addresses for one HTML file (read again for each page), written once as files into a ZIP, or shown from object URLs for printing. **PDF (print)** opens its tab in the click itself (pop-up blockers allow only that), then writes the page into it in parts with `document.write`, waits for the pictures and calls `print()`.
+- `options.ts` holds the export model: formats, packagings (`packagingsFor`), presets, periods (`rangeFor`), and what the records always keep (`fixedContent`: attachments and replies, which are part of `contentHash`). Records of a part of a conversation (`exportedRecord`) count what they hold and limit `coverage` to the period (`clipCoverage`), so importing them never claims history they lack.
+- The export dialog (`ui/export-dialog.ts`) remembers its choices in `chrome.storage.local` (`exportChoices.v1`) and repairs them when read (`normalizeChoices`).
+
+**Import** (`import.ts`) tells a ZIP from JSON by its first bytes and reads both in parts:
+
+- JSON goes through `ArchiveJsonScanner` (`json-scanner.ts`), a streaming reader for the export's layout. It reports the header, each conversation's fields, each message and each image as they complete, keeping only the current value's text, so a file of any size is read in pieces of the file's chunks.
+- A knowledge package goes through the ZIP reader (`zip-reader.ts`), which reads the central directory and then one file at a time, stored or deflated (`DecompressionStream`), checking each file's CRC-32 and size. `messages.jsonl` is read line by line.
+- Both are read twice. The first pass checks everything (every record, and every image's bytes against its size and SHA-256), so a damaged file is refused before anything is written. The second pass writes conversation by conversation through `ConversationImport`: it finds the archive entry of the chat (as described in [Finding a chat's archive entry](#finding-a-chats-archive-entry)), rekeys the records if needed, and writes messages in batches of 500 and images through the repository.
+
+**An interrupted import** (the tab closed, the browser stopped) leaves no hidden messages. `ArchiveRepository.beginImport` first writes the conversation's entry, with its identity but no coverage or last update; `importMessages` writes each batch in one transaction with the entry's message count; `finishImport` merges coverage and the last update and recounts. A conversation cut off in the middle is therefore listed, with the messages written so far, as partial, and importing the file again completes it without duplicates. `archivedImages` reports a message's images as saved only when they are stored, so a run after an import that stopped between messages and images reads those images again.
 
 ## Security
 
@@ -226,6 +246,6 @@ Versioning:
 
 The scraper doesn't need to change for this.
 
-- **Files**: use the export format ([EXPORT_FORMAT.md](EXPORT_FORMAT.md)). Ingest by `key`, which is stable and unique, and compare `contentHash` to detect changes. Exports can be repeated at any time. A merge of two entries gives the moved messages new keys and lists the old ones in their `aliases` (see the format's [identity changes](EXPORT_FORMAT.md#identity-changes)).
-- **In-extension sync**: a future module in `background/` can read the archive through `ArchiveRepository` (`listConversations`, `getMessages`, or the streaming `forEachMessage`) and use `lastUpdate`, `lastExtractedAt` or `lastSeenAt` to find what changed. The natural trigger point is `session/end` in `background/router.ts`.
-- **New file formats**: add a serialiser next to `toJson` / `toMarkdown` in `export/exporters.ts`.
+- **Files**: use the knowledge package or the JSON export ([EXPORT_FORMAT.md](EXPORT_FORMAT.md)). The package holds the records as JSON Lines, the pictures as files named by their SHA-256 and a Markdown transcript per chat, so it serves both systems that ingest records and systems that index documents. Ingest by `key`, which is stable and unique, and compare `contentHash` to detect changes. Exports can be repeated at any time, also of a period (for example the last 7 days) to fetch what is new. A merge of two entries gives the moved messages new keys and lists the old ones in their `aliases` (see the format's [identity changes](EXPORT_FORMAT.md#identity-changes)).
+- **In-extension sync**: a future module in `background/` can read the archive through `ArchiveRepository` (`listConversations`, `messagePages`, or `runExport` with a period) and use `lastUpdate`, `lastExtractedAt` or `lastSeenAt` to find what changed. The natural trigger point is `session/end` in `background/router.ts`.
+- **New file formats**: add a renderer in `export/render.ts` and an entry in `RENDERERS` (`export/pipeline.ts`) for a transcript, or a writer next to `writeJson` and `writePackage` for records; add the format to `FORMATS` in `export/options.ts`.

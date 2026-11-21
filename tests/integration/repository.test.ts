@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { toJson } from '../../src/export/exporters';
-import { buildArchiveExport, ImportValidationError, type ArchiveExportV1 } from '../../src/export/format';
+import { buildArchiveExport, ImportValidationError, toJson, type ArchiveExportV1 } from '../../src/export/format';
 import { importArchive } from '../../src/export/import';
 import { base64ToBytes, bytesToBase64, sha256Hex } from '../../src/shared/images';
 import type { CapturedImage } from '../../src/shared/types';

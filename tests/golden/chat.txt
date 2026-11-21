@@ -1,0 +1,39 @@
+Project Alpha
+=============
+Type: group
+Participants: Alice Andersen, Bob Brown
+Messages: 5 · Pictures: 2 (in the images folder)
+Archived history: complete
+Times shown in: UTC
+
+Monday, 15 January 2024
+-----------------------
+
+09:00 Alice Andersen
+  # Agenda
+  Here is <b>the</b> plan & more
+
+  - not a list
+
+09:05 · Bob Brown joined the chat.
+
+09:10 Bob Brown (edited)
+  > Replying to Alice Andersen: # Agenda
+  Looks good *to me*
+  File: agenda_v2.docx <https://example.invalid/agenda_v2.docx>
+  Picture: images/001_2024-01-15_0910.jpg
+  Picture not saved: lost.png
+  Earlier version, replaced 15 Jan 2024, 09:12:
+    Looks fine
+
+09:20 Alice Andersen
+  =1+1, "quoted"
+  Picture: images/002_2024-01-15_0920.png (chart.png)
+  Picture: images/001_2024-01-15_0910.jpg
+
+Tuesday, 16 January 2024
+------------------------
+
+08:30 Me
+  Next day
+

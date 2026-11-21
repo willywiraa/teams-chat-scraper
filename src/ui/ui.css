@@ -430,6 +430,74 @@ textarea {
   width: min(560px, calc(100vw - 32px));
 }
 
+.export-dialog {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.export-dialog h2 {
+  margin: 0;
+}
+
+.export-section {
+  margin: 12px 0 0;
+  padding: 8px 12px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.export-section legend {
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.export-section .button-row {
+  margin-top: 0;
+}
+
+.export-list {
+  max-height: 180px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.export-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 6px 12px;
+}
+
+.export-content .field,
+.export-list .field {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.export-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.export-grid[hidden] {
+  display: none;
+}
+
+input[type='datetime-local'] {
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
 .merge-dialog h2 {
   margin-top: 0;
 }

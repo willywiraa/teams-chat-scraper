@@ -1,6 +1,6 @@
 {
   "name": "teams-chat-extractor",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "Microsoft Edge extension that extracts and archives Microsoft Teams Web conversations locally.",
   "type": "module",

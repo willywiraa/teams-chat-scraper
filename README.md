@@ -1,6 +1,6 @@
 # Teams Chat Extractor
 
-A Microsoft Edge extension that archives your Microsoft Teams chats on your own computer. It reads the conversations you open in **Teams Web** (teams.microsoft.com) and stores them in a local database you can export as JSON, or as a readable chat with its pictures (ZIP or PDF).
+A Microsoft Edge extension that archives your Microsoft Teams chats on your own computer. It reads the conversations you open in **Teams Web** (teams.microsoft.com) and stores them in a local database you can export as a readable chat (HTML, PDF, Markdown, text or CSV), as JSON, or as a knowledge package for other systems.
 
 - **Uses your existing sign-in.** There's no Microsoft Graph API, no Entra ID app registration and no admin consent.
 - **Reads only what Teams shows you.** The extension reads the messages Teams renders in the open chat and scrolls that chat upwards like you would, so Teams loads older messages. It never reads tokens, cookies or network traffic, never calls Teams or Microsoft APIs and never changes anything in Teams. If your account can't see a message, the extension can't either. Images are copied from what the open chat displays (see [Images](#images)).
@@ -64,13 +64,24 @@ Running any capture again is always safe: messages are never stored twice.
 
 Open it from **Open archive & settings** in the popup, or via the extension's *Extension options*.
 
-- **Conversations**: each archived chat with its message count, number of saved images, archived period, completeness, last update and last run. Click the image count to see the chat's images, with who sent each one and when, and to download them. You can **export** one chat, **export all**, or **delete** a chat (with its images) from the archive. Export formats:
-  - **JSON**: the complete archive, for backups and other systems. **Include images** decides whether it contains the saved images.
-  - **ZIP: chat + pictures**: `chat.html` (open it in the browser to read the chat message by message, with each picture where it was sent), `chat.md`, and an `images` folder with the pictures as files, named by number and message time (`001_2026-11-02_1001.png`). Exporting several chats gives one folder per chat and an `index.html`.
-  - **PDF (print)**: opens the same page in a new tab with the print dialog; choose **Save as PDF** as the printer. Allow pop-ups for the archive page if Edge blocks the tab.
+- **Conversations**: each archived chat with its message count, number of saved images, archived period, completeness, last update and last run. Click the image count to see the chat's images, with who sent each one and when, and to download them. You can **export** a chat (**Export…** in its row), several or all chats (**Export…** at the top), or **delete** a chat (with its images) from the archive.
+- **Export…** opens one dialog for every export. Choose:
+  - the **conversations**: one, several or all;
+  - the **format**:
+    - **HTML page**: read the chat message by message in the browser, each picture where it was sent;
+    - **PDF (print)**: opens the same page in a new tab with the print dialog; choose **Save as PDF** as the printer. Allow pop-ups for the archive page if Edge blocks the tab;
+    - **Markdown** and **Plain text**;
+    - **CSV**: one row per message, for Excel and other spreadsheets;
+    - **JSON**: the complete records, which **Import archive…** reads back;
+    - **Knowledge package**: a ZIP with the records as JSON Lines, a Markdown transcript per chat and the pictures as files, for knowledge management systems. **Import archive…** reads it back too;
+  - the **packaging**: one file, or a ZIP with the pictures as files, named by number and message time (`001_2026-11-02_1001.png`). Markdown, text and CSV are always a ZIP when they include pictures; HTML can embed them in the one file;
+  - the **messages**: all archived messages, the last 24 hours, the last 7 days, the last 30 days, or a custom period (From included, Before not);
+  - what to **include**: pictures, file attachments, reply context, system messages and edit history.
+
+  **Knowledge system** sets the knowledge package with pictures, attachments, replies and edit history, without system messages; **Full backup** sets it with everything. The dialog remembers your last choices; the first time it suggests an HTML page. [docs/EXPORT_FORMAT.md](docs/EXPORT_FORMAT.md) describes every format.
 - **Rename** gives a chat its own name in the archive and in exports. The title Teams shows stays visible below it, with earlier titles. Leave the name empty to show the Teams title again.
 - **Merge…** combines two archive entries of the same chat, for example a chat archived under its old and its new title. The dialog lists first the entries that hold some of the same messages or have a similar name, and you choose the one to merge into. Every message is kept once, with its pictures and runs. A merge can't be undone, so export a backup first if in doubt. If the page closes during a merge, the merge finishes the next time the archive page opens.
-- **Import archive…** merges a JSON export back in. Use it to restore a backup or combine archives from two browser profiles. Importing the same file twice changes nothing. An imported chat joins the entry of the same chat, also when that entry has another title.
+- **Import archive…** merges a JSON export or a knowledge package (`.zip`) back in. Use it to restore a backup or combine archives from two browser profiles. The whole file is checked before anything is written, so a damaged file changes nothing, and importing the same file twice changes nothing. An imported chat joins the entry of the same chat, also when that entry has another title. If the page closes during an import, the chat being imported shows as partial; import the file again to complete it.
 - **Recent sessions**: every run with what it captured (*Update*, *Since 14 Nov 2026*, *Full history*, *Visible only*), its status (*Running*, *Paused*, *Completed*, *Stopped*, *Interrupted*, *Failed*), result, counters (including images saved and not saved) and warnings.
 - **Settings** (see below) and the storage used.
 
@@ -140,21 +151,21 @@ When **Save the images shown in messages** is on (the default), every picture th
 - Images the browser doesn't allow the extension to read (shown from another site without permission), images that never finish loading, and images above **Largest image to save** aren't saved. Their name and link are kept, the run counts them as *not saved*, and a warning explains why.
 - Emoji are kept as text, not as images.
 - A picture is read once per run. Pictures of archived messages that are shown unchanged are taken from the archive instead of being read again; **Re-read archived parts** reads them again.
-- Saved images are included in JSON exports (as base64) and restored by **Import archive…**. The **ZIP: chat + pictures** and **PDF (print)** exports show each picture in its message.
+- Saved images are included in JSON exports (as base64) and knowledge packages (as files), and restored by **Import archive…**. HTML, PDF, Markdown and text exports show each picture in its message.
 - Profile pictures (for example of the original sender in a forwarded message) aren't message content and aren't saved.
 
 ## Data and privacy
 
 - The archive lives in the extension's IndexedDB in your Edge profile, which the extension's own pages read directly. Content scripts run only on the Teams domains listed in the manifest. The extension sends nothing anywhere. Its only requests re-read images the open chat is displaying, normally from the page's own copy or the browser cache (see [Images](#images)); turn off **Save the images shown in messages** to avoid them.
-- **Removing the extension deletes its archive.** Export a JSON backup first (Archive page → **Export all**). Back up regularly anyway.
-- Exports contain your messages in plain text, and your saved images unless **Include images** is off. Store them accordingly.
+- **Removing the extension deletes its archive.** Export a backup first (Archive page → **Export…** → **Full backup**). Back up regularly anyway.
+- Exports contain your messages in plain text, and your saved images unless **Pictures** is off. Store them accordingly.
 
 ## Limitations
 
 - It works through Teams Web's page structure, not an official API. Teams updates can require selector overrides, or an extractor update, before extraction works again.
 - It's designed for chats. Channel posts may be read partially, but reply threads under channel posts aren't expanded.
 - Reactions, read receipts and the contents of attached files aren't captured. Images are saved as displayed (often a preview size). Images the browser won't let the extension read are kept as name and link only.
-- A browser can hold only about 500 MB of text in one file. An "Export all" with many images can exceed that; export chats one at a time, or with **Include images** off.
+- Exports are written, and imports read, in parts, so a large archive doesn't have to fit in memory. An export of several gigabytes can still be more than the browser allows for one download; export fewer chats, a period, or without pictures.
 - A chat is identified by its Teams thread id. If that id can't be found on the page, the extension goes by the chat title and by the archived messages the chat shows:
   - A renamed chat continues its archive entry when some of the messages on screen are archived already. Otherwise it gets a new entry, which you can merge with the old one on the archive page.
   - A chat with the title of another archived chat gets an entry of its own when that entry lacks the messages it shows from the same period.
@@ -189,7 +200,7 @@ src/
   extractor/   reads the Teams DOM: selectors, conversation detection, message parsing, diagnostics
   scraper/     the scroll-and-capture engine: pause/resume/stop, render detection, ordering
   storage/     IndexedDB archive: schema, merge rules, coverage, reply resolution, chat identity and merging
-  export/      export format v1, JSON, chat transcript with pictures (ZIP, print), import
+  export/      export format v1, the export pipeline (HTML, print, Markdown, text, CSV, JSON, knowledge package), ZIP writing and reading, streaming import
   background/  service worker: routes captured batches into the archive
   content/     content script: runs the engine in the Teams tab
   ui/          popup / side panel and the archive & settings page
