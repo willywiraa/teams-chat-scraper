@@ -250,7 +250,9 @@ Compared with the selectors of the reference exporter (all unverified against yo
 
 ## 4. Phases
 
-Each phase works test-first, ends with `npm run check` and a short manual checklist in Edge, and is committed to `main` when you ask.
+Each phase works test-first, ends with `npm run check` and a short manual checklist in Edge, and is committed and pushed to `main`.
+
+**Status (21 November 2026):** Phase 0 is built. Diagnostics now includes the identifier probe. The next step is the two reports from your Teams: one from a 1:1 chat and one from a group chat.
 
 | Phase | Content | Size |
 | --- | --- | --- |

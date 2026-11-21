@@ -85,7 +85,10 @@ Open it from **Open archive & settings** in the popup, or via the extension's *E
 
 The extension recognises Teams' page structure through a list of CSS selectors. Microsoft changes Teams Web from time to time, so a selector can stop matching.
 
-1. Open the chat, open the popup and click **Diagnostics → Run diagnostics**. The report contains counts and the page's structure only, never message text or names. **Copy report** puts it on the clipboard.
+1. Open the chat, open the popup and click **Diagnostics → Run diagnostics**. The report contains counts and the page's structure only, never message text, names or ids. **Copy report** puts it on the clipboard.
+   - The report also shows where chat and person ids appear on the page, for example in the chat header or the chat list.
+   - Each id is replaced by its kind (such as `thread:v2` or `person:orgid`) and a label (`T1`, `P1`, …). The same label in two places means the same id.
+   - This shows whether Teams puts the chat id on the page when the popup says the chat is "identified by title".
 2. Look at which selectors match nothing (for example `author` or `timestamp`).
 3. Under **Settings → Selector overrides**, enter a JSON object that replaces just those lists, for example:
 

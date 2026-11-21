@@ -251,12 +251,28 @@ async function command(type: 'content/pause' | 'content/resume' | 'content/stop'
   }
 }
 
+const PROBE_REGION_LABELS: Record<string, string> = {
+  'selected-entry': 'selected entry',
+  'chat-header': 'header',
+  'message-list': 'messages',
+  main: 'main area',
+  elsewhere: 'chat list and rest',
+};
+
+/** For example "header 1, chat list and rest 12", or "none". */
+function idPlaces(report: DiagnosticsReport, family: 'thread' | 'person'): string {
+  const places = Object.entries(report.identifiers.distinct[family]).filter(([, count]) => (count ?? 0) > 0);
+  return places.length > 0 ? places.map(([region, count]) => `${PROBE_REGION_LABELS[region] ?? region} ${count}`).join(', ') : 'none';
+}
+
 function summarizeDiagnostics(report: DiagnosticsReport): string {
   const p = report.parse;
   const parts = [
     report.messageList.found ? 'message list found' : 'message list NOT found',
     report.conversation.detected ? `chat detected (${report.conversation.hasThreadId ? 'by id' : 'by title'})` : 'chat NOT detected',
     `${p.messages} messages parsed (${p.withMessageId} with id, ${p.senderExplicit + p.senderSelf + p.senderInferred} with sender)`,
+    `chat ids on the page: ${idPlaces(report, 'thread')}`,
+    `person ids: ${idPlaces(report, 'person')}`,
   ];
   return parts.join(' · ');
 }

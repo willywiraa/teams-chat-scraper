@@ -1,11 +1,13 @@
 /**
- * Selector health report for the current Teams page. The report contains counts and a
- * redacted structural skeleton only (no message text, names or ids), so it is safe to
- * share when tuning selector overrides after a Teams UI change.
+ * Selector health report for the current Teams page. The report contains counts, redacted
+ * structural skeletons and, for identifiers, only their kind and where they appear (no message
+ * text, names or ids), so it is safe to share when tuning selector overrides after a Teams UI
+ * change.
  */
 import type { DateOrder } from '../shared/time';
 import type { ConversationIdentity, ExtractedMessage } from '../shared/types';
 import { safeQueryAll } from './dom';
+import { probePage, redactIdentifiers, type IdentifierProbe, type ProbeRegion } from './id-probe';
 import { collectItems, findMessageList, parseRenderedConversation } from './page-parser';
 import type { AttributeIdRule, SelectorProfile } from './selectors';
 
@@ -14,7 +16,11 @@ export interface SelectorHit {
   count: number;
 }
 
+/** Version of the report layout; 2 added the identifier probe, the extra selector probes and the skeletons. */
+export const DIAGNOSTICS_REPORT_VERSION = 2;
+
 export interface DiagnosticsReport {
+  reportVersion: number;
   generatedAt: string;
   page: { origin: string; path: string; visibility: string };
   conversation: {
@@ -57,23 +63,78 @@ export interface DiagnosticsReport {
     attachments: string[];
     reply: string | null;
   }>;
+  /** Outline of a representative message item. */
   skeleton: string | null;
+  /** Where chat and person identifiers appear on the page (kinds and places only). */
+  identifiers: IdentifierProbe;
+  /** Counts for markup the selector profile does not use (yet), such as other reply forms. */
+  probes: Record<string, SelectorHit[]>;
+  /** Outlines of the chat header, the highlighted chat-list entry and the first quoted reply. */
+  skeletons: { chatHeader: string | null; highlightedEntry: string | null; reply: string | null };
   warnings: string[];
 }
 
-const THREAD_PATTERN = /19:[A-Za-z0-9._-]+@/g;
-
-function safeDecode(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
+/** An attribute value fit for a skeleton: identifiers and long numbers removed, free text elided. */
+function redact(value: string): string {
+  const redacted = redactIdentifiers(value);
+  return /\s/.test(redacted.trim()) || redacted.length > 80 ? '<other>' : redacted;
 }
 
-/** Removes thread ids (also URL-encoded ones) and long numbers such as message ids. */
-function redact(value: string): string {
-  return safeDecode(value).replace(THREAD_PATTERN, '19:<id>@').replace(/\d{4,}/g, '<n>');
+/** Quoted-reply markup seen in new Teams that the default reply selectors do not cover. */
+const REPLY_LEADS = ['[data-tid="referencePreview"]', '[role="group"][aria-label^="Begin Reference"]'];
+
+/** Candidate selectors that are counted but not used for parsing. */
+const PROBES: ReadonlyArray<{ name: string; scope: 'page' | 'list'; selectors: readonly string[] }> = [
+  {
+    name: 'conversation.header',
+    scope: 'page',
+    selectors: ['[id^="chat-header-"]', '[id^="chat-topic-person-"]', '[data-tid="chat-header"]', '[data-tid*="chat-header"]', '[data-tid*="chat-title"]', '[role="main"] h1', '[role="main"] h2'],
+  },
+  {
+    name: 'conversation.list',
+    scope: 'page',
+    selectors: ['[data-tid="chat-list-item"]', '[data-tid*="chat-list"]', '[role="tree"]', '[role="treeitem"]', '[data-fui-tree-item-value]', '[aria-selected="true"]', '[aria-current]:not([aria-current="false"])'],
+  },
+  {
+    name: 'message.author',
+    scope: 'list',
+    selectors: ['[id^="author-"]', '[data-tid="message-author-name"]', '[data-tid="message-avatar"]', '[data-tid="message-avatar"] img', 'img[src*="profilepicture"]', '.fui-Avatar'],
+  },
+  { name: 'message.reply', scope: 'list', selectors: [...REPLY_LEADS, '[data-tid*="reference"]', '[data-tid*="quote"]', '[itemtype*="Reply"]', 'blockquote'] },
+  { name: 'message.reaction', scope: 'list', selectors: ['[data-tid="diverse-reaction-pill-button"]', '[data-tid*="reaction"]'] },
+  { name: 'message.image', scope: 'list', selectors: ['img[data-tid="rich-file-preview-image"]', 'img[itemtype*="AMSImage"]', 'img[data-gallery-src]', 'img[src^="blob:"]', 'img'] },
+  { name: 'message.file', scope: 'list', selectors: ['[data-tid="file-preview-root"]', '[data-tid*="file-preview"]', '[data-tid*="file-card"]', '[data-tid*="attachment"]'] },
+];
+
+const REGION_NAMES: Record<ProbeRegion, string> = {
+  'selected-entry': 'selected chat entry',
+  'chat-header': 'chat header',
+  'message-list': 'message list',
+  main: 'main area',
+  elsewhere: 'rest of the page',
+};
+
+function unique<T>(values: readonly T[]): T[] {
+  return [...new Set(values)];
+}
+
+/** What the identifier probe says about a chat that the extension identifies by its title. */
+function identifierWarnings(probe: IdentifierProbe): string[] {
+  const warnings: string[] = [];
+  const isThread = (kind: string): boolean => kind.startsWith('thread:');
+  const near = probe.findings.filter((finding) => isThread(finding.kind) && (finding.region === 'chat-header' || finding.region === 'selected-entry'));
+  if (near.length > 0) {
+    const where = unique(near.map((finding) => REGION_NAMES[finding.region]));
+    const attributes = unique(near.map((finding) => finding.attribute));
+    warnings.push(`A Teams thread id is shown in the ${where.join(' and ')} (${attributes.join(', ')}), but it is not read from there yet.`);
+  }
+  const missed = probe.highlighted.find((item) => item.selectorIndex === null && item.region === 'elsewhere' && item.identifiers.some((id) => isThread(id.kind)));
+  if (missed) {
+    const attributes = unique(missed.identifiers.filter((id) => isThread(id.kind)).map((id) => id.attribute));
+    warnings.push(`The highlighted chat-list entry (${missed.element}) has a thread id (${attributes.join(', ')}) but does not match the "selectedChatItem" selectors.`);
+  }
+  if (near.length === 0 && !missed && !probe.url.kinds.some(isThread)) warnings.push('No thread id for this chat is shown on the page.');
+  return warnings;
 }
 
 /** Redacted outline of an element: tags, test ids, roles and Fluent class names only. */
@@ -140,7 +201,7 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
   try {
     const url = new URL(options.href);
     origin = url.origin;
-    path = redact(url.pathname);
+    path = redactIdentifiers(url.pathname);
   } catch {
     // Leave empty for non-URL inputs.
   }
@@ -247,8 +308,24 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
     skeleton = representative ? skeletonOf(representative) : skeletonOf(list, 60, 6);
   }
 
+  const { probe, regions, entry } = probePage(doc, { profile, list, href: options.href });
+  if (conversation && !conversation.threadId) warnings.push(...identifierWarnings(probe));
+
+  const probes: Record<string, SelectorHit[]> = {};
+  for (const { name, scope: where, selectors } of PROBES) probes[name] = countHits(where === 'list' ? scope : doc, selectors);
+  const replyLeads = (probes['message.reply'] ?? []).filter((hit) => REPLY_LEADS.includes(hit.selector) && hit.count > 0);
+  if (replyLeads.length > 0 && !hits['reply.container']?.some((hit) => hit.count > 0)) {
+    warnings.push(`Quoted replies are shown as ${replyLeads.map((hit) => hit.selector).join(' or ')}, which the reply selectors do not recognise yet.`);
+  }
+  let reply: Element | null = null;
+  for (const selector of [...REPLY_LEADS, ...profile.reply.container]) {
+    reply = safeQueryAll(scope, selector)[0] ?? null;
+    if (reply) break;
+  }
+
   const scroller = options.scrollContainer ?? null;
   return {
+    reportVersion: DIAGNOSTICS_REPORT_VERSION,
     generatedAt: new Date(options.referenceMs).toISOString(),
     page: { origin, path, visibility: doc.visibilityState ?? 'unknown' },
     conversation: {
@@ -266,6 +343,13 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
     parse,
     samples,
     skeleton,
+    identifiers: probe,
+    probes,
+    skeletons: {
+      chatHeader: regions.header ? skeletonOf(regions.header, 80, 10) : null,
+      highlightedEntry: entry ? skeletonOf(entry, 40, 8) : null,
+      reply: reply ? skeletonOf(reply, 40, 8) : null,
+    },
     warnings,
   };
 }
