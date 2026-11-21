@@ -375,6 +375,20 @@ export class ArchiveRepository {
     }
   }
 
+  /** Keys of a conversation's messages in timeline order: a view pages through them without holding the messages. */
+  async messageKeys(conversationKey: string): Promise<string[]> {
+    const tx = this.db.transaction(STORES.messages, 'readonly');
+    return (await requestToPromise(tx.objectStore(STORES.messages).index(INDEXES.messagesBySort).getAllKeys(prefixRange(conversationKey)))) as string[];
+  }
+
+  /** The messages with these keys, in the order given; keys no longer archived are left out. */
+  async getMessagesByKey(keys: readonly string[]): Promise<StoredMessage[]> {
+    const tx = this.db.transaction(STORES.messages, 'readonly');
+    const store = tx.objectStore(STORES.messages);
+    const messages = await Promise.all(keys.map((key) => requestToPromise(store.get(key)) as Promise<StoredMessage | undefined>));
+    return messages.filter((message): message is StoredMessage => message !== undefined);
+  }
+
   async countMessages(conversationKey: string): Promise<number> {
     const tx = this.db.transaction(STORES.messages, 'readonly');
     return requestToPromise(tx.objectStore(STORES.messages).index(INDEXES.messagesBySort).count(prefixRange(conversationKey)));

@@ -35,6 +35,8 @@ export interface ScrapeSettings {
   pauseWhenHidden: boolean;
   /** Save the images displayed in messages (the copy Teams already shows) into the archive. */
   saveImages: boolean;
+  /** Presets the popup's per-run "Re-read archived parts" option. */
+  rescanByDefault: boolean;
   /** Images larger than this many megabytes are not saved (their name and link still are). */
   maxImageMB: number;
   /** Your display name, used as the sender of your own messages (Teams does not render it). */
@@ -73,6 +75,7 @@ export const DEFAULT_SETTINGS: Readonly<ScrapeSettings> = Object.freeze({
   updateOverlapDays: 2,
   pauseWhenHidden: true,
   saveImages: true,
+  rescanByDefault: false,
   maxImageMB: 10,
   selfDisplayName: '',
   dateOrder: 'auto',
@@ -125,12 +128,51 @@ export function normalizeSettings(input: unknown): ScrapeSettings {
   }
   if (typeof source.pauseWhenHidden === 'boolean') result.pauseWhenHidden = source.pauseWhenHidden;
   if (typeof source.saveImages === 'boolean') result.saveImages = source.saveImages;
+  if (typeof source.rescanByDefault === 'boolean') result.rescanByDefault = source.rescanByDefault;
   if (typeof source.selfDisplayName === 'string') result.selfDisplayName = source.selfDisplayName.trim().slice(0, 200);
   if (typeof source.dateOrder === 'string' && DATE_ORDERS.includes(source.dateOrder as DateOrderSetting)) {
     result.dateOrder = source.dateOrder as DateOrderSetting;
   }
   if (typeof source.selectorOverrides === 'string') result.selectorOverrides = source.selectorOverrides;
   return result;
+}
+
+// ------------------------------------------------------------ scrolling speed
+
+export type ScrollSpeed = 'gentle' | 'normal' | 'fast';
+
+type SpeedKey = 'scrollIntervalMs' | 'seekIntervalMs' | 'scrollStepRatio' | 'scrollAnimationMs' | 'settleQuietMs' | 'settleTimeoutMs';
+
+/**
+ * The scrolling speeds the settings offer. Each sets the scroll intervals, step, animation and
+ * render waits together; Normal is the defaults. Fast stays within the safety limits (at least
+ * 250 ms between steps while capturing).
+ */
+export const SPEED_PRESETS: Readonly<Record<ScrollSpeed, Readonly<Pick<ScrapeSettings, SpeedKey>>>> = Object.freeze({
+  gentle: { scrollIntervalMs: 1000, seekIntervalMs: 600, scrollStepRatio: 0.6, scrollAnimationMs: 400, settleQuietMs: 500, settleTimeoutMs: 8000 },
+  normal: {
+    scrollIntervalMs: DEFAULT_SETTINGS.scrollIntervalMs,
+    seekIntervalMs: DEFAULT_SETTINGS.seekIntervalMs,
+    scrollStepRatio: DEFAULT_SETTINGS.scrollStepRatio,
+    scrollAnimationMs: DEFAULT_SETTINGS.scrollAnimationMs,
+    settleQuietMs: DEFAULT_SETTINGS.settleQuietMs,
+    settleTimeoutMs: DEFAULT_SETTINGS.settleTimeoutMs,
+  },
+  fast: { scrollIntervalMs: 300, seekIntervalMs: 150, scrollStepRatio: 1, scrollAnimationMs: 150, settleQuietMs: 250, settleTimeoutMs: 5000 },
+});
+
+export const SPEED_KEYS = Object.keys(SPEED_PRESETS.normal) as SpeedKey[];
+
+/** The preset the settings match, or `custom` when the advanced values differ from every preset. */
+export function speedOf(settings: Pick<ScrapeSettings, SpeedKey>): ScrollSpeed | 'custom' {
+  for (const [speed, values] of Object.entries(SPEED_PRESETS) as Array<[ScrollSpeed, Pick<ScrapeSettings, SpeedKey>]>) {
+    if (SPEED_KEYS.every((key) => settings[key] === values[key])) return speed;
+  }
+  return 'custom';
+}
+
+export function withSpeed(settings: ScrapeSettings, speed: ScrollSpeed): ScrapeSettings {
+  return { ...settings, ...SPEED_PRESETS[speed] };
 }
 
 /** What is written to storage: the settings plus the revision they were saved under. */

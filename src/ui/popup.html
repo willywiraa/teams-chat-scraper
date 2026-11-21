@@ -5,49 +5,52 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Teams Chat Extractor</title>
     <link rel="stylesheet" href="ui.css" />
+    <script src="theme.js"></script>
   </head>
   <body data-mode="popup">
     <header class="app-header">
       <img src="icons/logo.svg" alt="" width="20" height="20" />
       <h1>Teams Chat Extractor</h1>
+      <div class="header-actions">
+        <button type="button" id="btn-archive" class="icon-button" title="Open the archive" aria-label="Open the archive"></button>
+        <button type="button" id="btn-panel" class="icon-button" title="Open in the side panel" aria-label="Open in the side panel"></button>
+      </div>
     </header>
 
     <main class="popup-main">
-      <section id="view-message" class="card notice" hidden></section>
+      <section id="view-message" class="card notice" role="status" hidden></section>
 
       <section id="view-connect" class="card" hidden>
         <p>This Teams tab was opened before the extension was loaded or updated.</p>
         <div class="button-row">
-          <button id="btn-connect" class="primary">Connect to this tab</button>
+          <button type="button" id="btn-connect" class="primary">Connect to this tab</button>
         </div>
         <p class="muted small">Reloading the Teams tab works too.</p>
       </section>
 
       <section id="view-main" hidden>
-        <div class="card">
-          <div class="conv-title" id="conv-title"></div>
+        <div class="card" aria-labelledby="conv-title">
+          <h2 class="conv-title" id="conv-title"></h2>
           <div class="muted small" id="conv-meta"></div>
+          <div class="small" id="arch-summary"></div>
           <div class="warning small" id="conv-warning" hidden></div>
-          <dl class="stats">
-            <div><dt>Archived</dt><dd id="arch-count">–</dd></div>
-            <div><dt>History</dt><dd id="arch-coverage">–</dd></div>
-            <div><dt>On screen</dt><dd id="visible-count">–</dd></div>
-          </dl>
-          <div class="muted small" id="arch-range"></div>
           <div class="muted small" id="arch-note" hidden></div>
+          <p class="small" id="troubleshoot-hint" hidden>
+            Nothing found on this page? <a href="#" id="link-troubleshoot-hint">Troubleshooting</a> checks what the extension can see.
+          </p>
         </div>
 
         <div class="card notice" id="resume-box" hidden>
           <div id="resume-text" class="small"></div>
           <div class="button-row">
-            <button id="btn-resume-session" class="primary">Resume extraction</button>
+            <button type="button" id="btn-resume-session" class="primary">Resume extraction</button>
           </div>
         </div>
 
         <div class="card" id="actions">
           <label class="capture-label small" for="capture-choice">Capture</label>
           <div class="capture-row">
-            <select id="capture-choice">
+            <select id="capture-choice" aria-describedby="capture-hint">
               <option value="update">New messages since the last update</option>
               <option value="last-24h">Last 24 hours</option>
               <option value="last-7d">Last 7 days</option>
@@ -59,15 +62,26 @@
           </div>
           <div class="muted small" id="capture-hint"></div>
           <div class="button-row">
-            <button id="btn-start" class="primary">Start</button>
-            <button id="btn-visible" title="Archive only the messages currently rendered on screen, without scrolling">Visible only</button>
+            <button type="button" id="btn-start" class="primary">Start</button>
           </div>
-          <label class="check small"><input type="checkbox" id="opt-rescan" /> Re-read archived parts at normal speed (picks up edits and deletions)</label>
+          <details class="more" id="more">
+            <summary>More</summary>
+            <div class="button-row">
+              <button type="button" id="btn-visible" title="Archive only the messages currently rendered on screen, without scrolling">Visible only</button>
+            </div>
+            <label class="check small" for="opt-rescan">
+              <input type="checkbox" id="opt-rescan" />
+              <span>Re-read archived parts at normal speed (picks up edits and deletions)</span>
+            </label>
+            <div class="muted small">
+              <span id="visible-count">–</span> · <a href="#" id="link-troubleshoot">Troubleshooting</a>
+            </div>
+          </details>
         </div>
 
         <div class="card" id="run-panel" hidden>
           <div class="run-head">
-            <span id="run-phase" class="badge"></span>
+            <span id="run-phase" class="badge" role="status"></span>
             <span id="run-elapsed" class="muted small"></span>
           </div>
           <dl class="stats">
@@ -80,31 +94,15 @@
           <div class="muted small" id="run-detail"></div>
           <ul class="warnings small" id="run-warnings" hidden></ul>
           <div class="button-row">
-            <button id="btn-pause">Pause</button>
-            <button id="btn-continue" class="primary" hidden>Continue</button>
-            <button id="btn-stop" class="danger">Stop</button>
+            <button type="button" id="btn-pause">Pause</button>
+            <button type="button" id="btn-continue" class="primary" hidden>Continue</button>
+            <button type="button" id="btn-stop" class="danger">Stop</button>
           </div>
         </div>
 
-        <div class="card" id="result-panel" hidden></div>
-
-        <details class="card" id="diag-panel">
-          <summary>Diagnostics</summary>
-          <p class="muted small">Checks which page selectors match on this Teams page and where chat and person ids appear. The report holds counts and page structure only: no message text, names or ids.</p>
-          <div class="button-row">
-            <button id="btn-diag">Run diagnostics</button>
-            <button id="btn-diag-copy" hidden>Copy report</button>
-          </div>
-          <div id="diag-summary" class="small" hidden></div>
-          <pre id="diag-output" hidden></pre>
-        </details>
+        <div class="card" id="result-panel" role="status" hidden></div>
       </section>
     </main>
-
-    <footer class="app-footer">
-      <button id="btn-archive" class="link">Open archive &amp; settings</button>
-      <button id="btn-panel" class="link">Open in side panel</button>
-    </footer>
     <script src="popup.js"></script>
   </body>
 </html>

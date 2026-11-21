@@ -2,7 +2,6 @@
  * Popup / side panel: remote control for the content script in the active Teams tab,
  * plus a summary of what is already archived for the open conversation.
  */
-import type { DiagnosticsReport } from '../extractor/diagnostics';
 import { capturePlan, updateAnchor, type CaptureChoice } from '../shared/capture';
 import {
   STALE_SESSION_MS,
@@ -35,6 +34,8 @@ import {
   STOP_REASON_LABELS,
   TYPE_LABELS,
 } from './common';
+import { icon } from './icons';
+import { historyLine, routeHash, type Route } from './view-models';
 
 const isPanel = document.body.dataset.mode === 'panel';
 let tab: chrome.tabs.Tab | null = null;
@@ -43,8 +44,9 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 let refreshing = false;
 let resumable: SessionRecord | null = null;
 let busy = false;
-let diagnosticsText = '';
 let settings: ScrapeSettings = { ...DEFAULT_SETTINGS };
+/** The re-read option is preset from the settings once; after that it is the user's choice. */
+let rescanPreset = false;
 /** What the capture controls were last drawn for; the choice is preset once per chat. */
 const captureState: { record: ConversationRecord | null; conversationKey: string | null; idle: boolean; presetFor: string | null } = {
   record: null,
@@ -100,6 +102,10 @@ async function init(): Promise<void> {
     return;
   }
   await loadSettings();
+  if (!rescanPreset) {
+    byId<HTMLInputElement>('opt-rescan').checked = settings.rescanByDefault;
+    rescanPreset = true;
+  }
   await refresh();
   pollTimer = setInterval(() => void refresh(), 1000);
 }
@@ -139,9 +145,17 @@ function renderStatus(status: ContentStatus): void {
     : '';
   setText('conv-warning', warning);
   setHidden('conv-warning', !warning);
-  setText('visible-count', status.visibleMessages === null ? '–' : formatNumber(status.visibleMessages));
+  setText(
+    'visible-count',
+    status.visibleMessages === null ? 'Messages on screen: unknown' : `${formatNumber(status.visibleMessages)} ${status.visibleMessages === 1 ? 'message' : 'messages'} on screen`,
+  );
 
   const idle = status.state === 'idle';
+  // Troubleshooting is offered up front only when the extension finds nothing to archive.
+  const result = status.lastResult?.counters;
+  const runFoundNothing = result !== undefined && result.uniqueSeen + result.inserted + result.updated + result.unchanged === 0;
+  const foundNothing = !conversation || (idle && (status.visibleMessages === 0 || runFoundNothing));
+  setHidden('troubleshoot-hint', !foundNothing);
   for (const id of ['btn-visible', 'btn-resume-session']) {
     (byId<HTMLButtonElement>(id)).disabled = !idle || !conversation || busy;
   }
@@ -222,11 +236,10 @@ async function renderArchive(status: ContentStatus): Promise<void> {
   const conversation = status.conversation;
   resumable = null;
   if (!conversation) {
-    setText('arch-count', '–');
-    setText('arch-coverage', '–');
-    setText('arch-range', '');
+    setText('arch-summary', '');
     setHidden('arch-note', true);
     setHidden('resume-box', true);
+    byId('btn-start').classList.add('primary');
     renderCapture({ record: null, conversationKey: null, idle: false });
     return;
   }
@@ -234,20 +247,9 @@ async function renderArchive(status: ContentStatus): Promise<void> {
   // The archive entry of this chat, found as an extraction would find it.
   const resolution = await repo.resolveConversation(conversation, status.evidence ?? null);
   const record = resolution.record;
-  const note = archiveNote(resolution, conversation.title);
-  setText('arch-note', note);
-  setHidden('arch-note', !note);
-  setText('arch-count', formatNumber(record?.messageCount ?? 0));
+  renderArchiveNote(resolution, conversation.title);
+  setText('arch-summary', historyLine(record));
   const coverage = record ? coverageStatus(record.coverage, record.newestSortKey) : 'empty';
-  setText('arch-coverage', coverage === 'complete' ? 'Complete' : coverage === 'partial' ? 'Partial' : 'Not archived');
-  setText(
-    'arch-range',
-    record && record.oldestSortKey !== null
-      ? `Archived ${formatDate(record.oldestSortKey)} – ${formatDate(record.newestSortKey)} · ${
-          record.lastUpdate ? `updated ${formatAgo(record.lastUpdate.at)}` : `last run ${formatDateTime(record.lastExtractedAt)}`
-        }`
-      : '',
-  );
   renderCapture({ record, conversationKey: conversation.conversationKey, idle: status.state === 'idle' });
 
   if (status.state === 'idle' && record) {
@@ -256,6 +258,8 @@ async function renderArchive(status: ContentStatus): Promise<void> {
   }
   const showResume = status.state === 'idle' && resumable !== null && coverage !== 'complete';
   setHidden('resume-box', !showResume);
+  // Resume takes the primary place while it is offered.
+  byId('btn-start').classList.toggle('primary', !showResume);
   if (showResume && resumable) {
     setText(
       'resume-text',
@@ -265,10 +269,13 @@ async function renderArchive(status: ContentStatus): Promise<void> {
   }
 }
 
-/** Says when the chat is archived under another name, separately, or in more than one entry. */
-function archiveNote(resolution: ConversationResolution, teamsTitle: string | null): string {
+/**
+ * Says when the chat is archived under another name, separately, or in more than one entry; for
+ * the last, links to the entry in the archive, where Merge… joins them.
+ */
+function renderArchiveNote(resolution: ConversationResolution, teamsTitle: string | null): void {
   const { record, reason, alsoMatching } = resolution;
-  const parts: string[] = [];
+  const parts: Array<string | HTMLElement> = [];
   if (reason === 'separate') {
     parts.push('Another archived chat has this title. This chat will be archived separately.');
   } else if (record) {
@@ -276,9 +283,42 @@ function archiveNote(resolution: ConversationResolution, teamsTitle: string | nu
     if (label !== teamsTitle && (record.displayName || reason === 'overlap' || reason === 'alias')) parts.push(`Archived as “${label}”.`);
   }
   if (alsoMatching.length > 0) {
-    parts.push(`Some of these messages are also in ${alsoMatching.length === 1 ? 'another archive entry' : `${alsoMatching.length} other archive entries`}; you can merge them on the archive page.`);
+    parts.push(`${parts.length > 0 ? ' ' : ''}Some of these messages are also in ${alsoMatching.length === 1 ? 'another archive entry' : `${alsoMatching.length} other archive entries`}. `);
+    parts.push(
+      record
+        ? archiveLink({ view: 'conversation', key: record.conversationKey }, 'Merge them in the archive')
+        : archiveLink({ view: 'conversations' }, 'Merge them in the archive'),
+    );
   }
-  return parts.join(' ');
+  const note = byId('arch-note');
+  note.replaceChildren(...parts);
+  note.hidden = parts.length === 0;
+}
+
+/** The address of a part of the archive page. */
+function archiveUrl(route: Route | null): string {
+  return chrome.runtime.getURL(`archive.html${route ? routeHash(route) : ''}`);
+}
+
+/** Opens the archive page, at a part of it when given; the popup closes, the side panel stays. */
+async function openArchive(route: Route | null): Promise<void> {
+  if (route) await chrome.tabs.create({ url: archiveUrl(route) });
+  else await chrome.runtime.openOptionsPage();
+  if (!isPanel) window.close();
+}
+
+function archiveLink(route: Route, text: string): HTMLAnchorElement {
+  return el('a', {
+    href: archiveUrl(route),
+    onclick: (event: Event) => {
+      event.preventDefault();
+      void openArchive(route);
+    },
+  }, text);
+}
+
+function troubleshootingRoute(): Route {
+  return { view: 'settings', section: 'troubleshooting', tabId: tab?.id ?? null };
 }
 
 /** Today in the local time zone, as a date field value. */
@@ -364,49 +404,6 @@ async function command(type: 'content/pause' | 'content/resume' | 'content/stop'
   }
 }
 
-const PROBE_REGION_LABELS: Record<string, string> = {
-  'selected-entry': 'selected entry',
-  'chat-header': 'header',
-  'message-list': 'messages',
-  main: 'main area',
-  elsewhere: 'chat list and rest',
-};
-
-/** For example "header 1, chat list and rest 12", or "none". */
-function idPlaces(report: DiagnosticsReport, family: 'thread' | 'person'): string {
-  const places = Object.entries(report.identifiers.distinct[family]).filter(([, count]) => (count ?? 0) > 0);
-  return places.length > 0 ? places.map(([region, count]) => `${PROBE_REGION_LABELS[region] ?? region} ${count}`).join(', ') : 'none';
-}
-
-function summarizeDiagnostics(report: DiagnosticsReport): string {
-  const p = report.parse;
-  const parts = [
-    report.messageList.found ? 'message list found' : 'message list NOT found',
-    report.conversation.detected ? `chat detected (${report.conversation.hasThreadId ? 'by id' : 'by title'})` : 'chat NOT detected',
-    `${p.messages} messages parsed (${p.withMessageId} with id, ${p.senderExplicit + p.senderSelf + p.senderInferred} with sender)`,
-    `chat ids on the page: ${idPlaces(report, 'thread')}`,
-    `person ids: ${idPlaces(report, 'person')}`,
-  ];
-  return parts.join(' · ');
-}
-
-async function runDiagnosticsClick(): Promise<void> {
-  const output = byId('diag-output');
-  try {
-    const report = await sendToTab<DiagnosticsReport>({ type: 'content/diagnostics' });
-    diagnosticsText = JSON.stringify(report, null, 2);
-    setText('diag-summary', summarizeDiagnostics(report) + (report.warnings.length ? ` · ${report.warnings.join(' ')}` : ''));
-    output.textContent = diagnosticsText;
-  } catch (error) {
-    diagnosticsText = '';
-    setText('diag-summary', `Diagnostics failed: ${errorText(error)}`);
-    output.textContent = '';
-  }
-  setHidden('diag-summary', false);
-  output.hidden = diagnosticsText === '';
-  setHidden('btn-diag-copy', diagnosticsText === '');
-}
-
 function wire(): void {
   byId('btn-start').addEventListener('click', startCapture);
   byId('btn-visible').addEventListener('click', () => void start('visible', false, null));
@@ -422,9 +419,16 @@ function wire(): void {
   byId('btn-pause').addEventListener('click', () => void command('content/pause'));
   byId('btn-continue').addEventListener('click', () => void command('content/resume'));
   byId('btn-stop').addEventListener('click', () => void command('content/stop'));
-  byId('btn-diag').addEventListener('click', () => void runDiagnosticsClick());
-  byId('btn-diag-copy').addEventListener('click', () => void navigator.clipboard.writeText(diagnosticsText));
-  byId('btn-archive').addEventListener('click', () => void chrome.runtime.openOptionsPage());
+  byId('btn-archive').append(icon('open'));
+  byId('btn-panel').append(icon('panel'));
+  byId('btn-archive').addEventListener('click', () => void openArchive(null));
+  // Diagnostics lives in the archive's Settings, for the Teams tab this popup was opened on.
+  for (const id of ['link-troubleshoot', 'link-troubleshoot-hint']) {
+    byId(id).addEventListener('click', (event) => {
+      event.preventDefault();
+      void openArchive(troubleshootingRoute());
+    });
+  }
   byId('btn-connect').addEventListener('click', async () => {
     if (!tab?.id) return;
     try {

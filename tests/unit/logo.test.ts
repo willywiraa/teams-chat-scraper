@@ -78,14 +78,24 @@ function contrast(a: string, b: string): number {
   return (high + 0.05) / (low + 0.05);
 }
 
+const CSS = readFileSync('src/ui/ui.css', 'utf8');
+
+/** The colour variables set in the CSS rule that starts with `selector`. */
+function colours(selector: string): Record<string, string> {
+  const start = CSS.indexOf(selector);
+  expect(start, selector).toBeGreaterThanOrEqual(0);
+  const block = CSS.slice(start, CSS.indexOf('}', start));
+  return Object.fromEntries([...block.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})\s*;/gi)].map((m) => [m[1] as string, (m[2] as string).toLowerCase()]));
+}
+
+/** "System" when Windows is dark, and an explicit "Dark". */
+const DARK_FOR_SYSTEM = ":root:not([data-theme='light']) {";
+const DARK_CHOSEN = ":root[data-theme='dark'] {";
+
 /** The colour variables of the light theme and, over them, of the dark theme. */
 function themes(): Record<'light' | 'dark', Record<string, string>> {
-  const css = readFileSync('src/ui/ui.css', 'utf8');
-  const variables = (block: string) => Object.fromEntries([...block.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})\s*;/gi)].map((m) => [m[1] as string, (m[2] as string).toLowerCase()]));
-  const light = variables(css.slice(css.indexOf(':root {'), css.indexOf('}', css.indexOf(':root {'))));
-  const darkStart = css.indexOf('@media (prefers-color-scheme: dark)');
-  const dark = { ...light, ...variables(css.slice(darkStart, css.indexOf('}', css.indexOf(':root {', darkStart)))) };
-  return { light, dark };
+  const light = colours(':root {');
+  return { light, dark: { ...light, ...colours(DARK_CHOSEN) } };
 }
 
 describe('interface colours', () => {
@@ -93,6 +103,15 @@ describe('interface colours', () => {
     const { light, dark } = themes();
     expect(light.accent).toBe(BRAND_BLUE);
     for (const theme of [light, dark]) for (const value of Object.values(theme)) expect(['#5b5fc7', '#4f52b2', '#7f85f5', '#9297f7']).not.toContain(value);
+  });
+
+  it('are the same for a dark Windows theme and for the Dark choice', () => {
+    expect(CSS.indexOf('@media (prefers-color-scheme: dark)')).toBeLessThan(CSS.indexOf(DARK_FOR_SYSTEM));
+    const system = colours(DARK_FOR_SYSTEM);
+    expect(Object.keys(system).length).toBeGreaterThanOrEqual(15);
+    expect(colours(DARK_CHOSEN)).toEqual(system);
+    // Every colour of the light theme has a dark value.
+    expect(Object.keys(system).sort()).toEqual(Object.keys(colours(':root {')).sort());
   });
 
   it('keep text readable (WCAG AA, 4.5:1) in both themes', () => {
@@ -110,11 +129,18 @@ describe('interface colours', () => {
         ['text', 'notice-bg'],
         ['text', 'success-bg'],
         ['text', 'error-bg'],
+        ['text', 'hover'],
+        ['muted', 'hover'],
+        ['accent', 'selected'],
+        ['text', 'self-bg'],
+        ['muted', 'self-bg'],
       ];
       for (const [fore, back] of pairs) {
         const ratio = contrast(theme[fore] as string, theme[back] as string);
         expect(ratio, `${name}: --${fore} on --${back}`).toBeGreaterThanOrEqual(4.5);
       }
+      // The focus ring needs 3:1 against what it sits on (WCAG 1.4.11).
+      for (const back of ['card', 'bg']) expect(contrast(theme.focus as string, theme[back] as string), `${name}: --focus on --${back}`).toBeGreaterThanOrEqual(3);
     }
   });
 });

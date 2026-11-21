@@ -1,5 +1,5 @@
 /**
- * The archive page's export dialog: conversations × format × period × content × packaging.
+ * The app page's Export section: conversations × format × period × content × packaging.
  * The last choices are remembered (in chrome.storage.local); on first use it suggests an HTML
  * page with everything.
  */
@@ -42,10 +42,8 @@ const RANGE_LABELS: Record<RangeChoice, string> = {
   custom: 'Custom period…',
 };
 
-export interface ExportDialogHost {
+export interface ExportPanelHost {
   repository(): Promise<ArchiveRepository>;
-  /** Shows a result on the archive page. */
-  notify(text: string, kind: 'notice' | 'error' | 'success'): void;
 }
 
 function localInputValue(ms: number): string {
@@ -84,18 +82,16 @@ export function explainChoices(choices: ExportChoices, conversations: number): s
   }
 }
 
-export class ExportDialog {
+export class ExportPanel {
   private records: ConversationRecord[] = [];
   private choices: ExportChoices = normalizeChoices(DEFAULT_EXPORT_CHOICES);
   private loaded = false;
   private running = false;
+  /** The conversations chosen when the section was last shown, kept when it is shown again. */
+  private chosen: Set<string> | null = null;
 
-  constructor(private readonly host: ExportDialogHost) {
+  constructor(private readonly host: ExportPanelHost) {
     this.build();
-  }
-
-  private get dialog(): HTMLDialogElement {
-    return byId<HTMLDialogElement>('export-dialog');
   }
 
   private build(): void {
@@ -112,13 +108,15 @@ export class ExportDialog {
     byId('btn-export-select-none').addEventListener('click', () => this.selectAll(false));
     byId('btn-preset-knowledge').addEventListener('click', () => this.applyPreset('knowledge'));
     byId('btn-preset-backup').addEventListener('click', () => this.applyPreset('backup'));
-    byId('btn-export-cancel').addEventListener('click', () => this.dialog.close());
     // Opened from the click itself: the print tab must be opened before anything is awaited.
     byId('btn-export-run').addEventListener('click', () => this.run());
   }
 
-  /** Opens the dialog with the given conversations selected (all when none are given). */
-  async open(records: ConversationRecord[], selected?: readonly string[]): Promise<void> {
+  /**
+   * Shows the section for these conversations: the given ones selected, else those selected
+   * before (all the first time).
+   */
+  async show(records: ConversationRecord[], selected?: readonly string[]): Promise<void> {
     if (!this.loaded) {
       try {
         const stored = await chrome.storage.local.get(EXPORT_CHOICES_KEY);
@@ -128,8 +126,11 @@ export class ExportDialog {
       }
       this.loaded = true;
     }
+    if (this.running) return;
     this.records = records;
-    const chosen = new Set(selected ?? records.map((record) => record.conversationKey));
+    if (this.chosen && !selected) this.chosen = new Set(this.selectedKeys());
+    const chosen = new Set(selected ?? (this.chosen && this.chosen.size > 0 ? [...this.chosen] : records.map((record) => record.conversationKey)));
+    this.chosen = chosen;
     byId('export-conversations').replaceChildren(
       ...records.map((record, i) =>
         el(
@@ -142,7 +143,11 @@ export class ExportDialog {
     );
     this.message('');
     this.writeControls();
-    if (!this.dialog.open) this.dialog.showModal();
+  }
+
+  /** Sets a preset's choices (Full backup from the Storage settings, for example). */
+  usePreset(preset: ExportPreset): void {
+    this.applyPreset(preset);
   }
 
   private selectedKeys(): string[] {
@@ -257,10 +262,7 @@ export class ExportDialog {
     void chrome.storage.local.set({ [EXPORT_CHOICES_KEY]: this.choices }).catch(() => undefined);
     const work = request.format === 'pdf' ? this.print(request, win) : this.download(request);
     void work
-      .then((text) => {
-        this.dialog.close();
-        this.host.notify(text, 'success');
-      })
+      .then((text) => this.message(text, 'success'))
       .catch((error) => this.message(errorText(error), 'error'))
       .finally(() => {
         this.running = false;

@@ -220,7 +220,7 @@ Everything in `export/` works on an `ExportReader` (`pipeline.ts`), which `Archi
 - Text goes to a `BlobSink` (`sink.ts`), which turns it into a `Blob` every 4 MB, so the browser can keep a large export on disk instead of in one string. ZIPs are written by `ZipWriter` (`zip.ts`): files are stored, written in parts (several at once), and placed in the archive when closed; the central directory comes last.
 - The renderers (`render.ts`) turn a conversation header, a day heading and a message into HTML, Markdown, text or a CSV row. Pictures come from a `PictureSource`: embedded as `data:` addresses for one HTML file (read again for each page), written once as files into a ZIP, or shown from object URLs for printing. **PDF (print)** opens its tab in the click itself (pop-up blockers allow only that), then writes the page into it in parts with `document.write`, waits for the pictures and calls `print()`.
 - `options.ts` holds the export model: formats, packagings (`packagingsFor`), presets, periods (`rangeFor`), and what the records always keep (`fixedContent`: attachments and replies, which are part of `contentHash`). Records of a part of a conversation (`exportedRecord`) count what they hold and limit `coverage` to the period (`clipCoverage`), so importing them never claims history they lack.
-- The export dialog (`ui/export-dialog.ts`) remembers its choices in `chrome.storage.local` (`exportChoices.v1`) and repairs them when read (`normalizeChoices`).
+- The Export section (`ui/export-panel.ts`) remembers its choices in `chrome.storage.local` (`exportChoices.v1`) and repairs them when read (`normalizeChoices`).
 
 **Import** (`import.ts`) tells a ZIP from JSON by its first bytes and reads both in parts:
 
@@ -230,6 +230,30 @@ Everything in `export/` works on an `ExportReader` (`pipeline.ts`), which `Archi
 
 **An interrupted import** (the tab closed, the browser stopped) leaves no hidden messages. `ArchiveRepository.beginImport` first writes the conversation's entry, with its identity but no coverage or last update; `importMessages` writes each batch in one transaction with the entry's message count; `finishImport` merges coverage and the last update and recounts. A conversation cut off in the middle is therefore listed, with the messages written so far, as partial, and importing the file again completes it without duplicates. `archivedImages` reports a message's images as saved only when they are stored, so a run after an import that stopped between messages and images reads those images again.
 
+## User interface
+
+The popup and the side panel are one page (`ui/popup.html`, `popup.ts`; the build writes `sidepanel.html` from it with `data-mode="panel"`). It polls the content script of the active Teams tab once a second and resolves the open chat's archive entry as a run would.
+
+The archive page (`ui/archive.html`) is one page with four sections, chosen by the address:
+
+| Address | Section | Code |
+| --- | --- | --- |
+| `#overview` (and anything unknown) | Totals, latest activity, recent runs | `archive/overview.ts` |
+| `#conversations` | The list: search, type filter, sorting, actions | `archive/conversations.ts` |
+| `#conversation/<key>` | One chat's messages | `archive/conversation-view.ts` |
+| `#export` | Every export | `export-panel.ts` |
+| `#settings`, `#settings/<general\|advanced\|storage\|troubleshooting>`, `#settings/troubleshooting/<tab id>` | Settings | `archive/settings-view.ts` |
+
+- `archive.ts` is the router. It shows the section for the address, marks it in the navigation, sets the document title, moves the focus to the section's heading, and keeps one status line (`notify`; a message sent with `carry` survives the navigation it causes). The sections share an `AppContext` (`archive/context.ts`): the repository, `notify`, `go(route)`, `refresh()` and `exportConversations(keys, preset)`.
+- What the screens show is worked out in `ui/view-models.ts` without the page: routes (`parseRoute`, `routeHash`), search and filters, the one-line summary (`historyLine`), overview totals, and the message view (`messageView`, `timeline`, `earlierPage`). The section modules only draw it, through `el()` and text nodes; nothing is parsed as HTML.
+- The message view holds only a chat's message keys (`ArchiveRepository.messageKeys`, from the `byConversationSort` index) and reads the messages of each page of 200 by key (`getMessagesByKey`). Pictures are read per page and shown from object URLs, which are revoked when the view closes.
+- Troubleshooting lists the open Teams tabs (`chrome.tabs.query` with the Teams host patterns, covered by the host permissions) and sends `content/status` and `content/diagnostics` to the chosen one. The popup links to it with its own tab's id.
+- Settings keep their stored keys. The scrolling speed (`SPEED_PRESETS`, `speedOf`, `withSpeed` in `shared/settings.ts`) is not stored: it is worked out from the six scrolling and waiting values, and is *Custom* when they match no preset.
+
+**Themes.** `ui/ui.css` defines the design tokens (spacing, radii, type sizes, colours) as CSS variables. The dark colours are written twice: for *System* when the operating system is dark (`@media (prefers-color-scheme: dark)` on `:root:not([data-theme='light'])`) and for an explicit *Dark* (`:root[data-theme='dark']`); `tests/unit/logo.test.ts` checks that both say the same and that every text colour has a contrast of at least 4.5:1. The choice is a display preference kept in the extension's `localStorage` (`ui.theme`), so `theme.js` (`ui/theme-boot.ts`) can read it synchronously in each page's `<head>` and set `data-theme` before anything is drawn. Open pages follow a change through the `storage` event.
+
+**Accessibility.** Every page has a skip link, visible focus (`:focus-visible`), labelled controls and icon buttons with names; the status line, run progress and results are live regions. Below 760 px the tables show each row as a card with each cell labelled (`table.responsive`, `td[data-label]`).
+
 ## Security
 
 - Host permissions and content scripts are limited to `teams.microsoft.com`, `teams.cloud.microsoft` and `teams.live.com`.
@@ -237,7 +261,7 @@ Everything in `export/` works on an `ExportReader` (`pipeline.ts`), which `Archi
 - The background accepts requests only from Teams tabs and the extension's own pages. The content script accepts commands only from this extension.
 - Message HTML is re-serialised through a tag and attribute allow-list, and only `http(s)`, `mailto` and `tel` links are kept. The UI writes text through `textContent` only.
 - There is no remote code and no `eval`. The only network access is re-reading images that the open chat displays, normally from the page's own copy or the browser cache (see [Images](#images)). It is off when **Save the images shown in messages** is off.
-- Saved images are shown on the archive page only as `<img>` elements from `blob:` addresses, so image content (an SVG, for example) can't run scripts there.
+- Saved images are shown on the archive page (the message view and the image dialog) only as `<img>` elements from `blob:` addresses, so image content (an SVG, for example) can't run scripts there.
 - Diagnostics reports hold counts and redacted page skeletons. They contain no text, names, message ids or thread ids.
   - The identifier probe (`extractor/id-probe.ts`) reads only attribute values of rendered elements.
   - It reports each identifier as its kind (`thread:v2`, `person:orgid`, …) and a label (`T1`, `P1`, …). Equal labels mean equal values, so a report shows where an identifier appears without revealing it.

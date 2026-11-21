@@ -14,6 +14,7 @@ const entryPoints = {
   content: 'src/content/content-script.ts',
   popup: 'src/ui/popup.ts',
   archive: 'src/ui/archive.ts',
+  theme: 'src/ui/theme-boot.ts',
 };
 
 const staticFiles = ['src/ui/popup.html', 'src/ui/archive.html', 'src/ui/ui.css'];

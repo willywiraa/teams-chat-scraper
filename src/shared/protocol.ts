@@ -29,6 +29,9 @@ export type Response<T> = { ok: true; data: T } | { ok: false; error: string };
 export const STALE_SESSION_MS = 90_000;
 export const HEARTBEAT_INTERVAL_MS = 15_000;
 
+/** The Teams sites as match patterns, for finding Teams tabs (the manifest's host permissions). */
+export const TEAMS_MATCH_PATTERNS = ['https://teams.microsoft.com/*', 'https://teams.cloud.microsoft/*', 'https://teams.live.com/*'];
+
 export const TEAMS_URL_PATTERN = /^https:\/\/(teams\.microsoft\.com|teams\.cloud\.microsoft|teams\.live\.com)\//;
 
 // ------------------------------------------------------------- background

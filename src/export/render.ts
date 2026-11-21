@@ -140,7 +140,7 @@ export function replyTargetOf(message: StoredMessage): ReplyTarget {
   return { sender: senderLabel(message), preview: (message.text.split('\n')[0] ?? '').slice(0, 200) };
 }
 
-function attachmentPrefix(kind: string): string {
+export function attachmentPrefix(kind: string): string {
   return kind === 'image' ? 'Image' : kind === 'card' ? 'Card' : kind === 'link-preview' ? 'Link' : 'File';
 }
 

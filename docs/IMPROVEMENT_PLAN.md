@@ -252,7 +252,7 @@ Compared with the selectors of the reference exporter (all unverified against yo
 
 Each phase works test-first, ends with `npm run check` and a short manual checklist in Edge, and is committed and pushed to `main`.
 
-**Status (21 November 2026):** Phases 0 to 4 are built, except the Phase 1 selector fixes and the name (decision 1).
+**Status (21 November 2026):** Phases 0 to 5 are built, except the Phase 1 selector fixes and the name (decision 1).
 
 - **Phase 0:** Diagnostics includes the identifier probe.
 - **Phase 1 (extension 1.2.0):** database version 3, the resolver, title history, renaming, and manual merge with a journal.
@@ -279,6 +279,13 @@ Each phase works test-first, ends with `npm run check` and a short manual checkl
   - One description (`scripts/logo.ts`) gives the SVG master, the 16, 32, 48 and 128 px icons, and the store logo (300 × 300) and small tile (440 × 280). The master's edges lie on whole pixels at 32 and 48 px; 16 px has its own pixel-aligned variant. A test fails when a committed file no longer matches the description.
   - The accent changes from the Teams purple to blue in both themes, and in exported HTML. A test keeps every text colour pair at WCAG AA contrast (4.5:1) in both themes.
   - The store tile has no text, so it doesn't depend on the name. A README note says the project isn't affiliated with Microsoft. The name itself waits for decision 1.
+- **Phase 5 (extension 1.6.0):**
+  - Design tokens (spacing, radii, type sizes, colours) and a **Theme** setting: System, Light or Dark. The choice is kept in the extension's `localStorage` and applied before the page is drawn, so nothing flashes. A test checks that the two dark rules agree and keeps every text pair at 4.5:1.
+  - The popup and side panel follow 2.5: one summary line, warnings only when they can be acted on (with a link to merge), two icon buttons in the header, and **Visible only**, **Re-read**, the on-screen count and a Troubleshooting link under **More**. Diagnostics moved to Settings › Troubleshooting; the popup shows the link on its own only when it finds no chat or no messages. The **Capture** choice from Phase 2 stays in place of separate Full history and Update buttons, and **Resume** takes the primary style while it is offered.
+  - The archive page has four sections with their own addresses: **Overview** (totals, latest activity, recent runs, Back up now), **Conversations** (search, type filter, sorting; a message view with day headings, replies, pictures in place, attachments and earlier versions, 200 messages at a time), **Export** (the Phase 3 dialog as a section) and **Settings**.
+  - Settings: General (theme, scrolling speed Gentle/Normal/Fast, images, pausing, maximum duration, update overlap), Advanced collapsed (the other values, display name, date order, **Re-read archived parts by default**, selector overrides, reset), Storage and Troubleshooting. The stored keys and safety limits are unchanged; the speed is worked out from the stored values and shows *Custom* when they match no preset. Gentle uses 1,000 ms rather than 1,200 ms, so it can never be mistaken for the default that revision 2 replaced.
+  - Keyboard: skip link, visible focus, focus moved to the heading of the section opened. Narrow windows show table rows as labelled cards.
+  - View-model tests (routes, search and filters, summary lines, totals, the message view and its pages, speed presets, theme) and [MANUAL_CHECKLIST.md](MANUAL_CHECKLIST.md) for Edge.
 - **Next:** the selector fixes, which wait for two Diagnostics reports from your Teams: one from a 1:1 chat and one from a group chat.
 
 | Phase | Content | Size |
