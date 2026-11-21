@@ -38,7 +38,7 @@ import {
   type MessageOverlap,
 } from './conversation-identity';
 import { mergeAllCoverage } from './coverage';
-import { openDatabase, prefixRange, requestToPromise, transactionDone } from './idb';
+import { openDatabase, prefixRange, readLast, requestToPromise, transactionDone } from './idb';
 import { absorbDuplicate, mergeImported, mergeObservation } from './merge';
 import { CANDIDATE_TEXT_LIMIT, findReplyTarget, normalizeForMatch, type ReplyCandidate } from './reply-resolver';
 import { DB_NAME, DB_VERSION, INDEXES, STORES, upgradeArchiveDb } from './schema';
@@ -95,6 +95,13 @@ export interface MergeOutcome extends MergeProgress {
   target: ConversationRecord;
 }
 
+/** Another archive entry that holds some of the same messages as the entry asked about. */
+export interface SharedMessages {
+  conversationKey: string;
+  /** Messages with a Teams id that both entries hold, among those compared. */
+  shared: number;
+}
+
 /** Kept in the meta store while a merge runs, so an interrupted merge can be finished. */
 export interface MergeJournal {
   key: string;
@@ -113,6 +120,8 @@ const MERGE_JOURNAL_PREFIX = 'merge:';
 const MAX_MERGE_HOPS = 16;
 /** Messages shown in a chat that are compared with the archive to identify it. */
 const MAX_EVIDENCE_MESSAGES = 60;
+/** Messages from each end of an entry's timeline compared with other entries, to suggest merges. */
+const SHARED_MESSAGES_PER_END = 100;
 /** Archived messages read to check whether an entry contradicts the messages shown. */
 const MAX_CONTRADICTION_READ = 400;
 const ACTIVE_STATUSES = ['running', 'paused'] as const;
@@ -190,18 +199,19 @@ function evidenceMessages(evidence: IdentityEvidence | null): ShownMessage[] {
 }
 
 /**
- * True when entry `conversationKey` holds messages with Teams ids from the time span of the
- * messages shown, and not one of its messages from that span is among them: a different chat.
+ * True when entry `conversationKey` holds at least two messages with Teams ids from the time span
+ * of the messages shown, and not one of them is shown: the chat shows every message of that
+ * span, so the entry is a different chat. Ids only: two chats often both contain an "ok".
  */
 async function contradicts(messages: IDBObjectStore, conversationKey: string, shown: ShownMessage[]): Promise<boolean> {
   const times = shown.map((item) => item.sortKey).filter((time): time is number => time !== null);
   if (times.length < 2) return false;
   const span = IDBKeyRange.bound([conversationKey, Math.min(...times)], [conversationKey, Math.max(...times)]);
   const archived = (await requestToPromise(messages.index(INDEXES.messagesBySort).getAll(span, MAX_CONTRADICTION_READ))) as StoredMessage[];
-  if (archived.filter((message) => message.messageId).length < 2) return false;
+  const archivedIds = archived.map((message) => message.messageId).filter((messageId): messageId is string => messageId !== null);
+  if (archivedIds.length < 2) return false;
   const ids = new Set(shown.map((item) => item.messageId));
-  const hashes = new Set(shown.map((item) => item.contentHash));
-  return !archived.some((message) => (message.messageId !== null && ids.has(message.messageId)) || hashes.has(message.contentHash));
+  return !archivedIds.some((messageId) => ids.has(messageId));
 }
 
 export class ArchiveRepository {
@@ -426,6 +436,35 @@ export class ArchiveRepository {
       if (candidate && (await contradicts(messages, candidate.conversationKey, shown))) contradicted.add(candidate.conversationKey);
     }
     return decideConversation({ identity, direct, aliased, overlaps: Array.from(overlaps.values()), contradicted });
+  }
+
+  /**
+   * The other entries that hold some of the same messages as entry `conversationKey`, matched by
+   * Teams message id, most shared first. Two entries of one chat (say, before and after Teams
+   * renamed it) share the messages both runs saw; two different chats practically never share an
+   * id. Compares the oldest and newest messages of the entry, where two such entries overlap.
+   */
+  async entriesSharingMessages(conversationKey: string, perEnd: number = SHARED_MESSAGES_PER_END): Promise<SharedMessages[]> {
+    const tx = this.db.transaction([STORES.conversations, STORES.messages], 'readonly');
+    const live = this.liveRecordReader(tx.objectStore(STORES.conversations));
+    const messages = tx.objectStore(STORES.messages);
+    const timeline = messages.index(INDEXES.messagesBySort);
+    const own = (await live(conversationKey))?.conversationKey ?? conversationKey;
+    const oldest = (await requestToPromise(timeline.getAll(prefixRange(conversationKey), perEnd))) as StoredMessage[];
+    const newest = await readLast<StoredMessage>(timeline, prefixRange(conversationKey), perEnd);
+    const ids = new Set([...oldest, ...newest].map((message) => message.messageId).filter((messageId): messageId is string => Boolean(messageId)));
+
+    const counts = new Map<string, number>();
+    const byMessageId = messages.index(INDEXES.messagesByMessageId);
+    for (const messageId of ids) {
+      const holders = new Set<string>();
+      for (const stored of (await requestToPromise(byMessageId.getAll(messageId))) as StoredMessage[]) {
+        const record = await live(stored.conversationKey);
+        if (record && record.conversationKey !== own) holders.add(record.conversationKey);
+      }
+      for (const holder of holders) counts.set(holder, (counts.get(holder) ?? 0) + 1);
+    }
+    return Array.from(counts, ([key, shared]) => ({ conversationKey: key, shared })).sort((a, b) => b.shared - a.shared || a.conversationKey.localeCompare(b.conversationKey));
   }
 
   /** Reads conversation records, following entries that were merged into another one. */

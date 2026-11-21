@@ -288,6 +288,65 @@ describe('content controller + background router + archive', () => {
     await expect(controller.start({ mode: 'full', rescan: false, resumeOf: null })).rejects.toThrow(/No conversation detected/);
   });
 
+  it('continues a renamed chat in its archive entry', async () => {
+    const { items, expected } = generateConversation({ count: 60, participants: PEOPLE, selfName: 'Me', seed: 41 });
+    simulator = new ChatSimulator({ items, threadId: null, title: 'Old name' });
+    archive = await openTestRepository();
+    const repository = archive;
+    const { send } = transport(repository);
+    await createController(send).start({ mode: 'full', rescan: false, resumeOf: null });
+    expect(await controllers[0]!.whenIdle()).toMatchObject({ status: 'completed', conversationKey: 'title:old name' });
+    expect(await repository.countMessages('title:old name')).toBe(expected.length);
+
+    // Teams shows the chat under its new name; no chat id is shown.
+    simulator.dispose();
+    simulator = new ChatSimulator({ items, threadId: null, title: 'New name' });
+    const renamed = createController(send);
+    const idle = await renamed.status();
+    expect(idle.conversation?.conversationKey).toBe('title:new name');
+    expect(idle.evidence?.messages.length).toBeGreaterThan(1);
+    expect(JSON.stringify(idle.evidence)).not.toMatch(/Message \d+ from/);
+
+    const { sessionId } = await renamed.start({ mode: 'incremental', rescan: false, resumeOf: null });
+    expect((await renamed.status()).session?.conversation.conversationKey).toBe('title:old name');
+    expect(await renamed.whenIdle()).toMatchObject({ status: 'completed', conversationKey: 'title:old name', counters: { inserted: 0 } });
+    expect(await repository.getConversation('title:new name')).toBeUndefined();
+    expect(await repository.getConversation('title:old name')).toMatchObject({ title: 'New name', aliases: ['title:new name'], messageCount: expected.length });
+    expect((await repository.getConversation('title:old name'))?.titleHistory?.map((seen) => seen.title)).toEqual(['Old name', 'New name']);
+    expect(await repository.getSession(sessionId)).toMatchObject({ conversationKey: 'title:old name', detectedKey: 'title:new name', status: 'completed' });
+  });
+
+  it('gives a different chat with the title of an archived chat an entry of its own', async () => {
+    const startMs = Date.UTC(2024, 0, 15, 9, 0, 0);
+    const first = generateConversation({ count: 40, participants: ['Alice Andersen'], selfName: 'Me', seed: 51, startMs });
+    simulator = new ChatSimulator({ items: first.items, threadId: null, title: 'Alice Andersen' });
+    archive = await openTestRepository();
+    const repository = archive;
+    const { send } = transport(repository);
+    await createController(send).start({ mode: 'full', rescan: false, resumeOf: null });
+    await controllers[0]!.whenIdle();
+
+    // Another person with the same name, chatting over the same hours.
+    const second = generateConversation({ count: 40, participants: ['Alice Andersen (Sales)'], selfName: 'Me', seed: 52, startMs: startMs + 7 });
+    simulator.dispose();
+    simulator = new ChatSimulator({ items: second.items, threadId: null, title: 'Alice Andersen' });
+    const other = createController(send);
+    await other.start({ mode: 'full', rescan: false, resumeOf: null });
+    const result = await other.whenIdle();
+
+    expect(result?.conversationKey).toMatch(/^local:/);
+    const ownKey = result?.conversationKey as string;
+    expect(await repository.countMessages('title:alice andersen')).toBe(first.expected.length);
+    expect(await repository.countMessages(ownKey)).toBe(second.expected.length);
+    expect(await repository.getConversation(ownKey)).toMatchObject({ title: 'Alice Andersen', aliases: ['title:alice andersen'] });
+
+    // Opened again later, each chat continues in its own entry.
+    const again = createController(send);
+    await again.start({ mode: 'incremental', rescan: false, resumeOf: null });
+    expect(await again.whenIdle()).toMatchObject({ conversationKey: ownKey, counters: { inserted: 0 } });
+    expect((await repository.listConversations()).length).toBe(2);
+  });
+
   it('produces diagnostics that contain no message content or names', async () => {
     const { repository, expected } = await setup(40, 26);
     const controller = createController(transport(repository).send);

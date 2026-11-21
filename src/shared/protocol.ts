@@ -12,7 +12,9 @@ import type {
   ConversationRecord,
   CoverageRange,
   ExtractedMessage,
+  IdentityEvidence,
   ImageSaveStatus,
+  ResolutionReason,
   ScrapeMode,
   SessionCounters,
   SessionStatus,
@@ -31,7 +33,16 @@ export const TEAMS_URL_PATTERN = /^https:\/\/(teams\.microsoft\.com|teams\.cloud
 // ------------------------------------------------------------- background
 
 export type BackgroundRequest =
-  | { type: 'session/begin'; conversation: ConversationIdentity; mode: ScrapeMode; rescan: boolean; resumeOf: string | null }
+  | {
+      type: 'session/begin';
+      /** The conversation as detected in Teams. */
+      conversation: ConversationIdentity;
+      /** Messages shown in the chat, to find its archive entry when Teams shows no chat id. */
+      evidence?: IdentityEvidence | null;
+      mode: ScrapeMode;
+      rescan: boolean;
+      resumeOf: string | null;
+    }
   | {
       type: 'session/batch';
       sessionId: string;
@@ -69,8 +80,17 @@ export type BackgroundRequest =
 
 export interface SessionBeginResponse {
   sessionId: string;
+  /**
+   * Key of the archive entry the session writes to. Differs from the detected key when the chat
+   * was renamed, or has the title of another archived chat; messages are keyed with it.
+   */
+  conversationKey: string;
+  /** How the entry was chosen. */
+  resolution: ResolutionReason;
   coverage: CoverageRange[];
   conversation: ConversationRecord | null;
+  /** Other archive entries holding messages of this chat: candidates for merging. */
+  alsoMatching: string[];
 }
 
 export interface SessionBatchResponse {
@@ -142,10 +162,13 @@ export interface FinishedSessionInfo extends EngineResult {
 
 export interface ContentStatus {
   state: 'idle' | 'running' | 'paused' | 'stopping';
+  /** While idle the conversation as detected; while running the one the session writes to. */
   conversation: ConversationIdentity | null;
   conversationError: string | null;
   /** Messages currently rendered (only computed while idle). */
   visibleMessages: number | null;
+  /** Messages shown, to find the chat's archive entry (only computed while idle). */
+  evidence?: IdentityEvidence | null;
   session: ActiveSessionInfo | null;
   progress: EngineProgress | null;
   lastResult: FinishedSessionInfo | null;

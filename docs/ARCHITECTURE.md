@@ -27,7 +27,7 @@ shared ◀── storage   ◀── background, export, ui
 
 ## One extraction pass
 
-1. **Identify the chat** (`extractor/conversation.ts`). The Teams thread id comes from the highlighted chat-list entry, then the URL, then other page hints. It becomes the archive key `teams:<threadId>`. Without a thread id the normalised title is used (`title:<title>`), and the UI warns about it. The thread id also gives the chat type (`@unq.gbl.spaces` → 1:1, `@thread.v2` → group, `19:meeting_` → meeting, `@thread.tacv2` → channel).
+1. **Identify the chat** (`extractor/conversation.ts`). The Teams thread id comes from the highlighted chat-list entry, then the URL, then other page hints. It becomes the archive key `teams:<threadId>`. Without a thread id the normalised title is used (`title:<title>`). When a run begins, this detected key is resolved to an archive entry, which can have another key (see [Finding a chat's archive entry](#finding-a-chats-archive-entry)). The thread id also gives the chat type (`@unq.gbl.spaces` → 1:1, `@thread.v2` → group, `19:meeting_` → meeting, `@thread.tacv2` → channel).
 2. **Collect the rendered items** (`extractor/page-parser.ts`). Message containers, date dividers and system messages, in document order.
 3. **Parse each item** (`extractor/message-parser.ts`):
    - the Teams message id (`data-mid`, `content-<id>`, `timestamp-<id>`, …);
@@ -72,6 +72,42 @@ Merge rules never lose information:
 - Changed content pushes the previous text into `previousVersions` and sets `isEdited`. A change caused by an extractor upgrade alone doesn't set `isEdited`.
 - An empty observation (a message only partly rendered) is ignored.
 - Each batch is written in one IndexedDB transaction, so a failed batch leaves nothing half-written.
+
+## Finding a chat's archive entry
+
+A title is a weak identity: Teams chats can be renamed, and two chats can have the same title (two people with the same name, or a recurring "Weekly sync"). So when a run begins, the tab sends the detected identity together with *evidence*: the ids and content hashes of up to 60 of the newest messages on screen that have a Teams id (`identityEvidence` in `extractor/page-parser.ts`). `ArchiveRepository.resolveConversation` looks up three kinds of candidates:
+
+- the entry under the detected key, or the entry it was merged into (`mergedInto`);
+- entries that list the detected key in their `aliases` (multi-entry index `conversations.byAlias`);
+- entries that hold the messages shown (index `messages.byMessageId`). Such an *overlap* is strong when the entry holds at least two of the ids, or one with the same content.
+
+`decideConversation` (`storage/conversation-identity.ts`) then picks one:
+
+| Detected | Result |
+| --- | --- |
+| Thread id | The entry under `teams:<threadId>`, else an entry with that thread id that lists the key as alias, else the entry with the strongest overlap that has no other thread id, else a new entry. An entry with another thread id is never used. |
+| Title only | The entry with the strongest overlap (a renamed chat). Else the entry under the title key, unless it *contradicts* the evidence. Else the most recently extracted entry that lists the key as alias and doesn't contradict it. Else a new entry: under the title key if no entry uses it, otherwise under `local:<uuid>`, so that another chat with this title doesn't mix with the archived one. |
+
+An entry contradicts the evidence when it holds at least two messages with ids from the time span shown and none of them is shown: Teams shows every message of that span, so the entry belongs to another chat. Only ids are compared, because short messages such as "ok" have the same content in many chats. Messages newer than everything archived contradict nothing, since they may be new messages of the archived chat. With no messages with ids on screen, the title decides, as before version 1.2.
+
+The run then writes under the resolved key. The session remembers the detected key (`detectedKey`) when it differs, and each batch adds it to the entry's `aliases`, so the next run finds the entry under that key directly. Every title an entry was archived under is kept in `titleHistory` (first and last seen, the 50 most recent titles). A name given on the archive page (**Rename**) is stored as `displayName`; the archive and the exports show it instead of the title.
+
+The popup resolves the open chat the same way. It shows which entry a run will write to, and mentions other entries that hold the same messages, so they can be merged.
+
+## Merging entries
+
+Before version 1.2 one chat could end up in two entries, for example before and after Teams renamed it, and a renamed chat that shows no archived messages still gets a new entry. The archive page merges two entries (`ArchiveRepository.mergeConversations(source, target)`). A large chat doesn't fit one transaction, so a merge runs in steps and keeps a journal (`merge:<sourceKey>` in the `meta` store):
+
+1. One transaction checks the merge, sets the source's `mergedInto`, adds the source key and its aliases to the target's `aliases`, and writes the journal. From then on, runs for the chat go to the target.
+2. Messages move in transactions of 200 (`rekeyMessage`). A message with a Teams id becomes `<target>#<messageId>`. A strong fingerprint is computed again under the target key and keeps its occurrence suffix (`~N`), so a later run of the target produces the same key. A weak fingerprint can't be computed again and keeps its hash under the target prefix. The old key goes into the message's `aliases`. A message the target already holds is merged like a repeated observation, so it is kept once.
+3. Images move in transactions of 20, then sessions. A moved session keeps the source key in `detectedKey`.
+4. A last transaction combines the two conversation records (titles, aliases, coverage, participants, dates), recounts the messages, and deletes the source and the journal. Quoted replies are then linked again.
+
+If the page closes midway, the journal remains, and the archive page finishes the merge the next time it opens (`resumePendingMerges`). Until then the source is listed as being merged and can't be renamed, merged or deleted. A merge is refused into the entry itself, for an entry that is missing or already part of another merge, for entries with different thread ids, and while a run of the source has reported in the last 90 seconds.
+
+The merge dialog lists first the entries that share messages with the source (`entriesSharingMessages`, which compares the 100 oldest and the 100 newest messages of the source by Teams id), then those with a similar name. The user always chooses the target; nothing is merged automatically.
+
+A message with neither a Teams id nor an exact time has a weak fingerprint made under the key of the entry it was first archived in. The page parser also computes it under the keys of the entries merged into the open chat's entry (`ConversationIdentity.mergedKeys`), so a later run recognises such a message after a merge. If both entries had archived the same message of this kind, the merge keeps both copies, because nothing tells them apart from two equal messages.
 
 ## Images
 
@@ -128,20 +164,23 @@ A run always ends. The engine stops when any of these happens:
 
 ## Database
 
-IndexedDB database `teams-chat-archive` (`storage/schema.ts`), version 2:
+IndexedDB database `teams-chat-archive` (`storage/schema.ts`), version 3:
 
 | Store | Key | Indexes |
 | --- | --- | --- |
-| `conversations` | `conversationKey` | none |
-| `messages` | `key` | `byConversationSort` [conversationKey, sortKey]; `byConversationFingerprint` [conversationKey, fingerprint]; `byAlias` aliases (multi-entry) |
+| `conversations` | `conversationKey` | `byAlias` aliases (multi-entry) |
+| `messages` | `key` | `byConversationSort` [conversationKey, sortKey]; `byConversationFingerprint` [conversationKey, fingerprint]; `byAlias` aliases (multi-entry); `byMessageId` messageId |
 | `sessions` | `sessionId` | `byConversationStarted` [conversationKey, startedAt]; `byStatus` status |
-| `meta` | `key` | none (reserved) |
+| `meta` | `key` | none. Holds the journals of unfinished merges (`merge:<sourceKey>`). |
 | `images` | `key` (`<conversationKey>#img:<imageId>`) | `byConversationImage` [conversationKey, imageId] (unique) |
 
 History:
 
 - Version 1 (extension 1.0): `conversations`, `messages`, `sessions` and `meta`.
-- Version 2 (extension 1.1): adds the `images` store. The upgrade only creates the new store, so all existing records stay as they are. Messages stored before it simply have no `imageId` on their attachments. `tests/integration/migration.test.ts` opens a version 1 database with data and checks that everything survives.
+- Version 2 (extension 1.1): adds the `images` store. The upgrade only creates the new store, so all existing records stay as they are. Messages stored before it simply have no `imageId` on their attachments.
+- Version 3 (extension 1.2): adds the indexes `conversations.byAlias` and `messages.byMessageId`. The upgrade only creates indexes, so all records stay as they are. The new conversation fields (`aliases`, `mergedFrom`, `mergedInto`, `titleHistory` and `displayName`) are optional: a record written before simply lacks them, which reads as empty, and gets them the next time a run writes it. Messages without a Teams id aren't in `byMessageId`.
+
+`tests/integration/migration.test.ts` opens a version 1 and a version 2 database with data, and checks that everything survives the upgrade.
 
 Images are written idempotently: an image that already exists under its key is left unchanged. Deleting a conversation deletes its images too.
 
@@ -166,6 +205,6 @@ Versioning:
 
 The scraper doesn't need to change for this.
 
-- **Files**: use the export format ([EXPORT_FORMAT.md](EXPORT_FORMAT.md)). Ingest by `key`, which is stable and unique, and compare `contentHash` to detect changes. Exports can be repeated at any time.
+- **Files**: use the export format ([EXPORT_FORMAT.md](EXPORT_FORMAT.md)). Ingest by `key`, which is stable and unique, and compare `contentHash` to detect changes. Exports can be repeated at any time. A merge of two entries gives the moved messages new keys and lists the old ones in their `aliases` (see the format's [identity changes](EXPORT_FORMAT.md#identity-changes)).
 - **In-extension sync**: a future module in `background/` can read the archive through `ArchiveRepository` (`listConversations`, `getMessages`, or the streaming `forEachMessage`) and use `lastExtractedAt` / `lastSeenAt` to find what changed. The natural trigger point is `session/end` in `background/router.ts`.
 - **New file formats**: add a serialiser next to `toJson` / `toMarkdown` in `export/exporters.ts`.

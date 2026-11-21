@@ -5,7 +5,7 @@
  */
 import { detectConversation } from '../extractor/conversation';
 import { runDiagnostics, type DiagnosticsReport } from '../extractor/diagnostics';
-import { findMessageList, parseRenderedConversation } from '../extractor/page-parser';
+import { findMessageList, identityEvidence, parseRenderedConversation } from '../extractor/page-parser';
 import { buildSelectorProfile, type SelectorProfile } from '../extractor/selectors';
 import { ScrapeControl, sleep } from '../scraper/control';
 import { runScrape, type EngineProgress, type EngineResult, type EngineSink } from '../scraper/engine';
@@ -25,7 +25,7 @@ import {
 } from '../shared/protocol';
 import type { ScrapeSettings } from '../shared/settings';
 import { resolveDateOrder } from '../shared/time';
-import { emptyCounters, type CapturedImage, type ScrapeMode } from '../shared/types';
+import { emptyCounters, type CapturedImage, type ConversationIdentity, type ExtractedMessage, type IdentityEvidence, type ScrapeMode } from '../shared/types';
 
 export interface ContentControllerDeps {
   doc: Document;
@@ -54,7 +54,7 @@ const DEFAULT_RETRY_DELAYS = [250, 750, 2000, 4000];
 
 function isPermanentError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /context invalidated|Invalid request|Unknown session|does not match|does not belong/i.test(message);
+  return /context invalidated|Invalid request|Unknown session|does not match|does not belong|was merged into/i.test(message);
 }
 
 export class ContentController {
@@ -78,19 +78,16 @@ export class ContentController {
     let conversation = this.session?.conversation ?? null;
     let conversationError: string | null = null;
     let visibleMessages: number | null = null;
+    let evidence: IdentityEvidence | null = null;
     if (!this.control) {
       try {
         const settings = await this.deps.loadSettings();
         const profile = this.profileFrom(settings);
         conversation = detectConversation(this.deps.doc, this.deps.getHref(), profile);
         if (conversation) {
-          visibleMessages = parseRenderedConversation(this.deps.doc, {
-            profile,
-            conversation,
-            selfDisplayName: settings.selfDisplayName || null,
-            referenceMs: this.now(),
-            dateOrder: resolveDateOrder(settings.dateOrder, this.deps.locale),
-          }).messages.length;
+          const messages = this.visibleMessages(settings, profile, conversation);
+          visibleMessages = messages.length;
+          evidence = identityEvidence(messages);
         }
       } catch (error) {
         conversationError = error instanceof Error ? error.message : String(error);
@@ -101,10 +98,22 @@ export class ContentController {
       conversation,
       conversationError,
       visibleMessages,
+      evidence,
       session: this.session,
       progress: this.progress,
       lastResult: this.lastResult,
     };
+  }
+
+  /** Messages currently rendered in the chat. */
+  private visibleMessages(settings: ScrapeSettings, profile: SelectorProfile, conversation: ConversationIdentity): ExtractedMessage[] {
+    return parseRenderedConversation(this.deps.doc, {
+      profile,
+      conversation,
+      selfDisplayName: settings.selfDisplayName || null,
+      referenceMs: this.now(),
+      dateOrder: resolveDateOrder(settings.dateOrder, this.deps.locale),
+    }).messages;
   }
 
   async start(command: StartCommand): Promise<{ sessionId: string }> {
@@ -112,8 +121,8 @@ export class ContentController {
     const settings = await this.deps.loadSettings();
     const profile = this.profileFrom(settings);
     const doc = this.deps.doc;
-    const conversation = detectConversation(doc, this.deps.getHref(), profile);
-    if (!conversation) throw new Error('No conversation detected. Open a chat in Teams first.');
+    const detected = detectConversation(doc, this.deps.getHref(), profile);
+    if (!detected) throw new Error('No conversation detected. Open a chat in Teams first.');
     if (!findMessageList(doc, profile)) throw new Error('The message list was not found on this page. Run Diagnostics from the popup.');
 
     const control = new ScrapeControl();
@@ -123,7 +132,8 @@ export class ContentController {
     try {
       begin = await this.sendWithRetry<SessionBeginResponse>({
         type: 'session/begin',
-        conversation,
+        conversation: detected,
+        evidence: identityEvidence(this.visibleMessages(settings, profile, detected)),
         mode: command.mode,
         rescan: command.rescan,
         resumeOf: command.resumeOf,
@@ -133,6 +143,9 @@ export class ContentController {
       throw error;
     }
     const { sessionId } = begin;
+    // Everything the session writes is keyed with the archive entry's key, which differs from
+    // the detected key for a renamed chat, or a chat with the title of another archived chat.
+    const conversation: ConversationIdentity = { ...detected, conversationKey: begin.conversationKey, mergedKeys: begin.conversation?.mergedFrom ?? [] };
     this.session = { sessionId, mode: command.mode, rescan: command.rescan, startedAt: new Date(this.now()).toISOString(), conversation };
 
     const sink: EngineSink = {
@@ -164,7 +177,11 @@ export class ContentController {
       control,
       dateOrder: resolveDateOrder(settings.dateOrder, this.deps.locale),
       selfDisplayName: settings.selfDisplayName || null,
-      detectConversation: () => detectConversation(doc, this.deps.getHref(), profile),
+      // The same chat is still open while Teams shows the key it was detected under.
+      detectConversation: () => {
+        const current = detectConversation(doc, this.deps.getHref(), profile);
+        return current && current.conversationKey === detected.conversationKey ? conversation : current;
+      },
       imageReader: this.deps.imageReader,
       now: this.now,
       onProgress: (progress) => {

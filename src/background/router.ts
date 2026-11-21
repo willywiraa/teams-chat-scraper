@@ -126,14 +126,19 @@ export async function handleBackgroundRequest(
 
   switch (request.type) {
     case 'session/begin': {
-      const conversationKey = requireString(request.conversation?.conversationKey, 'conversation.conversationKey');
+      const detectedKey = requireString(request.conversation?.conversationKey, 'conversation.conversationKey');
       await repository.markStaleSessions(now.getTime(), deps.staleSessionMs);
       // A new session from a tab means any earlier session of that tab is no longer running.
       if (context.tabId !== null) await repository.markStaleSessions(now.getTime(), 0, context.tabId);
-      const conversation = (await repository.getConversation(conversationKey)) ?? null;
+      // The archive entry of this chat, which can have another key (a renamed chat), or a new
+      // one (a different chat with the title of an archived one).
+      const resolution = await repository.resolveConversation(request.conversation, request.evidence ?? null);
+      const conversationKey = resolution.conversationKey ?? `local:${deps.newId()}`;
+      const conversation = resolution.record;
       const session: SessionRecord = {
         sessionId: deps.newId(),
         conversationKey,
+        detectedKey: conversationKey === detectedKey ? null : detectedKey,
         conversationTitle: request.conversation.title,
         mode: request.mode,
         rescan: Boolean(request.rescan),
@@ -150,7 +155,14 @@ export async function handleBackgroundRequest(
         extractorVersion: EXTRACTOR_VERSION,
       };
       await repository.createSession(session);
-      return { sessionId: session.sessionId, coverage: conversation?.coverage ?? [], conversation };
+      return {
+        sessionId: session.sessionId,
+        conversationKey,
+        resolution: resolution.reason,
+        coverage: conversation?.coverage ?? [],
+        conversation,
+        alsoMatching: resolution.alsoMatching,
+      } satisfies SessionBeginResponse;
     }
 
     case 'session/batch': {
@@ -166,6 +178,8 @@ export async function handleBackgroundRequest(
         messages: messages as never,
         sessionId,
         segments: requireArray(request.segments ?? [], 'segments'),
+        // The key detected in Teams finds this entry again next time.
+        aliases: session.detectedKey ? [session.detectedKey] : [],
         now,
       });
       // A session wrongly marked as interrupted (e.g. after the computer slept) is revived here;

@@ -15,7 +15,8 @@ import {
   settingsForStorage,
   type ScrapeSettings,
 } from '../shared/settings';
-import type { ConversationRecord, SessionCounters, StoredImage } from '../shared/types';
+import { conversationLabel, type ConversationRecord, type SessionCounters, type StoredImage } from '../shared/types';
+import { titleHistoryOf } from '../storage/conversation-identity';
 import { coverageStatus } from '../storage/coverage';
 import { ArchiveRepository } from '../storage/repository';
 import {
@@ -193,7 +194,7 @@ async function showImages(record: ConversationRecord): Promise<void> {
   });
   const position = (image: StoredImage) => context.get(image.imageId)?.sortKey ?? Number.MAX_VALUE;
   const ordered = [...images].sort((a, b) => position(a) - position(b) || a.firstSavedAt.localeCompare(b.firstSavedAt));
-  byId('image-dialog-title').textContent = `${record.title ?? record.conversationKey}: ${formatNumber(images.length)} saved images`;
+  byId('image-dialog-title').textContent = `${conversationLabel(record)}: ${formatNumber(images.length)} saved images`;
   byId('image-grid').replaceChildren(...ordered.map((image) => imageTile(image, context.get(image.imageId)?.caption ?? 'No longer referenced by a message')));
   byId<HTMLDialogElement>('image-dialog').showModal();
 }
@@ -215,8 +216,37 @@ function imageTile(image: StoredImage, caption: string): HTMLElement {
   );
 }
 
+/** The name shown, then what else the chat was called and its key. */
+function conversationCell(record: ConversationRecord): HTMLTableCellElement {
+  const label = conversationLabel(record);
+  const details: string[] = [];
+  if (record.displayName && record.title) details.push(`In Teams: ${record.title}`);
+  const earlier = titleHistoryOf(record)
+    .map((seen) => seen.title)
+    .filter((title) => title !== label && title !== record.title)
+    .reverse();
+  if (earlier.length > 0) details.push(`Earlier: ${earlier.slice(0, 3).join(', ')}${earlier.length > 3 ? ', …' : ''}`);
+  if (record.mergedInto) details.push('Being merged into another conversation');
+  return el(
+    'td',
+    {},
+    el('div', { className: 'conv-title' }, label),
+    details.length > 0 ? el('div', { className: 'muted small' }, details.join(' · ')) : null,
+    el('div', { className: 'muted small mono' }, record.conversationKey),
+  );
+}
+
+async function renameRecord(record: ConversationRecord): Promise<void> {
+  const name = prompt('Name for this chat in the archive and in exports. Leave empty to show the Teams title.', record.displayName ?? record.title ?? '');
+  if (name === null) return;
+  const renamed = await (await repository()).renameConversation(record.conversationKey, name);
+  message('archive-message', renamed.displayName ? `Renamed to “${renamed.displayName}”.` : 'The Teams title is shown again.', 'success');
+  await render();
+}
+
 function conversationRow(record: ConversationRecord, imageCount: number): HTMLTableRowElement {
   const status = coverageStatus(record.coverage, record.newestSortKey);
+  const merging = Boolean(record.mergedInto);
   const format = el(
     'select',
     { 'aria-label': 'Export format' },
@@ -227,23 +257,38 @@ function conversationRow(record: ConversationRecord, imageCount: number): HTMLTa
   const exportButton = el('button', {
     onclick: () => void exportConversations([record.conversationKey], format.value as DownloadFormat).catch((e) => message('archive-message', errorText(e), 'error')),
   }, 'Export');
+  const renameButton = el('button', {
+    disabled: merging,
+    title: 'Give this chat a name in the archive',
+    onclick: () => void renameRecord(record).catch((e) => message('archive-message', errorText(e), 'error')),
+  }, 'Rename');
+  const mergeButton = el('button', {
+    disabled: merging,
+    title: 'Merge with another entry of the same chat',
+    onclick: () => void openMerge(record).catch((e) => message('archive-message', errorText(e), 'error')),
+  }, 'Merge…');
   const deleteButton = el('button', {
     className: 'danger',
+    disabled: merging,
     onclick: async () => {
       const ok = confirm(
-        `Delete "${record.title ?? record.conversationKey}" with ${record.messageCount} archived messages${imageCount > 0 ? ` and ${imageCount} images` : ''} from this browser?\n\nThis cannot be undone. Export a backup first if you may need it.`,
+        `Delete "${conversationLabel(record)}" with ${record.messageCount} archived messages${imageCount > 0 ? ` and ${imageCount} images` : ''} from this browser?\n\nThis cannot be undone. Export a backup first if you may need it.`,
       );
       if (!ok) return;
-      const repo = await repository();
-      const removed = await repo.deleteConversation(record.conversationKey);
-      message('archive-message', `Deleted ${formatNumber(removed.messages)} messages, ${formatNumber(removed.images)} images and ${removed.sessions} sessions.`, 'success');
+      try {
+        const repo = await repository();
+        const removed = await repo.deleteConversation(record.conversationKey);
+        message('archive-message', `Deleted ${formatNumber(removed.messages)} messages, ${formatNumber(removed.images)} images and ${removed.sessions} sessions.`, 'success');
+      } catch (error) {
+        message('archive-message', errorText(error), 'error');
+      }
       await render();
     },
   }, 'Delete');
   return el(
     'tr',
     {},
-    el('td', {}, el('div', { className: 'conv-title' }, record.title ?? '(untitled)'), el('div', { className: 'muted small mono' }, record.conversationKey)),
+    conversationCell(record),
     el('td', {}, TYPE_LABELS[record.type]),
     el('td', { className: 'num' }, formatNumber(record.messageCount)),
     el(
@@ -260,8 +305,122 @@ function conversationRow(record: ConversationRecord, imageCount: number): HTMLTa
     el('td', {}, status === 'complete' ? 'Complete' : status === 'partial' ? 'Partial' : '–'),
     el('td', {}, record.oldestSortKey !== null ? `${formatDate(record.oldestSortKey)} – ${formatDate(record.newestSortKey)}` : '–'),
     el('td', {}, formatDateTime(record.lastExtractedAt)),
-    el('td', { className: 'actions' }, format, exportButton, deleteButton),
+    el('td', { className: 'actions' }, format, exportButton, renameButton, mergeButton, deleteButton),
   );
+}
+
+// ----------------------------------------------------------------- merging
+
+let mergeSource: ConversationRecord | null = null;
+let mergeTargets: ConversationRecord[] = [];
+/** For each other entry, how many messages it shares with the entry being merged. */
+let mergeShared = new Map<string, number>();
+
+/** Every name an entry was shown under, for suggesting entries of the same chat first. */
+function namesOf(record: ConversationRecord): string[] {
+  const names = [record.displayName, record.title, ...titleHistoryOf(record).map((seen) => seen.title)];
+  return names.filter((name): name is string => Boolean(name)).map((name) => name.toLocaleLowerCase().replace(/\s+/g, ' ').trim());
+}
+
+/** 2 when two entries were shown under the same name, 1 when a name of one contains a name of the other. */
+function nameLikeness(names: string[], others: string[]): number {
+  let likeness = 0;
+  for (const name of names) {
+    for (const other of others) {
+      if (name === other) return 2;
+      const [shorter, longer] = name.length <= other.length ? [name, other] : [other, name];
+      if (shorter.length >= 3 && longer.includes(shorter)) likeness = 1;
+    }
+  }
+  return likeness;
+}
+
+function mergeTargetLabel(other: ConversationRecord, shared: number): string {
+  const parts = [conversationLabel(other), `${formatNumber(other.messageCount)} messages`, `last run ${formatDate(other.lastExtractedAt)}`];
+  if (shared > 0) parts.push(`${formatNumber(shared)} in common`);
+  return parts.join(' · ');
+}
+
+async function openMerge(record: ConversationRecord): Promise<void> {
+  const repo = await repository();
+  const others = (await repo.listConversations()).filter((other) => other.conversationKey !== record.conversationKey && !other.mergedInto);
+  if (others.length === 0) {
+    message('archive-message', 'There is no other archived conversation to merge with.');
+    return;
+  }
+  // Suggest the entries most likely to be the same chat first, but let the user choose.
+  const shared = new Map((await repo.entriesSharingMessages(record.conversationKey)).map((entry) => [entry.conversationKey, entry.shared] as const));
+  const names = namesOf(record);
+  const likeness = new Map(others.map((other) => [other.conversationKey, nameLikeness(names, namesOf(other))] as const));
+  const sharedWith = (other: ConversationRecord) => shared.get(other.conversationKey) ?? 0;
+  const likenessOf = (other: ConversationRecord) => likeness.get(other.conversationKey) ?? 0;
+  others.sort((a, b) => sharedWith(b) - sharedWith(a) || likenessOf(b) - likenessOf(a) || b.lastExtractedAt.localeCompare(a.lastExtractedAt));
+  mergeSource = record;
+  mergeTargets = others;
+  mergeShared = shared;
+  byId('merge-source').textContent = `Merge “${conversationLabel(record)}” (${formatNumber(record.messageCount)} messages) with another archive entry of the same chat, for example after Teams renamed it.`;
+  const select = byId<HTMLSelectElement>('merge-target');
+  select.replaceChildren(
+    el('option', { value: '' }, 'Choose the entry of the same chat…'),
+    ...others.map((other) => el('option', { value: other.conversationKey }, mergeTargetLabel(other, sharedWith(other)))),
+  );
+  select.value = '';
+  explainMerge();
+  message('merge-message', '');
+  byId<HTMLDialogElement>('merge-dialog').showModal();
+}
+
+function explainMerge(): void {
+  const target = mergeTargets.find((other) => other.conversationKey === byId<HTMLSelectElement>('merge-target').value);
+  byId<HTMLButtonElement>('btn-merge-confirm').disabled = !target;
+  if (!mergeSource) return;
+  if (!target) {
+    byId('merge-explain').textContent = 'Entries that hold some of the same messages, or were shown under a similar name, are listed first.';
+    return;
+  }
+  const source = conversationLabel(mergeSource);
+  const shared = mergeShared.get(target.conversationKey) ?? 0;
+  const evidence =
+    shared === 0
+      ? 'No message was found in both entries: make sure they are the same chat. '
+      : `${shared === 1 ? 'One message is' : `${formatNumber(shared)} messages are`} in both entries, so they are most likely the same chat. `;
+  byId('merge-explain').textContent =
+    evidence +
+    `The messages, pictures and run history of “${source}” move into “${conversationLabel(target)}”, and “${source}” leaves the list. ` +
+    'Messages archived in both are kept once. Its key and titles become other names of that entry, so the chat is found under either. ' +
+    'This cannot be undone: export a backup first if you may need it.';
+}
+
+async function confirmMerge(): Promise<void> {
+  const source = mergeSource;
+  const targetKey = byId<HTMLSelectElement>('merge-target').value;
+  if (!source || !targetKey) return;
+  const buttons = [byId<HTMLButtonElement>('btn-merge-confirm'), byId<HTMLButtonElement>('btn-merge-cancel')];
+  for (const button of buttons) button.disabled = true;
+  try {
+    const outcome = await (await repository()).mergeConversations(source.conversationKey, targetKey, {
+      staleSessionMs: STALE_SESSION_MS,
+      onProgress: (progress) =>
+        message('merge-message', `Moving… ${formatNumber(progress.messagesMoved)} of ${formatNumber(source.messageCount)} messages${progress.imagesMoved > 0 ? `, ${formatNumber(progress.imagesMoved)} images` : ''}`),
+    });
+    byId<HTMLDialogElement>('merge-dialog').close();
+    message('archive-message', `Merged into “${conversationLabel(outcome.target)}”, which now holds ${formatNumber(outcome.target.messageCount)} messages.`, 'success');
+  } catch (error) {
+    message('merge-message', errorText(error), 'error');
+  } finally {
+    for (const button of buttons) button.disabled = false;
+    await render();
+  }
+}
+
+/** Finishes merges that were interrupted, for example by closing this page. */
+async function resumeMerges(): Promise<void> {
+  try {
+    const finished = await (await repository()).resumePendingMerges({ staleSessionMs: STALE_SESSION_MS });
+    if (finished > 0) message('archive-message', `Finished ${finished === 1 ? 'a merge' : `${finished} merges`} that had been interrupted.`, 'success');
+  } catch (error) {
+    message('archive-message', `An interrupted merge could not be finished: ${errorText(error)}`, 'error');
+  }
 }
 
 async function renderConversations(): Promise<void> {
@@ -402,6 +561,13 @@ function wire(): void {
   byId('settings-form').addEventListener('submit', (event) => void saveSettings(event));
   byId('btn-image-close').addEventListener('click', closeImages);
   byId<HTMLDialogElement>('image-dialog').addEventListener('close', closeImages);
+  byId('merge-target').addEventListener('change', explainMerge);
+  byId('btn-merge-confirm').addEventListener('click', () => void confirmMerge());
+  byId('btn-merge-cancel').addEventListener('click', () => byId<HTMLDialogElement>('merge-dialog').close());
+  byId<HTMLDialogElement>('merge-dialog').addEventListener('close', () => {
+    mergeSource = null;
+    mergeTargets = [];
+  });
   byId('btn-defaults').addEventListener('click', () => {
     fillSettings({ ...DEFAULT_SETTINGS });
     message('settings-message', 'Defaults restored in the form. Click "Save settings" to apply.');
@@ -423,9 +589,14 @@ function wire(): void {
     try {
       const summary = await importArchive(await repository(), await file.text());
       const images = summary.imagesInserted + summary.imagesUnchanged;
+      const placed = [
+        summary.joinedExisting > 0 ? `${summary.joinedExisting} added to an entry of the same chat under another name` : '',
+        summary.keptSeparate > 0 ? `${summary.keptSeparate} kept separate because an archived chat with the same title holds other messages` : '',
+      ].filter(Boolean);
       message(
         'archive-message',
-        `Imported ${summary.conversations} conversation(s): ${formatNumber(summary.inserted)} new, ${formatNumber(summary.updated)} merged, ${formatNumber(summary.unchanged)} already present.` +
+        `Imported ${summary.conversations} conversation(s)${placed.length > 0 ? ` (${placed.join('; ')})` : ''}: ` +
+          `${formatNumber(summary.inserted)} new, ${formatNumber(summary.updated)} merged, ${formatNumber(summary.unchanged)} already present.` +
           (images > 0 ? ` Images: ${formatNumber(summary.imagesInserted)} new, ${formatNumber(summary.imagesUnchanged)} already present.` : ''),
         'success',
       );
@@ -440,6 +611,7 @@ async function main(): Promise<void> {
   buildSettingsFields();
   wire();
   fillSettings(await loadSettings());
+  await resumeMerges();
   await render();
   // Keep the session log fresh while a run is in progress; re-render everything when the tab regains focus.
   setInterval(() => void Promise.all([renderSessions(), renderStorage()]), 10_000);

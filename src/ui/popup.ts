@@ -11,7 +11,8 @@ import {
   type FinishedSessionInfo,
   type Response,
 } from '../shared/protocol';
-import type { ScrapeMode, SessionCounters, SessionRecord } from '../shared/types';
+import { conversationLabel, type ScrapeMode, type SessionCounters, type SessionRecord } from '../shared/types';
+import type { ConversationResolution } from '../storage/conversation-identity';
 import { coverageStatus } from '../storage/coverage';
 import { ArchiveRepository } from '../storage/repository';
 import {
@@ -105,11 +106,12 @@ function renderStatus(status: ContentStatus): void {
   setText(
     'conv-meta',
     conversation
-      ? `${TYPE_LABELS[conversation.type]}${conversation.threadId ? '' : ' · identified by title'}`
+      ? `${TYPE_LABELS[conversation.type]}${conversation.threadId ? '' : ' · recognised by its title and messages'}`
       : status.conversationError ?? 'Open a 1:1 or group chat in Teams.',
   );
-  const warning = conversation && !conversation.threadId
-    ? 'The Teams chat id was not found, so this chat is archived under its title. Renaming the chat starts a new archive entry.'
+  // Without a chat id, the messages on screen tell renamed chats and chats with the same title apart.
+  const warning = conversation && !conversation.threadId && status.state === 'idle' && status.evidence && status.evidence.messages.length === 0
+    ? 'Teams shows no chat id and no message ids here, so this chat is recognised by its title only. Scroll to some messages first.'
     : '';
   setText('conv-warning', warning);
   setHidden('conv-warning', !warning);
@@ -198,11 +200,17 @@ async function renderArchive(status: ContentStatus): Promise<void> {
     setText('arch-count', '–');
     setText('arch-coverage', '–');
     setText('arch-range', '');
+    setHidden('arch-note', true);
     setHidden('resume-box', true);
     return;
   }
   const repo = await repository();
-  const record = await repo.getConversation(conversation.conversationKey);
+  // The archive entry of this chat, found as an extraction would find it.
+  const resolution = await repo.resolveConversation(conversation, status.evidence ?? null);
+  const record = resolution.record;
+  const note = archiveNote(resolution, conversation.title);
+  setText('arch-note', note);
+  setHidden('arch-note', !note);
   setText('arch-count', formatNumber(record?.messageCount ?? 0));
   const coverage = record ? coverageStatus(record.coverage, record.newestSortKey) : 'empty';
   setText('arch-coverage', coverage === 'complete' ? 'Complete' : coverage === 'partial' ? 'Partial' : 'Not archived');
@@ -213,9 +221,9 @@ async function renderArchive(status: ContentStatus): Promise<void> {
       : '',
   );
 
-  if (status.state === 'idle') {
+  if (status.state === 'idle' && record) {
     await repo.markStaleSessions(Date.now(), STALE_SESSION_MS);
-    resumable = await repo.findResumableSession(conversation.conversationKey);
+    resumable = await repo.findResumableSession(record.conversationKey);
   }
   const showResume = status.state === 'idle' && resumable !== null && coverage !== 'complete';
   setHidden('resume-box', !showResume);
@@ -226,6 +234,22 @@ async function renderArchive(status: ContentStatus): Promise<void> {
         `It captured ${formatNumber(resumable.counters.uniqueSeen)} messages${resumable.counters.oldestSortKey ? `, back to ${formatDate(resumable.counters.oldestSortKey)}` : ''}.`,
     );
   }
+}
+
+/** Says when the chat is archived under another name, separately, or in more than one entry. */
+function archiveNote(resolution: ConversationResolution, teamsTitle: string | null): string {
+  const { record, reason, alsoMatching } = resolution;
+  const parts: string[] = [];
+  if (reason === 'separate') {
+    parts.push('Another archived chat has this title. This chat will be archived separately.');
+  } else if (record) {
+    const label = conversationLabel(record);
+    if (label !== teamsTitle && (record.displayName || reason === 'overlap' || reason === 'alias')) parts.push(`Archived as “${label}”.`);
+  }
+  if (alsoMatching.length > 0) {
+    parts.push(`Some of these messages are also in ${alsoMatching.length === 1 ? 'another archive entry' : `${alsoMatching.length} other archive entries`}; you can merge them on the archive page.`);
+  }
+  return parts.join(' ');
 }
 
 async function start(mode: ScrapeMode, rescan: boolean, resumeOf: string | null): Promise<void> {

@@ -258,6 +258,25 @@ describe('merging two entries of one chat', () => {
     await repository.updateSession('live', { updatedAt: '2024-01-01T00:00:00.000Z' });
     await expect(repository.mergeConversations(OLD, NEW)).resolves.toMatchObject({ messagesMoved: 5 });
   });
+
+  it('finds the entries that hold some of the same messages, to suggest them first', async () => {
+    await twoEntries();
+    const third = titled('Third copy');
+    await archive(third, chat(third.conversationKey, [0, 1, 4]));
+    await archive(titled('Another chat'), chat('title:another chat', [10, 11]));
+
+    expect(await repository.entriesSharingMessages(OLD)).toEqual([
+      { conversationKey: third.conversationKey, shared: 2 },
+      { conversationKey: NEW, shared: 1 },
+    ]);
+    // Only the oldest and newest messages of the entry are compared.
+    expect(await repository.entriesSharingMessages(OLD, 1)).toEqual([{ conversationKey: third.conversationKey, shared: 1 }]);
+    expect(await repository.entriesSharingMessages('title:another chat')).toEqual([]);
+
+    // Messages of an entry that was merged count for the entry they went into.
+    await repository.mergeConversations(NEW, OLD);
+    expect(await repository.entriesSharingMessages(third.conversationKey)).toEqual([{ conversationKey: OLD, shared: 3 }]);
+  });
 });
 
 describe('importing entries that were renamed or merged', () => {

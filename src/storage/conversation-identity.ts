@@ -10,7 +10,7 @@
  */
 import { messageFingerprint, storedFingerprintParts } from '../shared/fingerprint';
 import { imageKey } from '../shared/images';
-import type { ConversationIdentity, ConversationRecord, StoredImage, StoredMessage, TitleSighting } from '../shared/types';
+import type { ConversationIdentity, ConversationRecord, ResolutionReason, StoredImage, StoredMessage, TitleSighting } from '../shared/types';
 import { mergeAllCoverage } from './coverage';
 
 export const MAX_TITLE_HISTORY = 50;
@@ -70,16 +70,7 @@ export function withConversationAliases(record: Pick<ConversationRecord, 'conver
 
 // -------------------------------------------------------------- resolution
 
-/**
- * How an open chat was matched to an archive entry:
- *  - `key`: the entry stored under the key detected in Teams;
- *  - `alias`: an entry known by that key (the chat was renamed, or its entry was merged);
- *  - `overlap`: an entry holding messages shown in the chat, under another key (a renamed chat);
- *  - `new`: nothing archived yet, the detected key is used;
- *  - `separate`: the detected key belongs to a different chat (same title, other messages), so
- *    this chat needs an entry of its own under a new key.
- */
-export type ResolutionReason = 'key' | 'alias' | 'overlap' | 'new' | 'separate';
+export type { ResolutionReason };
 
 export interface ConversationResolution {
   /** The entry the chat belongs to; null when it needs a new entry under a fresh key (`separate`). */

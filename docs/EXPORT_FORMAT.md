@@ -16,7 +16,7 @@ This is the contract for moving archived Teams chats into other systems, such as
   "format": "teams-chat-archive",
   "formatVersion": 1,
   "exportedAt": "2024-02-01T10:20:30.456Z",
-  "generator": { "name": "teams-chat-extractor", "version": "1.1.0", "extractorVersion": "1.1.0", "schemaVersion": 2 },
+  "generator": { "name": "teams-chat-extractor", "version": "1.2.0", "extractorVersion": "1.1.0", "schemaVersion": 3 },
   "conversations": [
     {
       "conversationKey": "teams:19:abc…@thread.v2",
@@ -36,9 +36,14 @@ All timestamps are ISO-8601 strings in UTC. Numbers named `…SortKey`, `oldest`
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `conversationKey` | string | Stable identifier of the chat in this archive: `teams:<threadId>`, or `title:<normalised title>` when no thread id was visible. |
+| `conversationKey` | string | Stable identifier of the chat in this archive: `teams:<threadId>`, or `title:<normalised title>` when no thread id was visible. Since 1.2 also `local:<random id>`, for a chat that has the title of another archived chat. |
 | `threadId` | string \| null | Teams thread id, for example `19:…@thread.v2` (group), `19:…_…@unq.gbl.spaces` (1:1), `19:meeting_…@thread.v2` (meeting). |
-| `title` | string \| null | Chat title as shown in Teams. |
+| `title` | string \| null | Chat title as shown in Teams at the last extraction. |
+| `displayName` | string \| null (optional) | Name given to the chat in the archive (**Rename**). Show it instead of `title` when it is set. Added in 1.2. |
+| `titleHistory` | `{ title, firstSeenAt, lastSeenAt }[]` (optional) | Titles the chat was archived under, oldest first (at most 50). Added in 1.2. |
+| `aliases` | string[] (optional) | Other conversation keys of this chat: keys it was detected under in Teams, and the keys of entries merged into it. Added in 1.2. |
+| `mergedFrom` | string[] (optional) | Keys of the entries that were merged into this one (see [Identity changes](#identity-changes)). Added in 1.2. |
+| `mergedInto` | string \| null (optional) | Set only on an entry exported while it was being merged: the key of the entry it is going into. Import ignores it. Added in 1.2. |
 | `type` | `one-on-one` \| `group` \| `meeting` \| `channel` \| `unknown` | Derived from the thread id. |
 | `keySource` | `dom` \| `url` \| `title` | Where the identity came from. `title` is the weakest. |
 | `typeSource` | `thread-id` \| `unknown` | How `type` was determined. |
@@ -110,6 +115,10 @@ The saved copy is the picture as Teams displayed it, which may be a preview size
 
 Messages that Teams rendered *without* an id are rare and are keyed by fingerprint. When the same message is later matched to its id record, the fingerprint record is merged into it, and the old key is listed in the surviving record's `aliases`. A consumer that already ingested the old key should delete its copy when it sees that key in another record's `aliases`.
 
+**Merged conversations** (1.2). Two archive entries of one chat, for example from before and after Teams renamed it, can be merged on the archive page. The merged entry disappears from later exports. Its key is listed in the surviving conversation's `mergedFrom` and `aliases`, and its messages have keys under the surviving conversation (`<conversationKey>#<messageId>`) with their old keys in `aliases`. A consumer that ingested the merged entry should delete or move what it stored under that conversation key when the key appears in another conversation's `mergedFrom`.
+
+**Import.** An imported conversation joins the archive entry of the same chat, found the way a run finds it: by key, by `aliases`, or by holding messages with the same Teams ids. It then takes that entry's key, and its own key becomes an alias. A conversation whose title key belongs to an archived chat with other messages is imported under a new `local:` key instead, so two chats are never mixed.
+
 ## ZIP transcripts
 
 Made by `src/export/transcript.ts` (files stored uncompressed, UTF-8 names). With one conversation the files are at the top of the ZIP; with several, each conversation has its own folder (named after its title) and `index.html` links them.
@@ -126,7 +135,7 @@ The ZIP is for reading, not for import: use a JSON export as the backup.
 
 1. Upsert messages by `key`, and conversations by `conversationKey`.
 2. Treat a changed `contentHash` for a known `key` as an edit. `previousVersions` holds what was replaced.
-3. Remove records whose key appears in another record's `aliases`.
+3. Remove message records whose key appears in another record's `aliases`, and conversations whose key appears in another conversation's `mergedFrom`.
 4. Store images by `key` (or by `imageId` per conversation). An image never changes, so one already ingested can be skipped. Resolve an attachment's `imageId` within its conversation's images.
 5. To fetch only new data, export again later. Exports always contain the full archive, so any export can be re-ingested with this upsert logic.
 6. Use `coverage` (or the conversation's `lastExtractedAt`) to show how current and complete each chat is.

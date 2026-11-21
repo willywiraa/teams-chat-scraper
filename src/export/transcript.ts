@@ -10,7 +10,7 @@
  * so nothing in an archive (which may come from an import) can run code or load remote content.
  */
 import { imageFileName } from '../shared/images';
-import type { ConversationRecord, StoredImage, StoredMessage } from '../shared/types';
+import { conversationLabel, type ConversationRecord, type StoredImage, type StoredMessage } from '../shared/types';
 import { coverageStatus } from '../storage/coverage';
 import { formatParts, senderLabel, toMarkdown, webLink, type MarkdownOptions } from './exporters';
 import type { ArchiveExportV1 } from './format';
@@ -130,7 +130,7 @@ function conversationHtml(entry: TranscriptConversation, byKey: ReadonlyMap<stri
     `Archived history: ${status === 'complete' ? 'complete' : status === 'partial' ? 'partial' : 'unknown'} · Times shown in ${zone}`,
   ].filter(Boolean);
   const lines = [
-    `<section><h1>${escapeHtml(conversation.title ?? conversation.conversationKey)}</h1>`,
+    `<section><h1>${escapeHtml(conversationLabel(conversation))}</h1>`,
     `<ul class="summary">${summary.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`,
   ];
   let currentDay: string | null = null;
@@ -150,7 +150,8 @@ function conversationHtml(entry: TranscriptConversation, byKey: ReadonlyMap<stri
 export function transcriptHtml(entries: readonly TranscriptConversation[], options: TranscriptOptions = {}): string {
   const byKey = new Map<string, StoredMessage>();
   for (const { conversation } of entries) for (const message of conversation.messages) byKey.set(message.key, message);
-  const title = options.title ?? entries[0]?.conversation.title ?? 'Teams chat';
+  const first = entries[0]?.conversation;
+  const title = options.title ?? (first?.displayName || first?.title || 'Teams chat');
   return [
     '<!doctype html>',
     '<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
@@ -212,7 +213,7 @@ export function transcriptZipEntries(
   for (const conversation of archive.conversations) {
     let folder = '';
     if (!single) {
-      const base = folderName(conversation.title);
+      const base = folderName(conversation.displayName || conversation.title);
       folder = base;
       for (let n = 2; used.has(folder.toLowerCase()); n++) folder = `${base}-${n}`;
       used.add(folder.toLowerCase());
@@ -232,7 +233,7 @@ export function transcriptZipEntries(
     const markdownOptions: MarkdownOptions = { timeZone: options.timeZone, locale: options.locale, imagePaths: new Map([...names].map(([id, name]) => [id, `images/${name}`])) };
     entries.push({ path: `${prefix}chat.md`, data: toMarkdown({ ...archive, conversations: [withoutImageData] }, markdownOptions) });
     index.push(
-      `<li><a href="${escapeHtml(encodeURIComponent(folder))}/chat.html">${escapeHtml(conversation.title ?? conversation.conversationKey)}</a> · ${conversation.messages.length} messages${shown.size ? `, ${shown.size} pictures` : ''}</li>`,
+      `<li><a href="${escapeHtml(encodeURIComponent(folder))}/chat.html">${escapeHtml(conversationLabel(conversation))}</a> · ${conversation.messages.length} messages${shown.size ? `, ${shown.size} pictures` : ''}</li>`,
     );
   }
   if (!single && archive.conversations.length > 0) {

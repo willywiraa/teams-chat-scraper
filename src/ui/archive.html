@@ -99,6 +99,19 @@
       </div>
       <div id="image-grid" class="image-grid"></div>
     </dialog>
+
+    <dialog id="merge-dialog" class="image-dialog merge-dialog" aria-labelledby="merge-dialog-title">
+      <h2 id="merge-dialog-title">Merge conversations</h2>
+      <p class="small" id="merge-source"></p>
+      <label class="small" for="merge-target">Merge into</label>
+      <select id="merge-target"></select>
+      <p class="muted small" id="merge-explain"></p>
+      <p id="merge-message" class="small" hidden></p>
+      <div class="button-row">
+        <button type="button" id="btn-merge-confirm" class="danger">Merge</button>
+        <button type="button" id="btn-merge-cancel">Cancel</button>
+      </div>
+    </dialog>
     <script src="archive.js"></script>
   </body>
 </html>

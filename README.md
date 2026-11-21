@@ -55,7 +55,9 @@ Open it from **Open archive & settings** in the popup, or via the extension's *E
   - **JSON**: the complete archive, for backups and other systems. **Include images** decides whether it contains the saved images.
   - **ZIP: chat + pictures**: `chat.html` (open it in the browser to read the chat message by message, with each picture where it was sent), `chat.md`, and an `images` folder with the pictures as files, named by number and message time (`001_2026-11-02_1001.png`). Exporting several chats gives one folder per chat and an `index.html`.
   - **PDF (print)**: opens the same page in a new tab with the print dialog; choose **Save as PDF** as the printer. Allow pop-ups for the archive page if Edge blocks the tab.
-- **Import archive…** merges a JSON export back in. Use it to restore a backup or combine archives from two browser profiles. Importing the same file twice changes nothing.
+- **Rename** gives a chat its own name in the archive and in exports. The title Teams shows stays visible below it, with earlier titles. Leave the name empty to show the Teams title again.
+- **Merge…** combines two archive entries of the same chat, for example a chat archived under its old and its new title. The dialog lists first the entries that hold some of the same messages or have a similar name, and you choose the one to merge into. Every message is kept once, with its pictures and runs. A merge can't be undone, so export a backup first if in doubt. If the page closes during a merge, the merge finishes the next time the archive page opens.
+- **Import archive…** merges a JSON export back in. Use it to restore a backup or combine archives from two browser profiles. Importing the same file twice changes nothing. An imported chat joins the entry of the same chat, also when that entry has another title.
 - **Recent sessions**: every run with its result, counters (including images saved and not saved) and warnings.
 - **Settings** (see below) and the storage used.
 
@@ -112,7 +114,7 @@ For every message:
 - Images shown in messages (pasted pictures, image attachments), saved as displayed. See [Images](#images).
 - System messages, such as someone being added to the chat.
 
-Per chat, the extension also records the participants, the title, the chat type (1:1, group, meeting, channel), the archived period, and whether the archive reaches back to the beginning.
+Per chat, the extension also records the participants, the title (and earlier titles), the chat type (1:1, group, meeting, channel), the archived period, and whether the archive reaches back to the beginning.
 
 ### Images
 
@@ -138,9 +140,12 @@ When **Save the images shown in messages** is on (the default), every picture th
 - It's designed for chats. Channel posts may be read partially, but reply threads under channel posts aren't expanded.
 - Reactions, read receipts and the contents of attached files aren't captured. Images are saved as displayed (often a preview size). Images the browser won't let the extension read are kept as name and link only.
 - A browser can hold only about 500 MB of text in one file. An "Export all" with many images can exceed that; export chats one at a time, or with **Include images** off.
-- A chat is identified by its Teams thread id. If that id can't be found on the page, the chat title is used instead, and two chats with the same title would then share an archive entry. The popup warns when this happens.
+- A chat is identified by its Teams thread id. If that id can't be found on the page, the extension goes by the chat title and by the archived messages the chat shows:
+  - A renamed chat continues its archive entry when some of the messages on screen are archived already. Otherwise it gets a new entry, which you can merge with the old one on the archive page.
+  - A chat with the title of another archived chat gets an entry of its own when that entry lacks the messages it shows from the same period.
+  - With no message ids on screen, the title alone decides, and the popup warns about it.
 - The beginning of a chat is detected when Teams stops loading older messages. If Teams failed to load (for example because the network dropped), a run can finish too early. Run **Full history** with **Re-read archived parts** to try again.
-- Messages that show neither a Teams id nor a timestamp (rare) are matched by their content and position. Two identical messages of that kind next to each other may be stored as one.
+- Messages that show neither a Teams id nor a timestamp (rare) are matched by their content and position. Two identical messages of that kind next to each other may be stored as one. When two entries that both hold such a message are merged, it is kept twice.
 
 ## Development
 
@@ -168,7 +173,7 @@ src/
   shared/      types, settings, messaging protocol, hashing, time parsing
   extractor/   reads the Teams DOM: selectors, conversation detection, message parsing, diagnostics
   scraper/     the scroll-and-capture engine: pause/resume/stop, render detection, ordering
-  storage/     IndexedDB archive: schema, merge rules, coverage, reply resolution
+  storage/     IndexedDB archive: schema, merge rules, coverage, reply resolution, chat identity and merging
   export/      export format v1, JSON, chat transcript with pictures (ZIP, print), import
   background/  service worker: routes captured batches into the archive
   content/     content script: runs the engine in the Teams tab

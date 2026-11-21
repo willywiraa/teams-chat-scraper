@@ -100,6 +100,14 @@ describe('archive export', () => {
     expect(exportFileName(exported, 'json')).toBe('Project-Alpha-2024-02-01T10-20-30.json');
     expect(exportFileName({ ...exported, conversations: [] }, 'zip')).toBe('teams-archive-2024-02-01T10-20-30.zip');
   });
+
+  it('uses the name given in the archive, and still mentions the Teams title', async () => {
+    const exported = await archive();
+    const named = { ...exported, conversations: exported.conversations.map((conversation) => ({ ...conversation, displayName: 'Budget 2024' })) };
+    expect(exportFileName(named, 'zip')).toBe('Budget-2024-2024-02-01T10-20-30.zip');
+    const markdown = toMarkdown(named, { timeZone: 'UTC', locale: 'en-GB' });
+    expect(markdown).toMatch(/^# Budget 2024\n\n- Title in Teams: Project Alpha\n/);
+  });
 });
 
 describe('images in exports', () => {
@@ -165,5 +173,26 @@ describe('import validation', () => {
     expect(broken((copy) => (copy.conversations[0]!.messages[1]!.sortKey = Number.NaN))).toThrow(/messages\[1\]\.sortKey/);
     expect(broken((copy) => ((copy.conversations[0] as { messages: unknown }).messages = 'x'))).toThrow(/messages must be an array/);
     expect(() => parseArchiveExport(null)).toThrow(/JSON object/);
+  });
+
+  it('checks the identity fields added in schema 3 and accepts exports without them', async () => {
+    const exported = await archive();
+    const broken = (mutate: (copy: Record<string, unknown>) => void) => {
+      const copy = structuredClone(exported);
+      mutate(copy.conversations[0] as unknown as Record<string, unknown>);
+      return () => parseArchiveExport(copy);
+    };
+    expect(broken((c) => (c.aliases = 'title:x'))).toThrow(/aliases must be an array of strings/);
+    expect(broken((c) => (c.mergedFrom = [1]))).toThrow(/mergedFrom must be an array of strings/);
+    expect(broken((c) => (c.displayName = 5))).toThrow(/displayName must be a string or null/);
+    expect(broken((c) => (c.titleHistory = [{ title: 'x' }]))).toThrow(/titleHistory must be an array/);
+    expect(broken((c) => {
+      delete c.aliases;
+      delete c.mergedFrom;
+      delete c.mergedInto;
+      delete c.titleHistory;
+      delete c.displayName;
+    })).not.toThrow();
+    expect(broken((c) => (c.displayName = null))).not.toThrow();
   });
 });

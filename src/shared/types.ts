@@ -246,6 +246,17 @@ export interface ConversationRecord {
   displayName?: string | null;
 }
 
+/**
+ * How an open chat was matched to an archive entry (see storage/conversation-identity.ts):
+ *  - `key`: the entry stored under the key detected in Teams;
+ *  - `alias`: an entry known by that key (the chat was renamed, or its entry was merged);
+ *  - `overlap`: an entry holding messages shown in the chat, under another key (a renamed chat);
+ *  - `new`: nothing archived yet, the detected key is used;
+ *  - `separate`: the detected key belongs to a different chat (same title, other messages), so
+ *    this chat needs an entry of its own under a new key.
+ */
+export type ResolutionReason = 'key' | 'alias' | 'overlap' | 'new' | 'separate';
+
 /** Name shown for an archive entry: the name given in the archive, else the Teams title. */
 export function conversationLabel(record: Pick<ConversationRecord, 'conversationKey' | 'title' | 'displayName'>): string {
   return record.displayName || record.title || record.conversationKey;

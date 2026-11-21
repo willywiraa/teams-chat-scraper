@@ -5,7 +5,7 @@
  */
 import { imageFileName } from '../shared/images';
 import { coverageStatus } from '../storage/coverage';
-import type { StoredMessage } from '../shared/types';
+import { conversationLabel, type StoredMessage } from '../shared/types';
 import type { ArchiveExportV1, ExportedConversationV1, ExportedImageV1 } from './format';
 
 export function toJson(archive: ArchiveExportV1): string {
@@ -93,7 +93,8 @@ function conversationToMarkdown(conversation: ExportedConversationV1, byKey: Map
   const images = new Map((conversation.images ?? []).map((image) => [image.imageId, image]));
   const lines: string[] = [];
   const zone = options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-  lines.push(`# ${escapeInline(conversation.title ?? conversation.conversationKey)}`, '');
+  lines.push(`# ${escapeInline(conversationLabel(conversation))}`, '');
+  if (conversation.displayName && conversation.title) lines.push(`- Title in Teams: ${escapeInline(conversation.title)}`);
   lines.push(`- Type: ${conversation.type}`);
   if (conversation.participants.length) lines.push(`- Participants: ${conversation.participants.map(escapeInline).join(', ')}`);
   lines.push(`- Messages: ${conversation.messages.length}`);
@@ -147,6 +148,6 @@ export function toMarkdown(archive: ArchiveExportV1, options: MarkdownOptions = 
 export function exportFileName(archive: ArchiveExportV1, format: 'json' | 'zip'): string {
   const stamp = archive.exportedAt.replace(/[:]/g, '-').replace(/\..+$/, '');
   const single = archive.conversations.length === 1 ? archive.conversations[0] : undefined;
-  const base = single ? (single.title ?? 'conversation').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 60) || 'conversation' : 'teams-archive';
+  const base = single ? (single.displayName || single.title || 'conversation').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 60) || 'conversation' : 'teams-archive';
   return `${base}-${stamp}.${format}`;
 }

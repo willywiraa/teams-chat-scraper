@@ -252,7 +252,12 @@ Compared with the selectors of the reference exporter (all unverified against yo
 
 Each phase works test-first, ends with `npm run check` and a short manual checklist in Edge, and is committed and pushed to `main`.
 
-**Status (21 November 2026):** Phase 0 is built. Diagnostics now includes the identifier probe. The next step is the two reports from your Teams: one from a 1:1 chat and one from a group chat.
+**Status (21 November 2026):** Phases 0 and 1 are built, except the Phase 1 selector fixes.
+
+- **Phase 0:** Diagnostics includes the identifier probe.
+- **Phase 1 (extension 1.2.0):** database version 3, the resolver, title history, renaming, and manual merge with a journal.
+- **Ambiguity:** the popup doesn't ask. It says which entry a run writes to and which other entries hold the same messages.
+- **Next:** the selector fixes, which wait for two Diagnostics reports from your Teams: one from a 1:1 chat and one from a group chat.
 
 | Phase | Content | Size |
 | --- | --- | --- |
