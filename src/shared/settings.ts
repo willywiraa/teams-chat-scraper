@@ -29,6 +29,8 @@ export interface ScrapeSettings {
   maxDurationMinutes: number;
   /** Already-archived messages that must be re-observed before an incremental update stops. */
   incrementalOverlap: number;
+  /** An update re-reads the archive this many days back from the last update (late edits and replies). */
+  updateOverlapDays: number;
   /** Pause automatically while the Teams tab is hidden (background tabs are throttled by the browser). */
   pauseWhenHidden: boolean;
   /** Save the images displayed in messages (the copy Teams already shows) into the archive. */
@@ -68,6 +70,7 @@ export const DEFAULT_SETTINGS: Readonly<ScrapeSettings> = Object.freeze({
   maxSteps: 50000,
   maxDurationMinutes: 360,
   incrementalOverlap: 8,
+  updateOverlapDays: 2,
   pauseWhenHidden: true,
   saveImages: true,
   maxImageMB: 10,
@@ -94,6 +97,7 @@ export const SETTING_LIMITS: Readonly<Record<NumericKey, readonly [number, numbe
   maxSteps: [1, 1000000],
   maxDurationMinutes: [1, 1440],
   incrementalOverlap: [1, 500],
+  updateOverlapDays: [0, 30],
   maxImageMB: [1, 50],
 });
 
@@ -116,7 +120,7 @@ export function normalizeSettings(input: unknown): ScrapeSettings {
   for (const { before, key, value } of REPLACED_DEFAULTS) {
     if (revision < before && result[key] === value) result[key] = DEFAULT_SETTINGS[key];
   }
-  for (const key of ['maxNoProgressPasses', 'maxStallPasses', 'maxSteps', 'incrementalOverlap'] as const) {
+  for (const key of ['maxNoProgressPasses', 'maxStallPasses', 'maxSteps', 'incrementalOverlap', 'updateOverlapDays'] as const) {
     result[key] = Math.round(result[key]);
   }
   if (typeof source.pauseWhenHidden === 'boolean') result.pauseWhenHidden = source.pauseWhenHidden;

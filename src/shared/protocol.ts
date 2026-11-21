@@ -7,6 +7,7 @@
 import type { DiagnosticsReport } from '../extractor/diagnostics';
 import type { EngineProgress, EngineResult } from '../scraper/engine';
 import type {
+  ArchivedImages,
   CapturedImage,
   ConversationIdentity,
   ConversationRecord,
@@ -42,6 +43,10 @@ export type BackgroundRequest =
       mode: ScrapeMode;
       rescan: boolean;
       resumeOf: string | null;
+      /** Full mode: capture back to this message time (epoch ms); null or absent for the whole history. */
+      rangeStart?: number | null;
+      /** Incremental mode: days before the last update to read again (the overlap window). */
+      updateOverlapDays?: number;
     }
   | {
       type: 'session/batch';
@@ -65,6 +70,8 @@ export type BackgroundRequest =
       count: number;
       dataBase64: string;
     }
+  /** Which of these archived messages have saved images, so they are not read again. */
+  | { type: 'session/archived-images'; sessionId: string; conversationKey: string; keys: string[] }
   | { type: 'session/heartbeat'; sessionId: string; status: 'running' | 'paused'; counters: SessionCounters }
   | {
       type: 'session/end';
@@ -91,6 +98,18 @@ export interface SessionBeginResponse {
   conversation: ConversationRecord | null;
   /** Other archive entries holding messages of this chat: candidates for merging. */
   alsoMatching: string[];
+  /** Oldest message time (epoch ms) the run has to reach, or null for the whole history (see SessionRecord). */
+  captureFrom: number | null;
+  /** Where the archive was up to date when the run started (see SessionRecord). */
+  continuesFrom: number | null;
+}
+
+/** Most message keys in one `session/archived-images` request. */
+export const MAX_ARCHIVED_IMAGE_KEYS = 500;
+
+export interface SessionArchivedImagesResponse {
+  /** By message key: the saved images of archived messages that have some. */
+  messages: Record<string, ArchivedImages>;
 }
 
 export interface SessionBatchResponse {
@@ -123,7 +142,7 @@ export interface SessionEndResponse {
   replies: { resolved: number; unresolved: number };
 }
 
-const BACKGROUND_TYPES = new Set(['session/begin', 'session/batch', 'session/images', 'session/image-part', 'session/heartbeat', 'session/end']);
+const BACKGROUND_TYPES = new Set(['session/begin', 'session/batch', 'session/images', 'session/image-part', 'session/archived-images', 'session/heartbeat', 'session/end']);
 
 export function isBackgroundRequest(value: unknown): value is BackgroundRequest {
   return !!value && typeof value === 'object' && BACKGROUND_TYPES.has((value as { type?: unknown }).type as string);
@@ -133,7 +152,7 @@ export function isBackgroundRequest(value: unknown): value is BackgroundRequest 
 
 export type ContentCommand =
   | { type: 'content/status' }
-  | { type: 'content/start'; mode: ScrapeMode; rescan: boolean; resumeOf: string | null }
+  | { type: 'content/start'; mode: ScrapeMode; rescan: boolean; resumeOf: string | null; rangeStart?: number | null }
   | { type: 'content/pause' }
   | { type: 'content/resume' }
   | { type: 'content/stop' }
@@ -149,6 +168,8 @@ export interface ActiveSessionInfo {
   sessionId: string;
   mode: ScrapeMode;
   rescan: boolean;
+  /** Oldest message time the run has to reach, or null (see SessionRecord.captureFrom). */
+  captureFrom?: number | null;
   startedAt: string;
   conversation: ConversationIdentity;
 }
@@ -156,6 +177,8 @@ export interface ActiveSessionInfo {
 export interface FinishedSessionInfo extends EngineResult {
   sessionId: string;
   mode: ScrapeMode;
+  captureFrom?: number | null;
+  rescan?: boolean;
   conversationKey: string;
   endedAt: string;
 }

@@ -3,6 +3,7 @@
  * plus a summary of what is already archived for the open conversation.
  */
 import type { DiagnosticsReport } from '../extractor/diagnostics';
+import { capturePlan, updateAnchor, type CaptureChoice } from '../shared/capture';
 import {
   STALE_SESSION_MS,
   TEAMS_URL_PATTERN,
@@ -11,19 +12,24 @@ import {
   type FinishedSessionInfo,
   type Response,
 } from '../shared/protocol';
-import { conversationLabel, type ScrapeMode, type SessionCounters, type SessionRecord } from '../shared/types';
+import { DEFAULT_SETTINGS, normalizeSettings, SETTINGS_STORAGE_KEY, type ScrapeSettings } from '../shared/settings';
+import { conversationLabel, type ConversationRecord, type ScrapeMode, type SessionCounters, type SessionRecord } from '../shared/types';
 import type { ConversationResolution } from '../storage/conversation-identity';
 import { coverageStatus } from '../storage/coverage';
 import { ArchiveRepository } from '../storage/repository';
 import {
   byId,
+  captureLabel,
   el,
   errorText,
+  formatAgo,
   formatDate,
   formatDateTime,
   formatDuration,
+  formatMoment,
   formatNumber,
-  MODE_LABELS,
+  outcomeText,
+  runSubject,
   setHidden,
   setText,
   STOP_REASON_LABELS,
@@ -38,6 +44,23 @@ let refreshing = false;
 let resumable: SessionRecord | null = null;
 let busy = false;
 let diagnosticsText = '';
+let settings: ScrapeSettings = { ...DEFAULT_SETTINGS };
+/** What the capture controls were last drawn for; the choice is preset once per chat. */
+const captureState: { record: ConversationRecord | null; conversationKey: string | null; idle: boolean; presetFor: string | null } = {
+  record: null,
+  conversationKey: null,
+  idle: false,
+  presetFor: null,
+};
+
+async function loadSettings(): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get(SETTINGS_STORAGE_KEY);
+    settings = normalizeSettings(stored[SETTINGS_STORAGE_KEY]);
+  } catch {
+    settings = { ...DEFAULT_SETTINGS };
+  }
+}
 
 function repository(): Promise<ArchiveRepository> {
   repositoryPromise ??= ArchiveRepository.open();
@@ -76,6 +99,7 @@ async function init(): Promise<void> {
     showView('message', 'Open Microsoft Teams in this tab (teams.microsoft.com or teams.cloud.microsoft), sign in as usual, and open the chat you want to archive.');
     return;
   }
+  await loadSettings();
   await refresh();
   pollTimer = setInterval(() => void refresh(), 1000);
 }
@@ -118,7 +142,7 @@ function renderStatus(status: ContentStatus): void {
   setText('visible-count', status.visibleMessages === null ? '–' : formatNumber(status.visibleMessages));
 
   const idle = status.state === 'idle';
-  for (const id of ['btn-full', 'btn-update', 'btn-visible', 'btn-resume-session']) {
+  for (const id of ['btn-visible', 'btn-resume-session']) {
     (byId<HTMLButtonElement>(id)).disabled = !idle || !conversation || busy;
   }
   byId<HTMLInputElement>('opt-rescan').disabled = !idle;
@@ -140,15 +164,17 @@ function renderProgress(status: ContentStatus): void {
   setText('run-phase', phase);
   setText(
     'run-elapsed',
-    status.session ? `${MODE_LABELS[status.session.mode]} · ${formatDuration(Date.now() - Date.parse(status.session.startedAt))}` : '',
+    status.session ? `${captureLabel(status.session.mode, status.session.captureFrom)} · ${formatDuration(Date.now() - Date.parse(status.session.startedAt))}` : '',
   );
   setText('run-seen', formatNumber(counters?.uniqueSeen ?? 0));
   setText('run-new', formatNumber(counters?.inserted ?? 0));
   setText('run-updated', formatNumber(counters?.updated ?? 0));
   setText('run-unchanged', formatNumber(counters?.unchanged ?? 0));
   setText('run-images', formatNumber(counters?.imagesSaved ?? 0));
+  const captureFrom = status.session?.captureFrom;
   const detail = [
     progress?.oldestReached ? `Reached back to ${formatDateTime(progress.oldestReached)}` : '',
+    typeof captureFrom === 'number' ? `going back to ${formatMoment(captureFrom)}` : '',
     counters ? `${formatNumber(counters.passes)} scroll steps` : '',
     counters?.gapsDetected ? `${counters.gapsDetected} gap checks` : '',
     counters?.imagesFailed ? `${formatNumber(counters.imagesFailed)} images not saved` : '',
@@ -175,18 +201,17 @@ function imageSummary(counters: SessionCounters): string {
 function renderResult(result: FinishedSessionInfo): void {
   const panel = byId('result-panel');
   const counters = result.counters;
-  const title = result.status === 'completed' ? 'Done' : result.status === 'failed' ? 'Failed' : 'Stopped';
   panel.className = `card ${result.status === 'failed' ? 'error' : result.status === 'completed' ? 'success' : 'notice'}`;
   const children: Array<HTMLElement | null> = [
-    el('strong', {}, `${title}: ${STOP_REASON_LABELS[result.stopReason]}`),
+    el('strong', {}, outcomeText(result.status, result.stopReason)),
     el(
       'div',
       { className: 'small' },
       `${formatNumber(counters.inserted)} new · ${formatNumber(counters.updated)} updated · ${formatNumber(counters.unchanged)} already archived${imageSummary(counters)}`,
     ),
     result.error ? el('div', { className: 'small' }, result.error) : null,
-    result.status !== 'completed' && result.mode === 'full'
-      ? el('div', { className: 'muted small' }, 'Start “Full history” again to continue; archived parts are skipped quickly.')
+    result.status !== 'completed' && result.mode !== 'visible'
+      ? el('div', { className: 'muted small' }, 'Start it again to continue; parts already archived are passed quickly.')
       : null,
     ...result.warnings.slice(0, 3).map((warning) => el('div', { className: 'warning small' }, warning)),
   ];
@@ -202,6 +227,7 @@ async function renderArchive(status: ContentStatus): Promise<void> {
     setText('arch-range', '');
     setHidden('arch-note', true);
     setHidden('resume-box', true);
+    renderCapture({ record: null, conversationKey: null, idle: false });
     return;
   }
   const repo = await repository();
@@ -217,9 +243,12 @@ async function renderArchive(status: ContentStatus): Promise<void> {
   setText(
     'arch-range',
     record && record.oldestSortKey !== null
-      ? `Archived ${formatDate(record.oldestSortKey)} – ${formatDate(record.newestSortKey)} · last run ${formatDateTime(record.lastExtractedAt)}`
+      ? `Archived ${formatDate(record.oldestSortKey)} – ${formatDate(record.newestSortKey)} · ${
+          record.lastUpdate ? `updated ${formatAgo(record.lastUpdate.at)}` : `last run ${formatDateTime(record.lastExtractedAt)}`
+        }`
       : '',
   );
+  renderCapture({ record, conversationKey: conversation.conversationKey, idle: status.state === 'idle' });
 
   if (status.state === 'idle' && record) {
     await repo.markStaleSessions(Date.now(), STALE_SESSION_MS);
@@ -230,7 +259,7 @@ async function renderArchive(status: ContentStatus): Promise<void> {
   if (showResume && resumable) {
     setText(
       'resume-text',
-      `The last ${MODE_LABELS[resumable.mode].toLowerCase()} run (${formatDateTime(resumable.startedAt)}) ended early: ${STOP_REASON_LABELS[resumable.stopReason ?? 'interrupted'].toLowerCase()}. ` +
+      `${runSubject(resumable.mode, resumable.captureFrom)} (started ${formatDateTime(resumable.startedAt)}) ended early: ${STOP_REASON_LABELS[resumable.stopReason ?? 'interrupted'].toLowerCase()}. ` +
         `It captured ${formatNumber(resumable.counters.uniqueSeen)} messages${resumable.counters.oldestSortKey ? `, back to ${formatDate(resumable.counters.oldestSortKey)}` : ''}.`,
     );
   }
@@ -252,10 +281,70 @@ function archiveNote(resolution: ConversationResolution, teamsTitle: string | nu
   return parts.join(' ');
 }
 
-async function start(mode: ScrapeMode, rescan: boolean, resumeOf: string | null): Promise<void> {
+/** Today in the local time zone, as a date field value. */
+function todayValue(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function selectedChoice(): CaptureChoice {
+  return byId<HTMLSelectElement>('capture-choice').value as CaptureChoice;
+}
+
+function captureHint(choice: CaptureChoice, record: ConversationRecord | null): string {
+  const passed = byId<HTMLInputElement>('opt-rescan').checked ? 'Parts already archived are read again.' : 'Parts already archived are passed quickly.';
+  if (choice === 'update') {
+    const days = settings.updateOverlapDays;
+    const since = record?.lastUpdate ? `since the last update (${formatDateTime(record.lastUpdate.at)})` : 'newer than the archive';
+    const recheck = days > 0 ? `, and checks the ${days === 1 ? 'day' : `${days} days`} before again for edits and late replies` : ', until it meets archived messages';
+    return `Captures the messages ${since}${recheck}.`;
+  }
+  if (choice === 'everything') return `Captures the whole history, back to the beginning of the chat. ${passed}`;
+  const plan = capturePlan(choice, Date.now(), byId<HTMLInputElement>('capture-from').value);
+  if (!plan || plan.rangeStart === null) return 'Choose the first day to capture.';
+  return `Captures the messages from ${formatMoment(plan.rangeStart)} to now. ${passed}`;
+}
+
+/**
+ * The capture choice, its hint and the Start button. The choice is preset once per chat: new
+ * messages when something is archived, else the full history.
+ */
+function renderCapture(next?: { record: ConversationRecord | null; conversationKey: string | null; idle: boolean }): void {
+  if (next) Object.assign(captureState, next);
+  const { record, conversationKey, idle } = captureState;
+  const select = byId<HTMLSelectElement>('capture-choice');
+  const updateOption = select.querySelector<HTMLOptionElement>('option[value="update"]');
+  const archived = updateAnchor(record) !== null;
+  if (updateOption) {
+    updateOption.disabled = !archived;
+    updateOption.textContent = record?.lastUpdate ? `New messages since the last update (${formatAgo(record.lastUpdate.at)})` : 'New messages since the newest archived one';
+  }
+  if (conversationKey !== null && captureState.presetFor !== conversationKey) {
+    captureState.presetFor = conversationKey;
+    select.value = archived ? 'update' : 'everything';
+  } else if (select.value === 'update' && !archived) {
+    select.value = 'everything';
+  }
+  select.disabled = !idle;
+  const dateInput = byId<HTMLInputElement>('capture-from');
+  dateInput.hidden = select.value !== 'from-date';
+  dateInput.disabled = !idle;
+  dateInput.max = todayValue();
+  const choice = selectedChoice();
+  setText('capture-hint', conversationKey === null ? '' : captureHint(choice, record));
+  const plan = capturePlan(choice, Date.now(), dateInput.value);
+  byId<HTMLButtonElement>('btn-start').disabled = !idle || busy || conversationKey === null || plan === null;
+}
+
+function startCapture(): void {
+  const plan = capturePlan(selectedChoice(), Date.now(), byId<HTMLInputElement>('capture-from').value);
+  if (plan) void start(plan.mode, byId<HTMLInputElement>('opt-rescan').checked, null, plan.rangeStart);
+}
+
+async function start(mode: ScrapeMode, rescan: boolean, resumeOf: string | null, rangeStart: number | null = null): Promise<void> {
   busy = true;
   try {
-    await sendToTab({ type: 'content/start', mode, rescan, resumeOf });
+    await sendToTab({ type: 'content/start', mode, rescan, resumeOf, rangeStart });
   } catch (error) {
     const panel = byId('result-panel');
     panel.hidden = false;
@@ -319,10 +408,17 @@ async function runDiagnosticsClick(): Promise<void> {
 }
 
 function wire(): void {
-  byId('btn-full').addEventListener('click', () => void start('full', byId<HTMLInputElement>('opt-rescan').checked, null));
-  byId('btn-update').addEventListener('click', () => void start('incremental', false, null));
+  byId('btn-start').addEventListener('click', startCapture);
   byId('btn-visible').addEventListener('click', () => void start('visible', false, null));
-  byId('btn-resume-session').addEventListener('click', () => void start('full', false, resumable?.sessionId ?? null));
+  for (const id of ['capture-choice', 'capture-from', 'opt-rescan']) {
+    byId(id).addEventListener('change', () => renderCapture());
+    byId(id).addEventListener('input', () => renderCapture());
+  }
+  // A resumed run continues what the interrupted one was doing: the same range, the same reading.
+  byId('btn-resume-session').addEventListener('click', () => {
+    if (!resumable) return;
+    void start(resumable.mode, resumable.rescan, resumable.sessionId, resumable.mode === 'full' ? (resumable.captureFrom ?? null) : null);
+  });
   byId('btn-pause').addEventListener('click', () => void command('content/pause'));
   byId('btn-continue').addEventListener('click', () => void command('content/resume'));
   byId('btn-stop').addEventListener('click', () => void command('content/stop'));

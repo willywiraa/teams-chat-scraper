@@ -114,6 +114,7 @@ A message with neither a Teams id nor an exact time has a weak fingerprint made 
 The page parser reports every image a message displays (`PageParseResult.images`: the message key, the index of its attachment and the `<img>` element). Emoji images are text and are excluded. `scraper/images.ts` (`ImageCapture`) then does the rest for each pass:
 
 1. **Once per address.** It keeps a per-session cache by the address the image is shown from (`currentSrc`). An address already saved only gets its `imageId` set again. One that failed isn't retried in the same session.
+   Before that, unless the run re-reads archived parts, the engine asks the background once per message (`session/archived-images`, answered by `ArchiveRepository.archivedImages`) which archived messages already have saved images. A message shown with the same `contentHash` and the same number of attachments takes those `imageId`s, and its images aren't read again. An edited message, or one archived before its images were saved, is read as usual. If the lookup fails, the images are simply read.
 2. **Read.** It reads the bytes through an injected `ImageReader`, so the engine never touches `chrome.*` and tests use a fake one. The real reader (`content/image-reader.ts`) waits for the image to finish loading. It then fetches the address with `cache: 'force-cache'`: `blob:` and `data:` addresses are the page's own copy, and a web address normally comes from the browser cache. For other sites it tries with, then without, cookies. If the address can't be fetched, or doesn't return an image, it draws the displayed picture on a canvas and encodes it as PNG. A canvas "tainted" by an image from another site can't be read, so such an image fails.
 3. **Limits.** Images above `maxImageMB` fail as *too large*. Images still loading are tried again in the next passes (3 attempts) and count as failed if they never load, including when the session ends.
 4. **Name.** `imageId` is the SHA-256 (hex) of the bytes, from `crypto.subtle`. The same picture under two addresses is stored once.
@@ -133,9 +134,28 @@ Each conversation stores *coverage*: ranges of the timeline (in sort-key space) 
 
 - **Contiguity.** Every window must contain the oldest message of the previous window (the *anchor*), or span its timestamp. If a scroll step jumped past unseen messages, the engine scrolls back part of the way and halves the step. The step grows again after ten clean passes. If a gap can't be closed after four tries, coverage is split there and a warning is recorded.
 - **Persistence.** Each batch carries the session's segments so far, and they are merged into coverage in the same transaction as the messages. After a failure, only segments that were actually stored are reported.
-- **Full history** without rescan stops as soon as it has re-seen enough messages from a range that reaches the beginning (`history-complete`). Otherwise it continues to the top (`reached-top`), moving through covered ranges at the faster *seek* interval.
-- **Update** stops after re-seeing *N* archived messages (`incrementalOverlap`) in a connected window.
-- **Resume** is a Full-history run with `resumeOf` pointing at the interrupted session. Thanks to coverage it skips quickly to where the previous run ended.
+- **Seeking.** A window that lies entirely inside a covered range is passed at the faster *seek* interval and with a short animation (`counters.seekPasses`). A full run without rescan also takes steps of `SEEK_STEP_RATIO` (2) viewport heights there, which skips messages. A window below the anchor that doesn't overlap it is then still *connected* when its newest exact message and the anchor lie in one covered range: the archive already holds what lies between them (`bridgedByArchive`). A step that goes past the end of the covered range makes a real gap, which is closed as above; it halves only the seek step. Updates never skip: they read every message of their window.
+
+### Capture ranges and updates
+
+A run can be given `since` (`EngineOptions.since`, the session's `captureFrom`): the oldest message time it has to reach. The popup's choices map to runs in `shared/capture.ts`:
+
+| Choice | Mode | `since` |
+| --- | --- | --- |
+| New messages since the last update | `incremental` | The last update's newest message (else the newest archived message) minus `updateOverlapDays`, computed by the router at `session/begin`. |
+| Last 24 hours / 7 days / 30 days | `full` | Now minus that period. |
+| From a date | `full` | Midnight local time of that day. |
+| Full history | `full` | none |
+| Visible only | `visible` | none |
+
+How runs end:
+
+- **Full** stops when its connected window reaches back to `since` (`range-reached`), or as soon as it has re-seen enough messages (`incrementalOverlap`) from a covered range that reaches the beginning or back to `since` (`history-complete`). Otherwise it continues to the top (`reached-top`). Newer messages passed on the way are always saved: a period has no end date, so it can't leave a hole between itself and the present.
+- **Update** stops after re-seeing *N* archived messages in a connected window *and* reaching back to `since` (`overlap-reached`). The overlap window re-reads the days before the last update, so edits, deletions and late replies there are recorded with the usual version history. Without `since` (nothing archived) it runs like Full history.
+
+**Last update.** `ConversationRecord.lastUpdate` (`{ sessionId, mode, at, newestSortKey }`) is the most recent run that brought the archive up to date. At `session/begin` the router notes where the archive was up to date (`SessionRecord.continuesFrom`: the last update's newest message, else the newest archived message, else null). At `session/end` (`ArchiveRepository.recordRunEnd`) the run becomes the last update when the coverage range holding the newest message it reached also holds `continuesFrom` or reaches the beginning (`coverage.ts` `caughtUp`; with `continuesFrom` null any range counts). Visible-only runs never count. Stopped and failed runs count when they got that far, because coverage only records what was stored. A run that leaves a gap doesn't count, so the next update still goes back to the previous one. Merging and importing keep the last update that reached the newer message (`laterUpdate`).
+
+**Resume** starts a run like the interrupted one (same mode, `rescan` and `captureFrom`) with `resumeOf` pointing at it. Thanks to coverage and seeking it passes quickly to where the previous run ended. Teams Web loads history only from the newest message backwards, so a resumed run can't jump: it passes everything newer, at the speed Teams loads it.
 
 ## Sessions
 
@@ -179,6 +199,7 @@ History:
 - Version 1 (extension 1.0): `conversations`, `messages`, `sessions` and `meta`.
 - Version 2 (extension 1.1): adds the `images` store. The upgrade only creates the new store, so all existing records stay as they are. Messages stored before it simply have no `imageId` on their attachments.
 - Version 3 (extension 1.2): adds the indexes `conversations.byAlias` and `messages.byMessageId`. The upgrade only creates indexes, so all records stay as they are. The new conversation fields (`aliases`, `mergedFrom`, `mergedInto`, `titleHistory` and `displayName`) are optional: a record written before simply lacks them, which reads as empty, and gets them the next time a run writes it. Messages without a Teams id aren't in `byMessageId`.
+- Extension 1.3 adds optional fields without a database upgrade: `lastUpdate` on conversations, and `captureFrom` and `continuesFrom` on sessions. Records written before lack them: a conversation without `lastUpdate` continues from its newest archived message, and a session begun before 1.3 never becomes a last update.
 
 `tests/integration/migration.test.ts` opens a version 1 and a version 2 database with data, and checks that everything survives the upgrade.
 
@@ -206,5 +227,5 @@ Versioning:
 The scraper doesn't need to change for this.
 
 - **Files**: use the export format ([EXPORT_FORMAT.md](EXPORT_FORMAT.md)). Ingest by `key`, which is stable and unique, and compare `contentHash` to detect changes. Exports can be repeated at any time. A merge of two entries gives the moved messages new keys and lists the old ones in their `aliases` (see the format's [identity changes](EXPORT_FORMAT.md#identity-changes)).
-- **In-extension sync**: a future module in `background/` can read the archive through `ArchiveRepository` (`listConversations`, `getMessages`, or the streaming `forEachMessage`) and use `lastExtractedAt` / `lastSeenAt` to find what changed. The natural trigger point is `session/end` in `background/router.ts`.
+- **In-extension sync**: a future module in `background/` can read the archive through `ArchiveRepository` (`listConversations`, `getMessages`, or the streaming `forEachMessage`) and use `lastUpdate`, `lastExtractedAt` or `lastSeenAt` to find what changed. The natural trigger point is `session/end` in `background/router.ts`.
 - **New file formats**: add a serialiser next to `toJson` / `toMarkdown` in `export/exporters.ts`.

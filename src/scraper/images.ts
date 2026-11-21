@@ -96,6 +96,8 @@ export class ImageCapture {
     for (const image of images) {
       const attachment = byKey.get(image.messageKey)?.attachments[image.attachmentIndex];
       if (!attachment || attachment.kind !== 'image') continue;
+      // Already known: taken from the archive for a message shown unchanged.
+      if (attachment.imageId) continue;
       const src = imageSource(image.element);
       if (!src) continue;
       const known = this.sources.get(src);

@@ -16,7 +16,7 @@ This is the contract for moving archived Teams chats into other systems, such as
   "format": "teams-chat-archive",
   "formatVersion": 1,
   "exportedAt": "2024-02-01T10:20:30.456Z",
-  "generator": { "name": "teams-chat-extractor", "version": "1.2.0", "extractorVersion": "1.1.0", "schemaVersion": 3 },
+  "generator": { "name": "teams-chat-extractor", "version": "1.3.0", "extractorVersion": "1.1.0", "schemaVersion": 3 },
   "conversations": [
     {
       "conversationKey": "teams:19:abc…@thread.v2",
@@ -52,6 +52,7 @@ All timestamps are ISO-8601 strings in UTC. Numbers named `…SortKey`, `oldest`
 | `oldestSortKey`, `newestSortKey` | number \| null | Range of reliably dated messages. |
 | `coverage` | `{ oldest, newest, reachedBeginning }[]` | Stretches of the timeline captured without gaps (see below). |
 | `firstExtractedAt`, `lastExtractedAt` | string | First and most recent extraction. |
+| `lastUpdate` | `{ sessionId, mode, at, newestSortKey }` | null (optional) | The most recent run after which the archive held every message, without a gap, from the previous update (or the beginning) up to `newestSortKey`. `at` is when that run ended, `mode` is `full` or `incremental`. Unlike `lastExtractedAt`, stopped runs that left a gap don't change it. Import keeps the one with the newer `newestSortKey`. Added in 1.3. |
 | `lastSessionId` | string \| null | Most recent extraction session. |
 | `schemaVersion` | number | Archive schema version of the record. |
 | `messages` | message[] | Ordered by `sortKey` ascending. |
@@ -138,4 +139,4 @@ The ZIP is for reading, not for import: use a JSON export as the backup.
 3. Remove message records whose key appears in another record's `aliases`, and conversations whose key appears in another conversation's `mergedFrom`.
 4. Store images by `key` (or by `imageId` per conversation). An image never changes, so one already ingested can be skipped. Resolve an attachment's `imageId` within its conversation's images.
 5. To fetch only new data, export again later. Exports always contain the full archive, so any export can be re-ingested with this upsert logic.
-6. Use `coverage` (or the conversation's `lastExtractedAt`) to show how current and complete each chat is.
+6. Use `coverage` and `lastUpdate` to show how complete and how current each chat is.

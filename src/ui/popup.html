@@ -45,10 +45,22 @@
         </div>
 
         <div class="card" id="actions">
+          <label class="capture-label small" for="capture-choice">Capture</label>
+          <div class="capture-row">
+            <select id="capture-choice">
+              <option value="update">New messages since the last update</option>
+              <option value="last-24h">Last 24 hours</option>
+              <option value="last-7d">Last 7 days</option>
+              <option value="last-30d">Last 30 days</option>
+              <option value="from-date">From a date…</option>
+              <option value="everything">Full history</option>
+            </select>
+            <input type="date" id="capture-from" aria-label="Capture from this date" hidden />
+          </div>
+          <div class="muted small" id="capture-hint"></div>
           <div class="button-row">
-            <button id="btn-full" class="primary" title="Scroll back to the beginning of the conversation and archive everything (skips quickly through parts that are already archived)">Full history</button>
-            <button id="btn-update" title="Archive messages that are newer than the archive, then stop">Update</button>
-            <button id="btn-visible" title="Archive only the messages currently rendered on screen">Visible only</button>
+            <button id="btn-start" class="primary">Start</button>
+            <button id="btn-visible" title="Archive only the messages currently rendered on screen, without scrolling">Visible only</button>
           </div>
           <label class="check small"><input type="checkbox" id="opt-rescan" /> Re-read archived parts at normal speed (picks up edits and deletions)</label>
         </div>

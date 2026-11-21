@@ -164,6 +164,30 @@ describe('sessions', () => {
     expect(await repo.findResumableSession(CK)).toBeNull();
   });
 
+  it('makes a run the last update only when the archive is gap-free from the previous update to its newest message', async () => {
+    const T = 1705314600000;
+    await repo.upsertObservations({
+      conversation: CONVERSATION,
+      messages: [message({ id: String(T), text: 'One' }), message({ id: String(T + 60_000), text: 'Two' })],
+      sessionId: 's1',
+      segments: [{ oldest: T, newest: T + 60_000, reachedBeginning: true }],
+    });
+    const run = (sessionId: string, newestSortKey: number | null, continuesFrom: number | null, mode: 'full' | 'incremental' | 'visible' = 'incremental') =>
+      repo.recordRunEnd(CK, { sessionId, mode, at: `2024-01-15T1${sessionId.length}:00:00.000Z`, newestSortKey, continuesFrom });
+
+    expect(await run('s1', T + 60_000, null, 'full')).toMatchObject({ sessionId: 's1', newestSortKey: T + 60_000 });
+    // A stretch that does not join the last update, a visible-only run, nothing reached.
+    await repo.upsertObservations({ conversation: CONVERSATION, messages: [message({ id: String(T + 600_000), text: 'Later' })], sessionId: 's2', segments: [{ oldest: T + 600_000, newest: T + 600_000, reachedBeginning: false }] });
+    expect(await run('s2', T + 600_000, T + 60_000)).toMatchObject({ sessionId: 's1' });
+    expect(await run('s22', T + 60_000, T + 60_000, 'visible')).toMatchObject({ sessionId: 's1' });
+    expect(await run('s222', null, T + 60_000)).toMatchObject({ sessionId: 's1' });
+    // Once the gap is closed, the run that closed it is the last update.
+    await repo.mergeCoverage(CK, [{ oldest: T + 30_000, newest: T + 600_000, reachedBeginning: false }]);
+    expect(await run('s3', T + 600_000, T + 60_000)).toMatchObject({ sessionId: 's3', mode: 'incremental', newestSortKey: T + 600_000 });
+    expect((await repo.getConversation(CK))?.lastUpdate).toMatchObject({ sessionId: 's3' });
+    expect(await repo.recordRunEnd('teams:unknown', { sessionId: 'x', mode: 'full', at: '2024-01-16T00:00:00.000Z', newestSortKey: T, continuesFrom: null })).toBeNull();
+  });
+
   it('does not offer visible-only sessions for resuming', async () => {
     await repo.createSession(session({ sessionId: 'v', mode: 'visible', status: 'stopped' }));
     expect(await repo.findResumableSession(CK)).toBeNull();
@@ -265,6 +289,36 @@ describe('replies, deletion, export and import', () => {
     } finally {
       target.close();
     }
+  });
+
+  it('carries the last update through export and import, keeping the one that reached the newer message', async () => {
+    const T = 1705314600000;
+    await repo.upsertObservations({
+      conversation: CONVERSATION,
+      messages: [message({ id: String(T), text: 'One' }), message({ id: String(T + 60_000), text: 'Two' })],
+      sessionId: 's1',
+      segments: [{ oldest: T, newest: T + 60_000, reachedBeginning: true }],
+    });
+    await repo.recordRunEnd(CK, { sessionId: 's1', mode: 'full', at: '2024-01-15T12:00:00.000Z', newestSortKey: T + 60_000, continuesFrom: null });
+    const json = toJson(await buildArchiveExport(repo, 'all'));
+    expect(JSON.parse(json).conversations[0].lastUpdate).toEqual({ sessionId: 's1', mode: 'full', at: '2024-01-15T12:00:00.000Z', newestSortKey: T + 60_000 });
+
+    const target = await openTestRepository();
+    try {
+      await importArchive(target, json);
+      expect((await target.getConversation(CK))?.lastUpdate).toMatchObject({ sessionId: 's1' });
+      // The target archive has a later update of its own: it is kept.
+      await target.upsertObservations({ conversation: CONVERSATION, messages: [message({ id: String(T + 120_000), text: 'Three' })], sessionId: 's9', segments: [{ oldest: T + 60_000, newest: T + 120_000, reachedBeginning: false }] });
+      await target.recordRunEnd(CK, { sessionId: 's9', mode: 'incremental', at: '2024-01-20T12:00:00.000Z', newestSortKey: T + 120_000, continuesFrom: T + 60_000 });
+      await importArchive(target, json);
+      expect((await target.getConversation(CK))?.lastUpdate).toMatchObject({ sessionId: 's9', newestSortKey: T + 120_000 });
+    } finally {
+      target.close();
+    }
+
+    const broken = JSON.parse(json);
+    broken.conversations[0].lastUpdate = { sessionId: 's1', at: 'yesterday' };
+    await expect(importArchive(repo, JSON.stringify(broken))).rejects.toThrow(/lastUpdate/);
   });
 
   it('round-trips images through export and import, idempotently', async () => {

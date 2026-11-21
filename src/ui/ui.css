@@ -265,6 +265,34 @@ button.link {
   margin-top: 10px;
 }
 
+.capture-label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.capture-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.capture-row select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+input[type='date'] {
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
 .badge {
   display: inline-block;
   background: var(--notice-bg);

@@ -252,11 +252,19 @@ Compared with the selectors of the reference exporter (all unverified against yo
 
 Each phase works test-first, ends with `npm run check` and a short manual checklist in Edge, and is committed and pushed to `main`.
 
-**Status (21 November 2026):** Phases 0 and 1 are built, except the Phase 1 selector fixes.
+**Status (21 November 2026):** Phases 0, 1 and 2 are built, except the Phase 1 selector fixes.
 
 - **Phase 0:** Diagnostics includes the identifier probe.
 - **Phase 1 (extension 1.2.0):** database version 3, the resolver, title history, renaming, and manual merge with a journal.
 - **Ambiguity:** the popup doesn't ask. It says which entry a run writes to and which other entries hold the same messages.
+- **Phase 2 (extension 1.3.0):**
+  - The popup's **Capture** choice: new messages since the last update, the last 24 hours, 7 days or 30 days, from a date, or the full history.
+  - Updates re-read a time window (2 days by default, 0 to 30) as well as at least *N* messages.
+  - Per conversation `lastUpdate`. It isn't limited to completed runs as planned: any run counts once the archive is gap-free from the previous update to the newest message it reached, and a run that leaves a gap never counts.
+  - Resume repeats the interrupted capture. Through archived parts it takes larger steps, bridged by coverage.
+  - Archived images aren't read again.
+  - Statuses use the same labels in the popup and on the archive page.
+  - Decision 3 is taken as recommended: a capture has no "to", and keeps the newer messages it passes.
 - **Next:** the selector fixes, which wait for two Diagnostics reports from your Teams: one from a 1:1 chat and one from a group chat.
 
 | Phase | Content | Size |
@@ -275,6 +283,6 @@ Order: identity before export, because exports and updates depend on stable conv
 
 1. **Name.** Keep "Teams Chat Extractor", or choose a distinct name with "for Microsoft Teams" as a descriptor (recommended for a store listing)?
 2. **Knowledge system.** Which one will you use (Obsidian, Notion, a custom database, something else)? It decides the package layout of the preset, for example Markdown with an images folder versus JSONL.
-3. **Capture "To".** Should a capture with a range also save the newer messages it passes (recommended), or save only the range?
+3. **Capture "To".** Should a capture with a range also save the newer messages it passes (recommended), or save only the range? *Built as recommended in Phase 2; say if you want a "to" date for captures.*
 4. **Diagnostics.** Run the Phase 0 report in a 1:1 chat and a group chat once it is built.
 5. **File attachments.** Keep names and links only (recommended), or download files? That needs extra SharePoint and OneDrive permissions.

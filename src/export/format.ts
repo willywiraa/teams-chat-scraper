@@ -130,6 +130,13 @@ export function parseArchiveExport(input: string | unknown): ArchiveExportV1 {
           conversation.titleHistory.every((seen) => seen && typeof seen.title === 'string' && typeof seen.firstSeenAt === 'string' && typeof seen.lastSeenAt === 'string')),
       `${where}.titleHistory must be an array of {title, firstSeenAt, lastSeenAt}`,
     );
+    // Added in extension 1.3.
+    const update = conversation.lastUpdate;
+    assert(
+      update == null ||
+        (typeof update === 'object' && typeof update.sessionId === 'string' && typeof update.at === 'string' && typeof update.newestSortKey === 'number' && Number.isFinite(update.newestSortKey)),
+      `${where}.lastUpdate must be null or {sessionId, mode, at, newestSortKey}`,
+    );
     conversation.messages.forEach((message, mi) => {
       const at = `${where}.messages[${mi}]`;
       assert(message && typeof message === 'object', `${at} must be an object`);

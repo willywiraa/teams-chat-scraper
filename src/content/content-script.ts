@@ -30,7 +30,12 @@ async function handle(controller: ContentController, command: ContentCommand): P
     case 'content/status':
       return controller.status();
     case 'content/start':
-      return controller.start({ mode: command.mode, rescan: Boolean(command.rescan), resumeOf: command.resumeOf ?? null });
+      return controller.start({
+        mode: command.mode,
+        rescan: Boolean(command.rescan),
+        resumeOf: command.resumeOf ?? null,
+        rangeStart: typeof command.rangeStart === 'number' && Number.isFinite(command.rangeStart) ? command.rangeStart : null,
+      });
     case 'content/pause':
       return { accepted: controller.pause() };
     case 'content/resume':

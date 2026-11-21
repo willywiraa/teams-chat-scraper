@@ -58,6 +58,19 @@ export function findRange(ranges: readonly CoverageRange[], sortKey: number): Co
   return ranges.find((range) => sortKey >= range.oldest && sortKey <= range.newest) ?? null;
 }
 
+/**
+ * Whether the archive is gap-free from `continuesFrom` (where it was up to date before a run;
+ * null when nothing was archived) to `newest` (the newest message the run reached), so the run
+ * brought it up to date. Reaching the beginning of the chat counts as well.
+ */
+export function caughtUp(ranges: readonly CoverageRange[], newest: number | null, continuesFrom: number | null): boolean {
+  if (newest === null || !Number.isFinite(newest)) return false;
+  if (continuesFrom !== null && continuesFrom > newest) return false;
+  const range = findRange(ranges.filter(isValidRange), newest);
+  if (!range) return false;
+  return continuesFrom === null || range.reachedBeginning || range.oldest <= continuesFrom;
+}
+
 export type CoverageStatus = 'empty' | 'complete' | 'partial';
 
 /** Complete when one gap-free range runs from the beginning of the chat to the newest archived message. */

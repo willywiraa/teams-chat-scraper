@@ -11,12 +11,15 @@ import {
   ARCHIVE_SCHEMA_VERSION,
   conversationLabel,
   isReliableSortSource,
+  type ArchivedImages,
   type ConversationIdentity,
   type ConversationRecord,
   type CoverageRange,
   type ExtractedMessage,
   type IdentityEvidence,
   type ImageSaveStatus,
+  type LastUpdate,
+  type ScrapeMode,
   type SessionRecord,
   type SessionStatus,
   type StoredImage,
@@ -26,8 +29,10 @@ import {
 import { imageKey } from '../shared/images';
 import {
   cleanDisplayName,
+  cleanLastUpdate,
   combineConversations,
   decideConversation,
+  laterUpdate,
   mergeTitleHistories,
   noteTitle,
   rekeyImage,
@@ -37,7 +42,7 @@ import {
   type ConversationResolution,
   type MessageOverlap,
 } from './conversation-identity';
-import { mergeAllCoverage } from './coverage';
+import { caughtUp, mergeAllCoverage } from './coverage';
 import { openDatabase, prefixRange, readLast, requestToPromise, transactionDone } from './idb';
 import { absorbDuplicate, mergeImported, mergeObservation } from './merge';
 import { CANDIDATE_TEXT_LIMIT, findReplyTarget, normalizeForMatch, type ReplyCandidate } from './reply-resolver';
@@ -62,6 +67,18 @@ export interface UpsertBatchResult {
   /** Fingerprint-keyed duplicates folded into an id-keyed record. */
   merged: number;
   conversation: ConversationRecord;
+}
+
+/** The end of a run, as far as the conversation's last update is concerned. */
+export interface RunEnd {
+  sessionId: string;
+  mode: ScrapeMode;
+  /** When the run ended. */
+  at: string;
+  /** Newest message the run reached (sort key), or null. */
+  newestSortKey: number | null;
+  /** Where the archive was up to date when the run started (see SessionRecord.continuesFrom). */
+  continuesFrom: number | null;
 }
 
 export interface ImportResult {
@@ -153,6 +170,7 @@ function newConversationRecord(identity: ConversationIdentity, nowIso: string): 
     mergedInto: null,
     titleHistory: [],
     displayName: null,
+    lastUpdate: null,
   };
 }
 
@@ -378,6 +396,31 @@ export class ArchiveRepository {
     const tx = this.db.transaction(STORES.conversations, 'readonly');
     const all = (await requestToPromise(tx.objectStore(STORES.conversations).getAll())) as ConversationRecord[];
     return all.sort((a, b) => b.lastExtractedAt.localeCompare(a.lastExtractedAt));
+  }
+
+  /**
+   * Notes the end of a run: when the archive is now gap-free from where it was up to date to
+   * the newest message the run reached (see coverage.ts `caughtUp`), the run becomes the
+   * conversation's last update. Visible-only runs never do. Returns the last update as it is now.
+   */
+  async recordRunEnd(conversationKey: string, run: RunEnd): Promise<LastUpdate | null> {
+    const tx = this.db.transaction(STORES.conversations, 'readwrite');
+    const done = transactionDone(tx);
+    const store = tx.objectStore(STORES.conversations);
+    const conversation = (await requestToPromise(store.get(conversationKey))) as ConversationRecord | undefined;
+    if (!conversation || conversation.mergedInto) {
+      await done;
+      return null;
+    }
+    const current = cleanLastUpdate(conversation.lastUpdate);
+    if (run.mode === 'visible' || run.newestSortKey === null || !caughtUp(conversation.coverage, run.newestSortKey, run.continuesFrom)) {
+      await done;
+      return current;
+    }
+    const next = laterUpdate(current, { sessionId: run.sessionId, mode: run.mode, at: run.at, newestSortKey: run.newestSortKey });
+    if (next !== current) await requestToPromise(store.put({ ...conversation, lastUpdate: next } satisfies ConversationRecord));
+    await done;
+    return next;
   }
 
   async mergeCoverage(conversationKey: string, segments: CoverageRange[]): Promise<ConversationRecord | null> {
@@ -742,6 +785,23 @@ export class ArchiveRepository {
    * its bytes, so an image that is already archived is left as it is (`unchanged`).
    * Returns the outcome per image id.
    */
+  /**
+   * The saved images of archived messages, by message key: messages of the conversation that
+   * have at least one attachment with a saved image. A run then need not read those images again.
+   */
+  async archivedImages(conversationKey: string, keys: readonly string[]): Promise<Record<string, ArchivedImages>> {
+    const tx = this.db.transaction(STORES.messages, 'readonly');
+    const store = tx.objectStore(STORES.messages);
+    const found: Record<string, ArchivedImages> = {};
+    for (const key of new Set(keys)) {
+      const message = (await requestToPromise(store.get(key))) as StoredMessage | undefined;
+      if (!message || message.conversationKey !== conversationKey) continue;
+      const imageIds = message.attachments.map((attachment) => (attachment.kind === 'image' && attachment.imageId) || null);
+      if (imageIds.some((imageId) => imageId !== null)) found[key] = { contentHash: message.contentHash, imageIds };
+    }
+    return found;
+  }
+
   async putImages(conversationKey: string, images: readonly StoredImage[]): Promise<Record<string, ImageSaveStatus>> {
     const statuses: Record<string, ImageSaveStatus> = {};
     if (images.length === 0) return statuses;
@@ -931,7 +991,7 @@ export class ArchiveRepository {
     const { mergedInto: _mergedInto, ...fields } = incoming;
     const base: ConversationRecord = existing
       ? { ...existing }
-      : { ...fields, participants: [], coverage: [], messageCount: 0, oldestSortKey: null, newestSortKey: null, aliases: [], mergedFrom: [], mergedInto: null, titleHistory: [], displayName: null };
+      : { ...fields, participants: [], coverage: [], messageCount: 0, oldestSortKey: null, newestSortKey: null, aliases: [], mergedFrom: [], mergedInto: null, titleHistory: [], displayName: null, lastUpdate: null };
     if (!existing || incoming.lastExtractedAt > existing.lastExtractedAt) {
       base.title = incoming.title ?? base.title;
       base.lastSessionId = incoming.lastSessionId ?? base.lastSessionId;
@@ -940,6 +1000,7 @@ export class ArchiveRepository {
     base.mergedFrom = Array.from(new Set([...(base.mergedFrom ?? []), ...(Array.isArray(incoming.mergedFrom) ? incoming.mergedFrom : [])])).filter((other) => other !== key);
     base.titleHistory = mergeTitleHistories(existing ? titleHistoryOf(existing) : [], titleHistoryOf(incoming));
     base.displayName = base.displayName ?? cleanDisplayName(incoming.displayName);
+    base.lastUpdate = laterUpdate(existing?.lastUpdate, incoming.lastUpdate);
     base.threadId = base.threadId ?? incoming.threadId;
     if (base.type === 'unknown') {
       base.type = incoming.type;

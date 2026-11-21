@@ -206,6 +206,28 @@ export interface CoverageRange {
   reachedBeginning: boolean;
 }
 
+/**
+ * The most recent run that brought a conversation's archive up to date: afterwards the archive
+ * held every message from the previous update (or the beginning) to the newest message the run
+ * reached, without a gap. "Update new messages" continues from here.
+ */
+export interface LastUpdate {
+  sessionId: string;
+  mode: ScrapeMode;
+  /** When the run ended. */
+  at: string;
+  /** Sort key (epoch ms) of the newest message the run reached. */
+  newestSortKey: number;
+}
+
+/** The saved images of an archived message, so a run does not read them again. */
+export interface ArchivedImages {
+  /** The content hash the message was archived with; the ids only apply while it is unchanged. */
+  contentHash: string;
+  /** Per attachment, in order: the id of its saved image, or null. */
+  imageIds: Array<string | null>;
+}
+
 /** A title Teams showed for a conversation, and when. */
 export interface TitleSighting {
   title: string;
@@ -244,6 +266,8 @@ export interface ConversationRecord {
   titleHistory?: TitleSighting[];
   /** Name given in the archive; shown instead of the Teams title. Since schema 3. */
   displayName?: string | null;
+  /** The last run that brought the archive up to date. Since extension 1.3; absent before. */
+  lastUpdate?: LastUpdate | null;
 }
 
 /**
@@ -279,6 +303,7 @@ export type StopReason =
   | 'reached-top'
   | 'history-complete'
   | 'overlap-reached'
+  | 'range-reached'
   | 'user-stop'
   | 'max-steps'
   | 'max-duration'
@@ -331,6 +356,17 @@ export interface SessionRecord {
   error: string | null;
   /** Session this one continues, when the user resumed an interrupted extraction. */
   resumeOf: string | null;
+  /**
+   * Oldest message time (epoch ms) the run had to reach: the start of the chosen range, or for an
+   * update the last update minus the overlap window. Null: the whole history. Since 1.3.
+   */
+  captureFrom?: number | null;
+  /**
+   * Where the archive was up to date when the run started (the newest message of the last
+   * update, else the newest archived message; null when nothing was archived). The run becomes
+   * the last update if the archive is gap-free from here to the newest message it reached. Since 1.3.
+   */
+  continuesFrom?: number | null;
   tabId: number | null;
   startedAt: string;
   updatedAt: string;

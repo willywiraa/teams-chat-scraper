@@ -5,8 +5,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { handleBackgroundRequest, type RouterDeps } from '../../src/background/router';
 import { ContentController, type ContentControllerDeps } from '../../src/content/controller';
+import { DAY_MS } from '../../src/shared/capture';
 import { newId } from '../../src/shared/ids';
-import { STALE_SESSION_MS, type BackgroundRequest, type ContentStatus } from '../../src/shared/protocol';
+import { STALE_SESSION_MS, type BackgroundRequest, type ContentStatus, type SessionBeginResponse } from '../../src/shared/protocol';
 import { emptyCounters } from '../../src/shared/types';
 import type { ArchiveRepository } from '../../src/storage/repository';
 import { ChatSimulator, generateConversation, type ExpectedMessage } from '../helpers/chat-simulator';
@@ -345,6 +346,87 @@ describe('content controller + background router + archive', () => {
     await again.start({ mode: 'incremental', rescan: false, resumeOf: null });
     expect(await again.whenIdle()).toMatchObject({ conversationKey: ownKey, counters: { inserted: 0 } });
     expect((await repository.listConversations()).length).toBe(2);
+  });
+
+  it('records the last update only for runs that bring the archive up to date', async () => {
+    const { repository, expected, conversationKey } = await setup(150, 31);
+    let controller: ContentController | null = null;
+    let batches = 0;
+    let stopAtBatch: number | null = null;
+    const { send } = transport(repository, {
+      fail: (request) => {
+        if (request.type === 'session/batch' && stopAtBatch !== null && ++batches >= stopAtBatch) controller?.stop();
+        return null;
+      },
+    });
+    controller = createController(send, { loadSettings: async () => fastSettings({ updateOverlapDays: 0 }) });
+    const lastOf = async () => (await repository.getConversation(conversationKey))?.lastUpdate;
+
+    // A full history run on an empty archive is the first update.
+    await controller.start({ mode: 'full', rescan: false, resumeOf: null });
+    const full = await controller.whenIdle();
+    expect(full).toMatchObject({ status: 'completed', stopReason: 'reached-top' });
+    const newest = Date.parse(expected[expected.length - 1]!.time);
+    expect(await lastOf()).toMatchObject({ sessionId: full!.sessionId, mode: 'full', newestSortKey: newest });
+    expect(await repository.getSession(full!.sessionId)).toMatchObject({ captureFrom: null, continuesFrom: null });
+
+    // New messages arrive. An update stopped before it reached the archive does not count.
+    const added = Array.from({ length: 40 }, (_, i) => {
+      const time = newest + (i + 1) * 60_000;
+      return { id: String(time), author: PEOPLE[i % PEOPLE.length], time: new Date(time).toISOString(), paragraphs: [`Later message ${i}`] };
+    });
+    simulator!.appendItems(added);
+    stopAtBatch = 2;
+    await controller.start({ mode: 'incremental', rescan: false, resumeOf: null });
+    const stopped = await controller.whenIdle();
+    expect(stopped).toMatchObject({ status: 'stopped', stopReason: 'user-stop' });
+    expect(await repository.countMessages(conversationKey)).toBeLessThan(190);
+    expect(await lastOf()).toMatchObject({ sessionId: full!.sessionId });
+    expect(await repository.getSession(stopped!.sessionId)).toMatchObject({ mode: 'incremental', continuesFrom: newest, captureFrom: newest });
+
+    // The next update goes back to the last update and becomes the new one.
+    stopAtBatch = null;
+    await controller.start({ mode: 'incremental', rescan: false, resumeOf: stopped!.sessionId });
+    const update = await controller.whenIdle();
+    expect(update).toMatchObject({ status: 'completed', stopReason: 'overlap-reached' });
+    expect(await repository.countMessages(conversationKey)).toBe(190);
+    const newer = newest + 40 * 60_000;
+    expect(await lastOf()).toMatchObject({ sessionId: update!.sessionId, mode: 'incremental', newestSortKey: newer });
+
+    // A visible-only run never counts.
+    await controller.start({ mode: 'visible', rescan: false, resumeOf: null });
+    expect(await controller.whenIdle()).toMatchObject({ status: 'completed', stopReason: 'visible-complete' });
+    expect(await lastOf()).toMatchObject({ sessionId: update!.sessionId });
+
+    // An update re-reads the overlap window before the last update.
+    const deps: RouterDeps = { getRepository: async () => repository, now: () => new Date(), newId, staleSessionMs: STALE_SESSION_MS };
+    const begin = (await handleBackgroundRequest(
+      { type: 'session/begin', conversation: detect(), mode: 'incremental', rescan: false, resumeOf: null, updateOverlapDays: 2 },
+      { tabId: 9 },
+      deps,
+    )) as SessionBeginResponse;
+    expect(begin).toMatchObject({ continuesFrom: newer, captureFrom: newer - 2 * DAY_MS });
+  });
+
+  it('captures a chosen period and notes it with the session', async () => {
+    const { repository, expected, conversationKey } = await setup(200, 32);
+    const controller = createController(transport(repository).send);
+    const rangeStart = Date.parse(expected[150]!.time);
+
+    await controller.start({ mode: 'full', rescan: false, resumeOf: null, rangeStart });
+    expect((await controller.status()).session).toMatchObject({ mode: 'full', captureFrom: rangeStart });
+    const result = await controller.whenIdle();
+
+    expect(result).toMatchObject({ status: 'completed', stopReason: 'range-reached', mode: 'full', captureFrom: rangeStart });
+    expect(await repository.getSession(result!.sessionId)).toMatchObject({ status: 'completed', captureFrom: rangeStart, continuesFrom: null });
+    const texts = (await repository.getMessages(conversationKey)).map((message) => message.text);
+    expect(texts.length).toBeLessThan(200);
+    expect(texts).toEqual(expect.arrayContaining(expected.slice(150).map((message) => message.text)));
+    // Nothing was archived before: updates continue from this run.
+    expect((await repository.getConversation(conversationKey))?.lastUpdate).toMatchObject({
+      sessionId: result!.sessionId,
+      newestSortKey: Date.parse(expected[expected.length - 1]!.time),
+    });
   });
 
   it('produces diagnostics that contain no message content or names', async () => {

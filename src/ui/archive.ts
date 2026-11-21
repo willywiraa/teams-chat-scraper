@@ -21,15 +21,16 @@ import { coverageStatus } from '../storage/coverage';
 import { ArchiveRepository } from '../storage/repository';
 import {
   byId,
+  captureLabel,
   downloadBlob,
   downloadText,
   el,
   errorText,
+  formatAgo,
   formatDate,
   formatDateTime,
   formatDuration,
   formatNumber,
-  MODE_LABELS,
   STATUS_LABELS,
   STOP_REASON_LABELS,
   TYPE_LABELS,
@@ -52,7 +53,8 @@ const NUMBER_FIELDS: Array<{ key: NumericSetting; label: string; step?: number }
   { key: 'maxStallPasses', label: 'Steps without new messages before stopping' },
   { key: 'maxSteps', label: 'Maximum scroll steps per run' },
   { key: 'maxDurationMinutes', label: 'Maximum run duration (minutes)' },
-  { key: 'incrementalOverlap', label: 'Archived messages to re-see before an update stops' },
+  { key: 'updateOverlapDays', label: 'Update: days before the last update to check again for edits and late replies' },
+  { key: 'incrementalOverlap', label: 'Update: archived messages to see again before stopping (at least)' },
   { key: 'maxImageMB', label: 'Largest image to save (MB)' },
 ];
 
@@ -304,7 +306,12 @@ function conversationRow(record: ConversationRecord, imageCount: number): HTMLTa
     ),
     el('td', {}, status === 'complete' ? 'Complete' : status === 'partial' ? 'Partial' : '–'),
     el('td', {}, record.oldestSortKey !== null ? `${formatDate(record.oldestSortKey)} – ${formatDate(record.newestSortKey)}` : '–'),
-    el('td', {}, formatDateTime(record.lastExtractedAt)),
+    el(
+      'td',
+      { title: record.lastUpdate ? `Brought up to date on ${formatDateTime(record.lastUpdate.at)}` : 'No run has brought this chat up to date yet' },
+      record.lastUpdate ? formatAgo(record.lastUpdate.at) : '–',
+      el('div', { className: 'muted small' }, `last run ${formatDateTime(record.lastExtractedAt)}`),
+    ),
     el('td', { className: 'actions' }, format, exportButton, renameButton, mergeButton, deleteButton),
   );
 }
@@ -445,7 +452,7 @@ async function renderSessions(): Promise<void> {
         {},
         el('td', {}, formatDateTime(session.startedAt)),
         el('td', {}, session.conversationTitle ?? session.conversationKey),
-        el('td', {}, `${MODE_LABELS[session.mode]}${session.rescan ? ' (re-read)' : ''}${session.resumeOf ? ' (resumed)' : ''}`),
+        el('td', {}, `${captureLabel(session.mode, session.captureFrom)}${session.rescan ? ' (re-read)' : ''}${session.resumeOf ? ' (resumed)' : ''}`),
         el('td', {}, STATUS_LABELS[session.status]),
         el('td', { className: 'small' }, session.stopReason ? STOP_REASON_LABELS[session.stopReason] : '', session.error ? el('div', { className: 'error-text' }, session.error) : null),
         el('td', { className: 'num' }, formatNumber(session.counters.inserted)),

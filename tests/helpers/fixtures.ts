@@ -63,6 +63,8 @@ export function repositorySink(
       const result = await saveCapturedImages(repository, conversation.conversationKey, structuredClone(images), { sessionId, nowIso: new Date().toISOString() });
       return { saved: Object.keys(result.statuses), rejected: result.rejected };
     },
+    // What the background answers to a `session/archived-images` request.
+    archivedImages: (keys) => repository.archivedImages(conversation.conversationKey, keys),
   };
 }
 
@@ -71,6 +73,8 @@ export interface RunOptions {
   mode: ScrapeMode;
   settings?: Partial<ScrapeSettings>;
   rescan?: boolean;
+  /** Oldest message time the run has to reach (see EngineOptions.since). */
+  since?: number | null;
   coverage?: CoverageRange[];
   control?: ScrapeControl;
   sink?: EngineSink;
@@ -93,6 +97,7 @@ export async function runEngine(options: RunOptions): Promise<EngineResult> {
     settings: fastSettings(options.settings),
     mode: options.mode,
     rescan: options.rescan,
+    since: options.since,
     conversation,
     coverage,
     sink: options.sink ?? repositorySink(options.repository, conversation, sessionId),

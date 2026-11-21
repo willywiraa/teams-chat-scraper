@@ -242,3 +242,14 @@ describe('combineConversations', () => {
     });
   });
 });
+
+describe('combineConversations and updates', () => {
+  it('keeps the last update that reached the newer message', () => {
+    const early = { sessionId: 'early', mode: 'full' as const, at: '2024-01-15T00:00:00.000Z', newestSortKey: 300 };
+    const late = { sessionId: 'late', mode: 'incremental' as const, at: '2024-03-01T00:00:00.000Z', newestSortKey: 400 };
+    expect(combineConversations(record(NEW, { lastUpdate: early }), record(OLD, { lastUpdate: late })).lastUpdate).toEqual(late);
+    expect(combineConversations(record(NEW, { lastUpdate: late }), record(OLD, { lastUpdate: early })).lastUpdate).toEqual(late);
+    expect(combineConversations(record(NEW), record(OLD, { lastUpdate: early })).lastUpdate).toEqual(early);
+    expect(combineConversations(record(NEW), record(OLD)).lastUpdate).toBeNull();
+  });
+});

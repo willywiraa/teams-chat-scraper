@@ -26,16 +26,23 @@ After rebuilding, click **Reload** on the extension card in `edge://extensions` 
 ## Archiving a chat
 
 1. In Teams Web, open the chat (1:1, group or meeting chat).
-2. Click the extension icon. The popup shows the chat it found, how many of its messages are archived, and whether the archived history is complete.
-3. Choose a mode:
+2. Click the extension icon. The popup shows the chat it found, how many of its messages are archived, whether the archived history is complete, and when the chat was last brought up to date.
+3. Under **Capture**, choose what to archive, then click **Start**:
 
-| Button | What it does | Ends when |
+| Choice | What it does | Ends when |
 | --- | --- | --- |
-| **Full history** | Scrolls back to the beginning of the chat and archives everything. It moves quickly through parts that are already archived. | The beginning of the chat is reached, or it has caught up with a complete archive. |
-| **Update** | Archives messages newer than the archive. | Several already-archived messages have been seen again (8 by default). |
-| **Visible only** | Archives only the messages on screen. It doesn't scroll. | Immediately. |
+| **New messages since the last update** | Archives the messages that arrived since the last update, and reads the 2 days before it again (setting) to pick up edits, deletions and late replies. Preselected once the chat has something archived. | It has re-read back to the last update minus those days, and seen at least 8 archived messages again. |
+| **Last 24 hours**, **Last 7 days**, **Last 30 days** | Archives the messages of that period. | The start of the period is reached, or it joins archived messages that already reach back that far. |
+| **From a date…** | The same, from midnight of the chosen day. | As above. |
+| **Full history** | Scrolls back to the beginning of the chat and archives everything. Preselected for a chat with nothing archived. | The beginning of the chat is reached, or it has caught up with a complete archive. |
 
-**Re-read archived parts at normal speed** (with Full history) reads archived stretches again carefully. Use it to pick up edits and deletions in older messages.
+Every choice keeps the newer messages it passes on the way, so there is no "to" date: the archive never gets a hole between the period and now.
+
+**Visible only** archives the messages on screen without scrolling.
+
+**Re-read archived parts at normal speed** reads archived stretches again, with their images, instead of passing them quickly. Use it to pick up edits and deletions in older messages.
+
+**The last update** is the most recent run after which the archive held every message, without a gap, from the previous update up to the newest message. Any capture can be one: an update, a period or the full history, also one that was stopped once it got that far. A run that leaves a gap (for example *Last 24 hours* a week after the last update) is not, so the next **New messages since the last update** still goes back to the last update and closes the gap. The archive page shows the time of each chat's last update.
 
 While a run is active, the popup shows progress and **Pause**, **Continue** and **Stop**. Everything captured so far is saved after every scroll step, so stopping or closing the tab loses nothing.
 
@@ -45,20 +52,26 @@ For long chats, click **Open in side panel**. The panel stays open while you wor
 
 ### Resuming
 
-If a run was interrupted (tab closed or reloaded, browser closed, extension updated), the popup shows **Resume extraction** the next time you open that chat. Resuming runs Full history. It skips quickly through what is already archived and continues from where the previous run stopped. Running any mode again is always safe: messages are never stored twice.
+If a run was interrupted, stopped or failed (tab closed or reloaded, browser closed, extension updated), the popup shows **Resume extraction** the next time you open that chat. Resuming repeats the same capture (the same period, the same reading) and continues where the previous run stopped:
+
+- Through archived parts it takes steps of two screen heights instead of one, and doesn't read their images again. A skipped stretch counts as covered because the archive already holds it without a gap. If a step goes past the end of the archived part, the run steps back and continues normally.
+- Teams loads older history only from the newest message backwards, so a resumed run still has to pass everything newer than where it stopped. That is quick but depends on how fast Teams loads older messages.
+- Nothing runs while the browser or computer is off. Open the chat again and resume.
+
+Running any capture again is always safe: messages are never stored twice.
 
 ## Archive and settings page
 
 Open it from **Open archive & settings** in the popup, or via the extension's *Extension options*.
 
-- **Conversations**: each archived chat with its message count, number of saved images, archived period, completeness and last run. Click the image count to see the chat's images, with who sent each one and when, and to download them. You can **export** one chat, **export all**, or **delete** a chat (with its images) from the archive. Export formats:
+- **Conversations**: each archived chat with its message count, number of saved images, archived period, completeness, last update and last run. Click the image count to see the chat's images, with who sent each one and when, and to download them. You can **export** one chat, **export all**, or **delete** a chat (with its images) from the archive. Export formats:
   - **JSON**: the complete archive, for backups and other systems. **Include images** decides whether it contains the saved images.
   - **ZIP: chat + pictures**: `chat.html` (open it in the browser to read the chat message by message, with each picture where it was sent), `chat.md`, and an `images` folder with the pictures as files, named by number and message time (`001_2026-11-02_1001.png`). Exporting several chats gives one folder per chat and an `index.html`.
   - **PDF (print)**: opens the same page in a new tab with the print dialog; choose **Save as PDF** as the printer. Allow pop-ups for the archive page if Edge blocks the tab.
 - **Rename** gives a chat its own name in the archive and in exports. The title Teams shows stays visible below it, with earlier titles. Leave the name empty to show the Teams title again.
 - **Merge…** combines two archive entries of the same chat, for example a chat archived under its old and its new title. The dialog lists first the entries that hold some of the same messages or have a similar name, and you choose the one to merge into. Every message is kept once, with its pictures and runs. A merge can't be undone, so export a backup first if in doubt. If the page closes during a merge, the merge finishes the next time the archive page opens.
 - **Import archive…** merges a JSON export back in. Use it to restore a backup or combine archives from two browser profiles. Importing the same file twice changes nothing. An imported chat joins the entry of the same chat, also when that entry has another title.
-- **Recent sessions**: every run with its result, counters (including images saved and not saved) and warnings.
+- **Recent sessions**: every run with what it captured (*Update*, *Since 14 Nov 2026*, *Full history*, *Visible only*), its status (*Running*, *Paused*, *Completed*, *Stopped*, *Interrupted*, *Failed*), result, counters (including images saved and not saved) and warnings.
 - **Settings** (see below) and the storage used.
 
 ### Settings
@@ -75,7 +88,8 @@ Open it from **Open archive & settings** in the popup, or via the extension's *E
 | Attempts at the top before finishing | 3 | Attempts without new messages before the beginning is considered reached. |
 | Steps without new messages before stopping | 25 | Guard against a list that has stopped responding. |
 | Maximum scroll steps per run / Maximum run duration | 50,000 / 360 min | Hard limits, so a run can never loop forever. |
-| Archived messages to re-see before an update stops | 8 | Overlap required by **Update**. |
+| Update: days before the last update to check again | 2 | **New messages since the last update** reads this many days before the last update again, for edits, deletions and late replies. 0 to 30; 0 stops at the first archived messages. |
+| Update: archived messages to see again before stopping | 8 | The update also sees at least this many archived messages again. |
 | Pause while the Teams tab is hidden | on | See above. |
 | Save the images shown in messages | on | Saves the pictures displayed in messages into the archive. See [Images](#images). |
 | Largest image to save | 10 MB | Larger images aren't saved; their name and link still are. 1 to 50 MB. |
@@ -125,6 +139,7 @@ When **Save the images shown in messages** is on (the default), every picture th
 - Teams usually displays a preview size, so the saved copy may be smaller than the original upload.
 - Images the browser doesn't allow the extension to read (shown from another site without permission), images that never finish loading, and images above **Largest image to save** aren't saved. Their name and link are kept, the run counts them as *not saved*, and a warning explains why.
 - Emoji are kept as text, not as images.
+- A picture is read once per run. Pictures of archived messages that are shown unchanged are taken from the archive instead of being read again; **Re-read archived parts** reads them again.
 - Saved images are included in JSON exports (as base64) and restored by **Import archive…**. The **ZIP: chat + pictures** and **PDF (print)** exports show each picture in its message.
 - Profile pictures (for example of the original sender in a forwarded message) aren't message content and aren't saved.
 

@@ -10,7 +10,7 @@
  */
 import { messageFingerprint, storedFingerprintParts } from '../shared/fingerprint';
 import { imageKey } from '../shared/images';
-import type { ConversationIdentity, ConversationRecord, ResolutionReason, StoredImage, StoredMessage, TitleSighting } from '../shared/types';
+import type { ConversationIdentity, ConversationRecord, LastUpdate, ResolutionReason, StoredImage, StoredMessage, TitleSighting } from '../shared/types';
 import { mergeAllCoverage } from './coverage';
 
 export const MAX_TITLE_HISTORY = 50;
@@ -55,6 +55,24 @@ export function cleanDisplayName(name: string | null | undefined): string | null
 }
 
 // ---------------------------------------------------------------- aliases
+
+/** A last update read from an export or an older record, or null when it is not well-formed. */
+export function cleanLastUpdate(value: unknown): LastUpdate | null {
+  if (!value || typeof value !== 'object') return null;
+  const update = value as Partial<LastUpdate>;
+  if (typeof update.sessionId !== 'string' || typeof update.at !== 'string' || typeof update.newestSortKey !== 'number' || !Number.isFinite(update.newestSortKey)) return null;
+  const mode = update.mode === 'incremental' || update.mode === 'full' || update.mode === 'visible' ? update.mode : 'full';
+  return { sessionId: update.sessionId, mode, at: update.at, newestSortKey: update.newestSortKey };
+}
+
+/** Of two last updates of one chat, the one that reached the newer message (the later one on a tie). */
+export function laterUpdate(a: LastUpdate | null | undefined, b: LastUpdate | null | undefined): LastUpdate | null {
+  const first = cleanLastUpdate(a);
+  const second = cleanLastUpdate(b);
+  if (!first || !second) return first ?? second;
+  if (first.newestSortKey !== second.newestSortKey) return first.newestSortKey > second.newestSortKey ? first : second;
+  return first.at >= second.at ? first : second;
+}
 
 function unique(keys: Iterable<string>): string[] {
   return Array.from(new Set(keys));
@@ -232,5 +250,6 @@ export function combineConversations(target: ConversationRecord, source: Convers
     mergedInto: null,
     titleHistory: mergeTitleHistories(titleHistoryOf(target), titleHistoryOf(source)),
     displayName: target.displayName ?? source.displayName ?? null,
+    lastUpdate: laterUpdate(target.lastUpdate, source.lastUpdate),
   };
 }

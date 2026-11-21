@@ -2,12 +2,19 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { handleBackgroundRequest, ImageUploads, type RouterDeps } from '../../src/background/router';
 import { bytesToBase64, sha256Hex } from '../../src/shared/images';
-import type { BackgroundRequest, CapturedImageInfo, SessionBeginResponse, SessionImagePartResponse, SessionImagesResponse } from '../../src/shared/protocol';
+import type {
+  BackgroundRequest,
+  CapturedImageInfo,
+  SessionArchivedImagesResponse,
+  SessionBeginResponse,
+  SessionImagePartResponse,
+  SessionImagesResponse,
+} from '../../src/shared/protocol';
 import type { CapturedImage } from '../../src/shared/types';
 import type { ArchiveRepository } from '../../src/storage/repository';
 import { openTestRepository } from '../helpers/fixtures';
 import { fakeImageBytes } from '../helpers/images';
-import { CK, CONVERSATION } from '../helpers/messages';
+import { CK, CONVERSATION, message } from '../helpers/messages';
 
 let repository: ArchiveRepository;
 let deps: RouterDeps;
@@ -73,6 +80,29 @@ describe('session/images', () => {
     await expect(send({ type: 'session/images', sessionId, conversationKey: 'teams:other', images: [image] })).rejects.toThrow(/does not match/);
     await expect(send({ type: 'session/images', sessionId, conversationKey: CK, images: 'x' as never })).rejects.toThrow(/images must be an array/);
     expect(await repository.countImages(CK)).toBe(0);
+  });
+});
+
+describe('session/archived-images', () => {
+  it('tells which archived messages have saved images, for this session’s conversation only', async () => {
+    const image = await captured('kept');
+    await send({ type: 'session/images', sessionId, conversationKey: CK, images: [image] });
+    const withImage = message({
+      id: '1705314600000',
+      text: 'Pictures',
+      attachments: [
+        { kind: 'file', name: 'plan.pdf', url: 'https://example.invalid/plan.pdf' },
+        { kind: 'image', name: 'image', url: null, imageId: image.imageId },
+        { kind: 'image', name: 'image', url: null },
+      ],
+    });
+    const plain = message({ id: '1705314660000', text: 'No pictures' });
+    await repository.upsertObservations({ conversation: CONVERSATION, messages: [withImage, plain], sessionId });
+
+    const response = (await send({ type: 'session/archived-images', sessionId, conversationKey: CK, keys: [withImage.key, plain.key, `${CK}#404`, 7 as never] })) as SessionArchivedImagesResponse;
+    expect(response.messages).toEqual({ [withImage.key]: { contentHash: withImage.contentHash, imageIds: [null, image.imageId, null] } });
+    await expect(send({ type: 'session/archived-images', sessionId, conversationKey: 'teams:other', keys: [withImage.key] })).rejects.toThrow(/does not match/);
+    await expect(send({ type: 'session/archived-images', sessionId, conversationKey: CK, keys: 'x' as never })).rejects.toThrow(/keys must be an array/);
   });
 });
 

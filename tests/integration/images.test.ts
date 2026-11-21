@@ -184,4 +184,51 @@ describe('saving displayed images', () => {
     expect(new Set(attachments.map((attachment) => attachment.imageId)).size).toBe(expectedImages);
     expect(await archive.countImages(conversationKey)).toBe(expectedImages);
   });
+
+  it('does not read the images of archived messages again, unless archived parts are re-read', async () => {
+    const { items } = generateConversation({ count: 90, participants: ['Alice Andersen', 'Bob Brown'], selfName: 'Me', seed: 9, withImagesEvery: 7, dividerEvery: 30 });
+    simulator = new ChatSimulator({ items });
+    archive = await openTestRepository();
+    const conversationKey = detect().conversationKey;
+    const first = new FakeImageReader();
+    await runEngine({ repository: archive, mode: 'full', imageReader: first });
+    expect(first.reads.size).toBe(24);
+    const archived = images(await archive.getMessages(conversationKey));
+
+    // An update re-reads 30 archived messages, several of them with pictures.
+    const update = new FakeImageReader();
+    const updated = await runEngine({ repository: archive, mode: 'incremental', imageReader: update, settings: { incrementalOverlap: 30 } });
+    expect(updated).toMatchObject({ status: 'completed', stopReason: 'overlap-reached' });
+    expect(updated.counters.unchanged).toBeGreaterThanOrEqual(30);
+    expect(update.totalReads).toBe(0);
+    expect(updated.counters).toMatchObject({ imagesSaved: 0, imagesFailed: 0, updated: 0 });
+
+    // A message edited since keeps no image id from the archive: its pictures are read.
+    const index = simulator.items.findIndex((item) => item.attachments?.some((attachment) => attachment.kind === 'image'));
+    simulator.replaceItem(index, { ...simulator.items[index]!, paragraphs: ['Edited, same pictures'], edited: true });
+    const rescan = new FakeImageReader();
+    const reread = await runEngine({ repository: archive, mode: 'full', rescan: true, imageReader: rescan });
+    expect(reread).toMatchObject({ status: 'completed', stopReason: 'reached-top' });
+    expect(rescan.reads.size).toBe(24);
+    expect(images(await archive.getMessages(conversationKey))).toEqual(archived);
+    expect(await archive.countImages(conversationKey)).toBe(24);
+  });
+
+  it('reads the pictures of an archived message that was edited, even without re-reading', async () => {
+    const { items } = generateConversation({ count: 40, participants: ['Alice Andersen', 'Bob Brown'], seed: 4, withImagesEvery: 5 });
+    simulator = new ChatSimulator({ items });
+    archive = await openTestRepository();
+    const conversationKey = detect().conversationKey;
+    await runEngine({ repository: archive, mode: 'full', imageReader: new FakeImageReader() });
+    const last = simulator.items.map((item, i) => ({ item, i })).filter(({ item }) => item.attachments?.some((attachment) => attachment.kind === 'image')).pop()!;
+    simulator.replaceItem(last.i, { ...last.item, paragraphs: ['Edited, same pictures'], edited: true });
+
+    const reader = new FakeImageReader();
+    const updated = await runEngine({ repository: archive, mode: 'incremental', imageReader: reader, settings: { incrementalOverlap: 20 } });
+    expect(updated.status).toBe('completed');
+    expect(reader.reads.size).toBe(2);
+    const edited = await archive.getMessage(`${conversationKey}#${last.item.id}`);
+    expect(edited?.text).toBe('Edited, same pictures');
+    expect(edited?.attachments.filter((attachment) => attachment.kind === 'image').every((attachment) => attachment.imageId)).toBe(true);
+  });
 });

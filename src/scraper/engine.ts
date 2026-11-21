@@ -5,7 +5,9 @@
  * Reliability measures:
  *  - every pass is persisted before scrolling further, so an interruption loses at most one step;
  *  - each pass must overlap the previous one ("contiguity"); otherwise the step is halved and the
- *    view scrolled back, so virtualised lists can never silently skip messages;
+ *    view scrolled back, so virtualised lists can never silently skip messages. Inside parts that
+ *    are already archived the run takes larger steps: a skipped stretch that the archive already
+ *    holds without a gap does not count as a gap ("bridged");
  *  - the open conversation is re-identified before and after every pass;
  *  - hard caps (steps, duration, stalled passes) prevent endless loops.
  */
@@ -19,6 +21,7 @@ import type { DateOrder } from '../shared/time';
 import { toIso } from '../shared/time';
 import {
   emptyCounters,
+  type ArchivedImages,
   type CapturedImage,
   type ConversationIdentity,
   type CoverageRange,
@@ -49,6 +52,11 @@ export interface EngineSink {
    * Without it (or without an image reader, or with `settings.saveImages` off) no image is read.
    */
   saveImages?(images: CapturedImage[]): Promise<ImageSaveResult>;
+  /**
+   * The saved images of archived messages, by message key. Images of a message shown unchanged
+   * are taken from here instead of being read again. Without it every image is read.
+   */
+  archivedImages?(keys: string[]): Promise<Record<string, ArchivedImages>>;
 }
 
 export type EnginePhase = 'starting' | 'running' | 'paused' | 'waiting-visible' | 'done';
@@ -78,8 +86,18 @@ export interface EngineOptions {
   profile: SelectorProfile;
   settings: ScrapeSettings;
   mode: ScrapeMode;
-  /** Full mode only: re-read already archived ranges at normal speed instead of skipping through them. */
+  /**
+   * Re-read already archived ranges at normal speed (and their images) instead of passing
+   * through them quickly.
+   */
   rescan?: boolean;
+  /**
+   * Oldest message time (epoch ms) the run has to reach. A full run stops once its gap-free
+   * stretch reaches it ('range-reached'), or once it joins an archived stretch that does; an
+   * update stops only after re-reading back to it. Null or absent: the whole history (full), or
+   * only the count of archived messages seen again (incremental).
+   */
+  since?: number | null;
   conversation: ConversationIdentity;
   /** Archive coverage of this conversation when the session started. */
   coverage: CoverageRange[];
@@ -97,6 +115,17 @@ export interface EngineOptions {
 
 type Connection = 'first' | 'connected' | 'gap' | 'ahead' | 'empty';
 
+interface Anchor {
+  key: string;
+  sortKey: number | null;
+  /** The sort key is a real position (exact or interpolated), not just the order of observation. */
+  placed: boolean;
+}
+
+function anchorOf(message: ExtractedMessage): Anchor {
+  return { key: message.key, sortKey: message.sortKey, placed: message.sortKey !== null && message.sortKeySource !== 'observed-order' };
+}
+
 const MAX_GAP_RETRIES = 4;
 const MIN_STEP_RATIO = 0.15;
 const STEP_RECOVERY_PASSES = 10;
@@ -105,6 +134,8 @@ const MAX_WARNINGS = 50;
 const NUDGE_DELAY_MS = 60;
 /** Longest scroll animation while passing through already-archived parts (keeps seeking quick). */
 const SEEK_ANIMATION_MS = 120;
+/** Scroll step (in viewport heights) while passing through already-archived parts. */
+export const SEEK_STEP_RATIO = 2;
 
 export function messageSignature(message: ExtractedMessage): string {
   return hashParts([
@@ -161,12 +192,19 @@ class ScrapeEngine {
     newest: null,
     reachedBeginning: false,
   };
-  private anchor: { key: string; sortKey: number | null } | null = null;
+  /** Oldest message of the last connected pass; `placed` when its sort key is a real position. */
+  private anchor: Anchor | null = null;
   private readonly warnings: string[] = [];
   private readonly overlapRanges: CoverageRange[];
   /** Archived messages (inside the overlap ranges) seen again in this session. */
   private readonly overlapKeys = new Set<string>();
   private stepRatio: number;
+  /** Step while passing through archived parts; halved when a step overshoots an archived stretch. */
+  private seekRatio: number;
+  private lastStepWasSeek = false;
+  private readonly since: number | null;
+  /** Saved images of archived messages, looked up once per message key in a session. */
+  private readonly archivedImageIds = new Map<string, ArchivedImages | null>();
   private connectedStreak = 0;
   private lastPassMessages = 0;
   private inCovered = false;
@@ -179,6 +217,8 @@ class ScrapeEngine {
     this.now = options.now ?? (() => Date.now());
     this.startedAt = this.now();
     this.stepRatio = options.settings.scrollStepRatio;
+    this.seekRatio = Math.max(options.settings.scrollStepRatio, SEEK_STEP_RATIO);
+    this.since = options.mode !== 'visible' && typeof options.since === 'number' && Number.isFinite(options.since) ? options.since : null;
     const sink = options.sink;
     this.images =
       options.settings.saveImages && options.imageReader && sink.saveImages
@@ -191,11 +231,14 @@ class ScrapeEngine {
           })
         : null;
     const coverage = options.coverage ?? [];
+    // Archived stretches that, once joined, finish the run: for an update any of them (with the
+    // overlap window still to re-read); for a full run those that already reach back far enough.
+    const since = this.since;
     this.overlapRanges =
       options.mode === 'incremental'
         ? coverage
         : options.mode === 'full' && !options.rescan
-          ? coverage.filter((range) => range.reachedBeginning)
+          ? coverage.filter((range) => range.reachedBeginning || (since !== null && range.oldest <= since))
           : [];
   }
 
@@ -237,7 +280,10 @@ class ScrapeEngine {
         const connection = this.updateContiguity(messages);
         const senderUpdates = this.propagateSenders(messages, groupLinks);
         // Images are stored first, so a stored message never refers to an image that is missing.
-        if (this.images && images.length > 0) await this.images.capture(messages, images);
+        if (this.images && images.length > 0) {
+          await this.applyArchivedImages(messages, images);
+          await this.images.capture(messages, images);
+        }
         const newKeys = await this.store(messages, senderUpdates);
         this.inCovered = this.isInCoveredRange(messages);
         if (this.inCovered && o.mode !== 'visible') this.counters.seekPasses++;
@@ -247,6 +293,7 @@ class ScrapeEngine {
         if (this.overlapReached(connection)) {
           return this.finish('completed', o.mode === 'incremental' ? 'overlap-reached' : 'history-complete');
         }
+        if (o.mode === 'full' && this.reachedSince(connection)) return this.finish('completed', 'range-reached');
         if (this.counters.passes >= o.settings.maxSteps) return this.finish('stopped', 'max-steps');
         if (this.now() - this.startedAt >= o.settings.maxDurationMinutes * 60_000) return this.finish('stopped', 'max-duration');
 
@@ -256,7 +303,9 @@ class ScrapeEngine {
             // We scrolled past unseen messages: go back down part of the way with a smaller step.
             gapRetries++;
             backStep = Math.max(20, Math.round((backStep || lastUpStep) / 2));
-            this.stepRatio = Math.max(MIN_STEP_RATIO, this.stepRatio / 2);
+            // A large step through archived parts that went past their end: only seeking slows down.
+            if (this.lastStepWasSeek) this.seekRatio = Math.max(this.options.settings.scrollStepRatio, this.seekRatio / 2);
+            else this.stepRatio = Math.max(MIN_STEP_RATIO, this.stepRatio / 2);
             this.connectedStreak = 0;
             await driver.scrollDown(backStep, o.settings.scrollAnimationMs);
             await this.settleAfterScroll(driver, true);
@@ -287,9 +336,12 @@ class ScrapeEngine {
         }
 
         const viewport = driver.viewportHeight();
-        const ratio = connection === 'ahead' ? Math.max(this.stepRatio, 1.5) : this.stepRatio;
-        const step = Math.max(40, Math.round(viewport * ratio));
         const seeking = this.inCovered && !o.rescan;
+        // Only a full run may step over archived messages; an update reads each one of its window.
+        const jumping = seeking && o.mode === 'full';
+        const ratio = connection === 'ahead' ? Math.max(this.stepRatio, 1.5) : jumping ? this.seekRatio : this.stepRatio;
+        this.lastStepWasSeek = jumping && connection !== 'ahead';
+        const step = Math.max(40, Math.round(viewport * ratio));
         const animation = seeking ? Math.min(o.settings.scrollAnimationMs, SEEK_ANIMATION_MS) : o.settings.scrollAnimationMs;
         const stepStarted = this.now();
         const move = await driver.scrollUp(step, animation);
@@ -444,7 +496,7 @@ class ScrapeEngine {
     const oldest = messages[0] as ExtractedMessage;
     const newest = messages[messages.length - 1] as ExtractedMessage;
     if (!this.anchor) {
-      this.anchor = { key: oldest.key, sortKey: oldest.sortKey };
+      this.anchor = anchorOf(oldest);
       this.extendSegment(messages);
       return 'first';
     }
@@ -454,14 +506,14 @@ class ScrapeEngine {
       connection = 'connected';
     } else if (anchor.sortKey !== null && oldest.sortKey !== null && newest.sortKey !== null) {
       if (oldest.sortKey <= anchor.sortKey && anchor.sortKey <= newest.sortKey) connection = 'connected';
-      else if (newest.sortKey < anchor.sortKey) connection = 'gap';
+      else if (newest.sortKey < anchor.sortKey) connection = this.bridgedByArchive(messages, anchor) ? 'connected' : 'gap';
       else connection = 'ahead';
     } else {
       connection = 'gap';
     }
     if (connection === 'connected') {
       if (oldest.sortKey === null || anchor.sortKey === null || oldest.sortKey <= anchor.sortKey) {
-        this.anchor = { key: oldest.key, sortKey: oldest.sortKey };
+        this.anchor = anchorOf(oldest);
       }
       this.extendSegment(messages);
     }
@@ -483,8 +535,50 @@ class ScrapeEngine {
     }
     this.current = { oldest: null, newest: null, reachedBeginning: false };
     const oldest = messages[0];
-    this.anchor = oldest ? { key: oldest.key, sortKey: oldest.sortKey } : null;
+    this.anchor = oldest ? anchorOf(oldest) : null;
     this.extendSegment(messages);
+  }
+
+  /**
+   * A pass below the previous one that does not overlap it is still connected when everything
+   * between them was archived without a gap before the run: the pass's newest exact message and
+   * the previous pass's oldest message lie in one archived stretch.
+   */
+  private bridgedByArchive(messages: ExtractedMessage[], anchor: Anchor): boolean {
+    if (this.options.mode !== 'full' || this.options.rescan || !anchor.placed || anchor.sortKey === null) return false;
+    const keys = messages.filter(isReliable).map((message) => message.sortKey as number);
+    if (keys.length === 0) return false;
+    const newest = Math.max(...keys);
+    const top = anchor.sortKey;
+    return (this.options.coverage ?? []).some((range) => range.oldest <= newest && top <= range.newest);
+  }
+
+  /**
+   * Takes the image ids of archived messages that are shown unchanged from the archive, so their
+   * images are not read again. Looked up once per message in a session; on failure the images
+   * are simply read.
+   */
+  private async applyArchivedImages(messages: ExtractedMessage[], images: RenderedImage[]): Promise<void> {
+    const sink = this.options.sink;
+    if (this.options.rescan || !sink.archivedImages) return;
+    const keys = [...new Set(images.map((image) => image.messageKey))].filter((key) => !this.archivedImageIds.has(key));
+    if (keys.length > 0) {
+      let found: Record<string, ArchivedImages> = {};
+      try {
+        found = await sink.archivedImages(keys);
+      } catch {
+        found = {};
+      }
+      for (const key of keys) this.archivedImageIds.set(key, found[key] ?? null);
+    }
+    for (const message of messages) {
+      const archived = this.archivedImageIds.get(message.key);
+      if (!archived || archived.contentHash !== message.contentHash || archived.imageIds.length !== message.attachments.length) continue;
+      message.attachments.forEach((attachment, index) => {
+        const imageId = archived.imageIds[index];
+        if (attachment.kind === 'image' && imageId) attachment.imageId = imageId;
+      });
+    }
   }
 
   private segments(): CoverageRange[] {
@@ -498,8 +592,11 @@ class ScrapeEngine {
   private recoverStepRatio(): void {
     this.connectedStreak++;
     const target = this.options.settings.scrollStepRatio;
-    if (this.stepRatio < target && this.connectedStreak >= STEP_RECOVERY_PASSES) {
+    if (this.connectedStreak < STEP_RECOVERY_PASSES) return;
+    const seekTarget = Math.max(target, SEEK_STEP_RATIO);
+    if (this.stepRatio < target || this.seekRatio < seekTarget) {
       this.stepRatio = Math.min(target, this.stepRatio * 1.5);
+      this.seekRatio = Math.min(seekTarget, this.seekRatio * 1.5);
       this.connectedStreak = 0;
     }
   }
@@ -556,10 +653,19 @@ class ScrapeEngine {
   }
 
   private overlapReached(connection: Connection): boolean {
+    if (this.overlapRanges.length === 0 || this.overlapKeys.size < this.options.settings.incrementalOverlap) return false;
+    if (connection !== 'connected' && connection !== 'first') return false;
+    // An update also re-reads the archived messages back to `since` (late edits and replies).
+    return this.options.mode !== 'incremental' || this.since === null || this.reachedSince(connection);
+  }
+
+  /** The current gap-free stretch reaches back to `since`. */
+  private reachedSince(connection: Connection): boolean {
     return (
-      this.overlapRanges.length > 0 &&
-      this.overlapKeys.size >= this.options.settings.incrementalOverlap &&
-      (connection === 'connected' || connection === 'first')
+      this.since !== null &&
+      (connection === 'connected' || connection === 'first') &&
+      this.current.oldest !== null &&
+      this.current.oldest <= this.since
     );
   }
 

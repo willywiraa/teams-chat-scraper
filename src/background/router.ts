@@ -2,16 +2,20 @@
  * Handles requests from content scripts. Kept free of Chrome APIs so it can be tested
  * end-to-end against a real (fake-indexeddb backed) repository.
  */
+import { updateAnchor, updateStart } from '../shared/capture';
 import { imageMetadataError, MAX_IMAGE_BYTES } from '../shared/images';
-import type {
-  BackgroundRequest,
-  CapturedImageInfo,
-  SessionBatchResponse,
-  SessionBeginResponse,
-  SessionEndResponse,
-  SessionImagePartResponse,
-  SessionImagesResponse,
+import {
+  MAX_ARCHIVED_IMAGE_KEYS,
+  type BackgroundRequest,
+  type CapturedImageInfo,
+  type SessionArchivedImagesResponse,
+  type SessionBatchResponse,
+  type SessionBeginResponse,
+  type SessionEndResponse,
+  type SessionImagePartResponse,
+  type SessionImagesResponse,
 } from '../shared/protocol';
+import { DEFAULT_SETTINGS } from '../shared/settings';
 import { EXTRACTOR_VERSION, emptyCounters, type SessionRecord } from '../shared/types';
 import { saveCapturedImages } from '../storage/images';
 import type { ArchiveRepository } from '../storage/repository';
@@ -105,6 +109,11 @@ function requireArray<T>(value: unknown, name: string): T[] {
   return value as T[];
 }
 
+/** A message time (epoch ms) from a request, or null. */
+function optionalTime(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 /** The session an image request belongs to; it must exist and be for the same conversation. */
 async function requireSession(repository: ArchiveRepository, sessionId: unknown, conversationKey: unknown): Promise<SessionRecord> {
   const id = requireString(sessionId, 'sessionId');
@@ -118,7 +127,9 @@ export async function handleBackgroundRequest(
   request: BackgroundRequest,
   context: RequestContext,
   deps: RouterDeps,
-): Promise<SessionBeginResponse | SessionBatchResponse | SessionImagesResponse | SessionImagePartResponse | SessionEndResponse | { recorded: boolean }> {
+): Promise<
+  SessionBeginResponse | SessionBatchResponse | SessionImagesResponse | SessionImagePartResponse | SessionArchivedImagesResponse | SessionEndResponse | { recorded: boolean }
+> {
   const repository = await deps.getRepository();
   const now = deps.now();
   const nowIso = now.toISOString();
@@ -135,6 +146,12 @@ export async function handleBackgroundRequest(
       const resolution = await repository.resolveConversation(request.conversation, request.evidence ?? null);
       const conversationKey = resolution.conversationKey ?? `local:${deps.newId()}`;
       const conversation = resolution.record;
+      // A full run with a range stops at its start; an update re-reads the overlap window
+      // before the point the archive was last brought up to date.
+      const continuesFrom = updateAnchor(conversation);
+      const overlapDays = typeof request.updateOverlapDays === 'number' ? request.updateOverlapDays : DEFAULT_SETTINGS.updateOverlapDays;
+      const captureFrom =
+        request.mode === 'full' ? optionalTime(request.rangeStart) : request.mode === 'incremental' ? updateStart(continuesFrom, overlapDays) : null;
       const session: SessionRecord = {
         sessionId: deps.newId(),
         conversationKey,
@@ -146,6 +163,8 @@ export async function handleBackgroundRequest(
         stopReason: null,
         error: null,
         resumeOf: request.resumeOf ?? null,
+        captureFrom,
+        continuesFrom,
         tabId: context.tabId,
         startedAt: nowIso,
         updatedAt: nowIso,
@@ -162,6 +181,8 @@ export async function handleBackgroundRequest(
         coverage: conversation?.coverage ?? [],
         conversation,
         alsoMatching: resolution.alsoMatching,
+        captureFrom,
+        continuesFrom,
       } satisfies SessionBeginResponse;
     }
 
@@ -228,6 +249,14 @@ export async function handleBackgroundRequest(
       return { status: saved.statuses[info.imageId] ?? 'inserted' } satisfies SessionImagePartResponse;
     }
 
+    case 'session/archived-images': {
+      const session = await requireSession(repository, request.sessionId, request.conversationKey);
+      const keys = requireArray<unknown>(request.keys, 'keys')
+        .filter((key): key is string => typeof key === 'string')
+        .slice(0, MAX_ARCHIVED_IMAGE_KEYS);
+      return { messages: await repository.archivedImages(session.conversationKey, keys) } satisfies SessionArchivedImagesResponse;
+    }
+
     case 'session/heartbeat': {
       const sessionId = requireString(request.sessionId, 'sessionId');
       // A heartbeat still in flight when the session ended must not reopen it.
@@ -251,6 +280,17 @@ export async function handleBackgroundRequest(
       const segments = requireArray(request.segments ?? [], 'segments');
       if (segments.length > 0) await repository.mergeCoverage(conversationKey, segments as never);
       const replies = await repository.resolveReplies(conversationKey);
+      // Sessions begun before 1.3 did not note where the archive was up to date: they are not counted.
+      const session = await repository.getSession(sessionId);
+      if (session && session.conversationKey === conversationKey && session.continuesFrom !== undefined) {
+        await repository.recordRunEnd(conversationKey, {
+          sessionId,
+          mode: session.mode,
+          at: nowIso,
+          newestSortKey: optionalTime(request.counters?.newestSortKey),
+          continuesFrom: session.continuesFrom,
+        });
+      }
       await repository.updateSession(sessionId, {
         status: request.status,
         stopReason: request.stopReason,

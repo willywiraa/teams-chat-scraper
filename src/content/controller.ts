@@ -18,6 +18,7 @@ import {
   type BackgroundRequest,
   type ContentStatus,
   type FinishedSessionInfo,
+  type SessionArchivedImagesResponse,
   type SessionBatchResponse,
   type SessionBeginResponse,
   type SessionImagePartResponse,
@@ -48,6 +49,8 @@ export interface StartCommand {
   mode: ScrapeMode;
   rescan: boolean;
   resumeOf: string | null;
+  /** Full mode: capture back to this message time (epoch ms); null or absent for the whole history. */
+  rangeStart?: number | null;
 }
 
 const DEFAULT_RETRY_DELAYS = [250, 750, 2000, 4000];
@@ -137,6 +140,8 @@ export class ContentController {
         mode: command.mode,
         rescan: command.rescan,
         resumeOf: command.resumeOf,
+        rangeStart: command.mode === 'full' ? (command.rangeStart ?? null) : null,
+        updateOverlapDays: settings.updateOverlapDays,
       });
     } catch (error) {
       this.control = null;
@@ -146,7 +151,8 @@ export class ContentController {
     // Everything the session writes is keyed with the archive entry's key, which differs from
     // the detected key for a renamed chat, or a chat with the title of another archived chat.
     const conversation: ConversationIdentity = { ...detected, conversationKey: begin.conversationKey, mergedKeys: begin.conversation?.mergedFrom ?? [] };
-    this.session = { sessionId, mode: command.mode, rescan: command.rescan, startedAt: new Date(this.now()).toISOString(), conversation };
+    const captureFrom = typeof begin.captureFrom === 'number' ? begin.captureFrom : null;
+    this.session = { sessionId, mode: command.mode, rescan: command.rescan, captureFrom, startedAt: new Date(this.now()).toISOString(), conversation };
 
     const sink: EngineSink = {
       write: async (batch) => {
@@ -162,6 +168,15 @@ export class ContentController {
         return response.statuses;
       },
       saveImages: (images) => this.sendImages(sessionId, conversation.conversationKey, images),
+      archivedImages: async (keys) => {
+        const response = await this.sendWithRetry<SessionArchivedImagesResponse>({
+          type: 'session/archived-images',
+          sessionId,
+          conversationKey: conversation.conversationKey,
+          keys,
+        });
+        return response.messages;
+      },
     };
 
     this.startHeartbeat(sessionId, control);
@@ -171,6 +186,7 @@ export class ContentController {
       settings,
       mode: command.mode,
       rescan: command.rescan,
+      since: captureFrom,
       conversation,
       coverage: begin.coverage,
       sink,
@@ -196,7 +212,7 @@ export class ContentController {
         segments: [],
         warnings: this.progress?.warnings ?? [],
       }))
-      .then((result) => this.finishSession(sessionId, command.mode, conversation.conversationKey, result))
+      .then((result) => this.finishSession(sessionId, { mode: command.mode, rescan: command.rescan, captureFrom }, conversation.conversationKey, result))
       .finally(() => {
         this.stopHeartbeat();
         this.control = null;
@@ -242,10 +258,15 @@ export class ContentController {
     });
   }
 
-  private async finishSession(sessionId: string, mode: ScrapeMode, conversationKey: string, result: EngineResult): Promise<void> {
+  private async finishSession(
+    sessionId: string,
+    run: { mode: ScrapeMode; rescan: boolean; captureFrom: number | null },
+    conversationKey: string,
+    result: EngineResult,
+  ): Promise<void> {
     // No heartbeat may follow the end report (the background also ignores late ones).
     this.stopHeartbeat();
-    this.lastResult = { ...result, sessionId, mode, conversationKey, endedAt: new Date(this.now()).toISOString() };
+    this.lastResult = { ...result, sessionId, ...run, conversationKey, endedAt: new Date(this.now()).toISOString() };
     try {
       await this.sendWithRetry({
         type: 'session/end',
