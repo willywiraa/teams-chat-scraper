@@ -1,9 +1,11 @@
 /**
  * What the app page and the popup show, worked out without a page: routes, the conversation
  * list's search, filter and sorting, summary lines, overview totals, the message view and its
- * pages; the backup line; the scrolling speed presets; the theme choice; and repeated clicks.
+ * pages; the backup line; the scrolling speed presets; the theme choice; the export panel's
+ * explanation and button; and repeated clicks.
  */
 import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_EXPORT_CHOICES, normalizeChoices, presetChoices } from '../../src/export/options';
 import { timeFormat } from '../../src/export/render';
 import {
   DEFAULT_SETTINGS,
@@ -19,9 +21,11 @@ import {
 import type { ConversationRecord } from '../../src/shared/types';
 import { guarded, type AppContext } from '../../src/ui/archive/context';
 import { countOf, formatDate, formatDateTime, formatNumber } from '../../src/ui/common';
+import { explainChoices, exportButtonLabel } from '../../src/ui/export-panel';
 import { parseLastBackup } from '../../src/ui/last-backup';
-import { applyTheme, normalizeTheme, readTheme, saveTheme, THEME_STORAGE_KEY } from '../../src/ui/theme';
+import { applyTheme, nextTheme, normalizeTheme, readTheme, saveTheme, THEME_STORAGE_KEY, themeLabel } from '../../src/ui/theme';
 import {
+  archivedPeriod,
   backupLine,
   conversationDetails,
   earlierPage,
@@ -175,10 +179,20 @@ describe('summary lines', () => {
     expect(historyLabel(complete)).toBe('Complete');
   });
 
-  it('give the period of a partial history, and the last run when nothing brought it up to date', () => {
+  it('give the period of a history not back to the start, and the last run when nothing brought it up to date', () => {
     const partial = record({ messageCount: 1, coverage: [{ oldest: at(10, 9, 0), newest: at(20, 9, 0), reachedBeginning: false }], oldestSortKey: at(10, 9, 0) });
-    expect(historyLine(partial, now)).toBe(`1 message · partial, ${formatDate(at(10, 9, 0))} – ${formatDate(at(20, 9, 0))} · last run 3 days ago`);
-    expect(historyLabel(partial)).toBe('Partial');
+    const period = `${formatDate(at(10, 9, 0))} – ${formatDate(at(20, 9, 0))}`;
+    expect(archivedPeriod(partial)).toBe(period);
+    expect(historyLine(partial, now)).toBe(`1 message · ${period}, not back to the start · last run 3 days ago`);
+    expect(historyLabel(partial)).toBe('Not back to the start');
+  });
+
+  it('use the same words in the list and the summary line when no capture covered a stretch', () => {
+    const unchecked = record({ messageCount: 2, coverage: [] });
+    expect(historyLabel(unchecked)).toBe('Not checked');
+    expect(historyLine(unchecked, now)).toBe(`2 messages · ${formatDate(at(1, 9, 0))} – ${formatDate(at(20, 9, 0))}, history not checked · last run 3 days ago`);
+    expect(archivedPeriod(record({ oldestSortKey: null, newestSortKey: null }))).toBe('');
+    expect(archivedPeriod(record({ oldestSortKey: at(5, 9, 0), newestSortKey: at(5, 10, 0) }))).toBe(formatDate(at(5, 9, 0)));
   });
 
   it('say "Not archived yet" for a chat without messages', () => {
@@ -237,6 +251,25 @@ describe('message view', () => {
     expect(formula?.attachments).toEqual([]);
     expect(nextDay).toMatchObject({ self: true, sender: 'Me' });
     expect(edited?.time).toMatch(/09:10/);
+  });
+
+  it('shows the sender once for a run of their messages within five minutes', async () => {
+    const { messages } = await exportFixture();
+    const alice = messages[0]!;
+    const copy = (key: string, timestamp: string, name = 'Alice Andersen') => ({ ...alice, key, timestamp, sender: { ...alice.sender, name } });
+    const run = [
+      copy('a1', '2024-01-15T09:00:00.000Z'),
+      copy('a2', '2024-01-15T09:04:00.000Z'),
+      copy('a3', '2024-01-15T09:20:00.000Z'),
+      copy('b1', '2024-01-15T09:21:00.000Z', 'Bob Brown'),
+      copy('b2', '2024-01-15T09:22:00.000Z', 'Bob Brown'),
+    ];
+    const continued = timeline(run, time).flatMap((item) => (item.kind === 'message' ? [item.continued] : []));
+    expect(continued).toEqual([false, true, false, false, true]);
+    // A system message between two messages of one sender ends the run.
+    const { messages: fixture } = await exportFixture();
+    const items = timeline(fixture, time).flatMap((item) => (item.kind === 'message' ? [item] : []));
+    expect(items.filter((item) => item.message.system).every((item) => !item.continued)).toBe(true);
   });
 
   it('names a reply target it cannot see vaguely', async () => {
@@ -414,6 +447,14 @@ describe('theme', () => {
     expect(document.documentElement.dataset.theme).toBeUndefined();
   });
 
+  it('steps through Same as Windows, Light and Dark for the popup\'s theme button', () => {
+    expect(nextTheme('system')).toBe('light');
+    expect(nextTheme('light')).toBe('dark');
+    expect(nextTheme('dark')).toBe('system');
+    expect(themeLabel('system')).toBe('Same as Windows');
+    expect(themeLabel('dark')).toBe('Dark');
+  });
+
   it('sets data-theme only for an explicit choice', () => {
     const root = document.createElement('html');
     applyTheme('light', root);
@@ -423,3 +464,24 @@ describe('theme', () => {
   });
 });
 
+
+// ------------------------------------------------------------ export panel
+
+describe('export panel', () => {
+  it('names what the Export button writes', () => {
+    expect(exportButtonLabel({ format: 'package', packaging: 'zip' }, 2)).toBe('Export 2 conversations (ZIP)');
+    expect(exportButtonLabel({ format: 'html', packaging: 'file' }, 1)).toBe('Export 1 conversation (HTML)');
+    expect(exportButtonLabel({ format: 'csv', packaging: 'zip' }, 3)).toBe('Export 3 conversations (ZIP)');
+    expect(exportButtonLabel({ format: 'json', packaging: 'file' }, 1)).toBe('Export 1 conversation (JSON)');
+    expect(exportButtonLabel({ format: 'pdf', packaging: 'file' }, 2)).toBe('Open the print dialog');
+    expect(exportButtonLabel({ format: 'markdown', packaging: 'file' }, 0)).toBe('Export');
+  });
+
+  it('explains the package in plain words, and lists the files inside apart', () => {
+    const backup = explainChoices(normalizeChoices(presetChoices('backup')), 2);
+    expect(backup.text).not.toMatch(/jsonl|SHA-256|manifest/);
+    expect(backup.text).toMatch(/Import archive/);
+    expect(backup.inside).toMatch(/messages\.jsonl/);
+    expect(explainChoices(normalizeChoices(DEFAULT_EXPORT_CHOICES), 1)).toEqual({ text: expect.stringMatching(/^One HTML page/), inside: '' });
+  });
+});

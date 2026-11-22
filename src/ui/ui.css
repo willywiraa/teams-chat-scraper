@@ -178,8 +178,13 @@ body[data-mode='panel'] {
   gap: var(--space-1);
 }
 
-.app-header #storage-info {
+.header-theme {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--muted);
 }
 
 .app-nav {
@@ -220,6 +225,11 @@ body[data-mode='panel'] {
 #view-main {
   display: grid;
   gap: var(--space-3);
+}
+
+.popup-main > *,
+#view-main > * {
+  min-width: 0;
 }
 
 .popup-main {
@@ -339,7 +349,7 @@ h2 {
 }
 
 h3 {
-  font-size: var(--font-m);
+  font-size: var(--font-l);
   margin: 0 0 var(--space-2);
 }
 
@@ -364,8 +374,18 @@ h3 {
 }
 
 a.conv-title {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
   color: var(--text);
   text-decoration: none;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: var(--font-s);
 }
 
 a.conv-title:hover {
@@ -392,14 +412,18 @@ a.conv-title:hover {
 }
 
 .stats dd {
-  margin: 2px 0 0;
+  margin: var(--space-1) 0 0;
   font-size: var(--font-l);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
 .popup-main .stats {
-  grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+}
+
+.popup-main .stats div {
+  padding: var(--space-2);
 }
 
 /* ----------------------------------------------------------- controls */
@@ -410,6 +434,10 @@ a.conv-title:hover {
   gap: var(--space-2);
   align-items: center;
   margin-top: var(--space-2);
+}
+
+select {
+  max-width: 100%;
 }
 
 button,
@@ -525,6 +553,13 @@ button.icon-button {
   background: none;
 }
 
+/* The popup's capture button: the one thing to click, across the card. */
+button.wide {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-2);
+}
+
 button.icon-button:active:not(:disabled) {
   background: var(--selected);
   border-color: var(--accent);
@@ -608,20 +643,32 @@ textarea {
   background: var(--notice-bg);
   border: 1px solid var(--notice-border);
   border-radius: 10px;
-  padding: 2px var(--space-2);
+  padding: var(--space-1) var(--space-2);
   font-size: var(--font-xs);
   font-weight: 600;
 }
 
 .run-head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.result-link {
+  margin-top: var(--space-1);
+}
+
+.result-link a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
 }
 
 .warnings {
   margin: var(--space-2) 0 0;
-  padding-left: 18px;
+  padding-left: var(--space-4);
   color: var(--warning);
 }
 
@@ -629,7 +676,11 @@ details > summary {
   cursor: pointer;
   font-weight: 600;
   min-height: 32px;
-  padding: 6px 0;
+  padding: var(--space-1) 0;
+}
+
+details.more p {
+  margin: var(--space-2) 0 0;
 }
 
 details.more {
@@ -650,7 +701,7 @@ pre {
   background: var(--bg);
   border-radius: var(--radius-s);
   padding: var(--space-2);
-  font-size: 11px;
+  font-size: var(--font-xs);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -690,10 +741,6 @@ th.num {
   font-variant-numeric: tabular-nums;
 }
 
-td.actions {
-  white-space: nowrap;
-}
-
 /* A count that opens something (the saved images) lines up with the other numbers. */
 td.num button.link {
   padding-inline: 0;
@@ -702,14 +749,15 @@ td.num button.link {
   margin-block: calc((1lh - 32px) / 2);
 }
 
-.cell-actions {
-  display: flex;
-  gap: var(--space-1);
+/* Lines written for the narrow card of a row (below 760 px), and the cells it replaces. */
+.narrow-only,
+.narrow-only-inline {
+  display: none;
 }
 
-/* Narrow windows: each row becomes a small card, each cell labelled. */
+/* Narrow windows: each row becomes a short card whose first cell sums it up. */
 @media (max-width: 760px) {
-  table.responsive thead {
+  table.cards thead {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -717,40 +765,42 @@ td.num button.link {
     clip-path: inset(50%);
   }
 
-  table.responsive tr {
+  table.cards tr {
     display: block;
-    padding: var(--space-2) 0;
+    padding: var(--space-3) 0;
     border-bottom: 1px solid var(--border);
   }
 
-  table.responsive td {
-    display: flex;
-    gap: var(--space-2);
+  table.cards td {
+    display: block;
     border: none;
-    padding: 2px 0;
+    padding: 0;
     text-align: left;
   }
 
-  table.responsive td[data-label]::before {
-    content: attr(data-label);
-    flex: 0 0 120px;
-    color: var(--muted);
-    font-size: var(--font-xs);
+  table.cards td.wide-only {
+    display: none;
   }
 
-  table.responsive td.actions {
-    white-space: normal;
+  table.cards .narrow-only {
+    display: block;
+    margin-top: var(--space-1);
   }
 
-  table.responsive .cell-actions {
-    flex-wrap: wrap;
+  table.cards .narrow-only-inline {
+    display: inline;
   }
 
-  table.responsive td.num button.link {
+  table.cards .run-title {
+    font-weight: 600;
+  }
+
+  table.cards td.num button.link {
+    margin-block: 0;
     text-align: left;
   }
 
-  /* The navigation gets a row of its own; the storage line is in Overview and Settings. */
+  /* The navigation gets a row of its own. */
   .app-header {
     flex-wrap: wrap;
   }
@@ -759,10 +809,6 @@ td.num button.link {
     order: 3;
     width: 100%;
     margin-left: 0;
-  }
-
-  .app-header #storage-info {
-    display: none;
   }
 }
 
@@ -885,6 +931,14 @@ details.advanced > summary {
   margin: var(--space-1) 0 var(--space-2);
 }
 
+.merge-dialog .field {
+  margin: var(--space-3) 0;
+}
+
+.merge-dialog input[type='text'] {
+  width: 100%;
+}
+
 .image-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -915,23 +969,37 @@ details.advanced > summary {
 /* -------------------------------------------------------------- export */
 
 .export-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+
+.preset {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.preset p {
+  margin: 0;
 }
 
 .export-section {
-  margin: var(--space-3) 0 0;
-  padding: var(--space-2) var(--space-3) var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-m);
+  min-width: 0;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  border: none;
 }
 
 .export-section legend {
-  padding: 0 var(--space-1);
-  font-size: var(--font-xs);
+  padding: 0 0 var(--space-2);
+  font-size: var(--font-s);
   font-weight: 600;
+}
+
+.export-explain {
+  margin: var(--space-2) 0 0;
 }
 
 .export-section .button-row {
@@ -951,7 +1019,7 @@ details.advanced > summary {
 .export-content {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 6px var(--space-3);
+  gap: var(--space-2) var(--space-3);
 }
 
 .export-content .field,
@@ -987,7 +1055,7 @@ details.advanced > summary {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 
 .messages .day {
@@ -1006,15 +1074,18 @@ details.advanced > summary {
 .msg {
   max-width: 760px;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border);
   border-radius: var(--radius-m);
-  background: var(--bg);
 }
 
 .msg.self {
   align-self: flex-end;
   background: var(--self-bg);
-  border-color: var(--notice-border);
+}
+
+/* A run from one sender: 16 px between its texts, against 28 px between runs. */
+.msg.continued {
+  margin-top: calc(var(--space-2) * -1);
+  padding-top: var(--space-1);
 }
 
 .msg.system {
@@ -1032,7 +1103,7 @@ details.advanced > summary {
   flex-wrap: wrap;
   gap: var(--space-2);
   align-items: baseline;
-  margin-bottom: 2px;
+  margin-bottom: var(--space-1);
   font-size: var(--font-xs);
   color: var(--muted);
 }
@@ -1048,8 +1119,8 @@ details.advanced > summary {
 }
 
 .msg-reply {
-  margin: 2px 0 var(--space-2);
-  padding: 2px var(--space-3);
+  margin: var(--space-1) 0 var(--space-2);
+  padding: var(--space-1) var(--space-3);
   border-left: 3px solid var(--border);
   color: var(--muted);
   font-size: var(--font-s);
@@ -1075,7 +1146,7 @@ details.advanced > summary {
 
 .msg-attachments {
   margin: var(--space-2) 0 0;
-  padding-left: 18px;
+  padding-left: var(--space-4);
   font-size: var(--font-s);
   overflow-wrap: anywhere;
 }
@@ -1099,7 +1170,7 @@ details.advanced > summary {
 
 .msg-history blockquote {
   margin: var(--space-1) 0 0;
-  padding: 2px var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border-left: 3px dashed var(--border);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1107,6 +1178,12 @@ details.advanced > summary {
 
 .load-earlier {
   align-self: center;
+}
+
+.to-top {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-3);
 }
 
 /* ------------------------------------------------------------ overview */
@@ -1117,7 +1194,7 @@ details.advanced > summary {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2) var(--space-3);
-  margin: var(--space-3) 0 var(--space-2);
+  margin: 0 0 var(--space-3);
 }
 
 .backup-row p {
@@ -1132,9 +1209,11 @@ details.advanced > summary {
 
 .activity li {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
+  gap: 0 var(--space-3);
+  padding: var(--space-1) 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1154,6 +1233,9 @@ details.advanced > summary {
   input[type='text'],
   .search-field,
   .app-nav a,
+  a.conv-title,
+  .back-link,
+  .result-link a,
   details > summary {
     min-height: 44px;
   }

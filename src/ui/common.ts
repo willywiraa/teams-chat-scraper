@@ -96,12 +96,12 @@ export const STOP_REASON_LABELS: Record<StopReason, string> = {
 };
 
 export const MODE_LABELS: Record<ScrapeMode, string> = {
-  visible: 'Visible only',
+  visible: 'On screen',
   incremental: 'Update',
   full: 'Full history',
 };
 
-/** What a run captured: "Update", "Full history", "Since 14 Nov 2026" or "Visible only". */
+/** What a run captured: "Update", "Full history", "Since 14 Nov 2026" or "On screen". */
 export function captureLabel(mode: ScrapeMode, captureFrom: number | null | undefined): string {
   if (mode === 'full' && typeof captureFrom === 'number') return `Since ${formatDate(captureFrom)}`;
   return MODE_LABELS[mode];
@@ -110,7 +110,7 @@ export function captureLabel(mode: ScrapeMode, captureFrom: number | null | unde
 /** A run as the subject of a sentence: "The update", "The capture since 3 Nov 2026", "The full-history run". */
 export function runSubject(mode: ScrapeMode, captureFrom: number | null | undefined): string {
   if (mode === 'incremental') return 'The update';
-  if (mode === 'visible') return 'The capture of the visible messages';
+  if (mode === 'visible') return 'The capture of the messages on screen';
   return typeof captureFrom === 'number' ? `The capture since ${formatMoment(captureFrom)}` : 'The full-history run';
 }
 

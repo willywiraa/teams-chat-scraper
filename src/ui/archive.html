@@ -18,7 +18,7 @@
         <a href="#export" data-nav="export">Export</a>
         <a href="#settings" data-nav="settings">Settings</a>
       </nav>
-      <span id="storage-info" class="muted small"></span>
+      <label class="header-theme" for="header-theme"><span>Theme</span><select id="header-theme"></select></label>
     </header>
 
     <main id="main" class="archive-main" tabindex="-1">
@@ -28,17 +28,18 @@
       <!-- Overview -->
       <section id="view-overview" class="view" aria-labelledby="overview-title" hidden>
         <h2 id="overview-title" class="view-title" tabindex="-1">Overview</h2>
-        <div class="card">
-          <dl class="stats" id="overview-stats"></dl>
+        <section class="card" aria-labelledby="backup-title">
+          <h3 id="backup-title">Backup</h3>
           <div class="backup-row">
-            <p id="backup-status" class="small"></p>
+            <p id="backup-status"></p>
             <button type="button" class="primary" id="btn-backup-now" aria-describedby="backup-status">Back up now…</button>
           </div>
+          <dl class="stats" id="overview-stats"></dl>
           <p class="muted small">
-            Data is stored only in this browser profile (IndexedDB of this extension). Removing the extension deletes it, so back it up
-            regularly. Importing a backup restores everything without creating duplicates.
+            The archive is kept only in this browser profile. Removing the extension deletes it, so back it up regularly. Importing a
+            backup restores everything without creating duplicates.
           </p>
-        </div>
+        </section>
         <section class="card" aria-labelledby="activity-title">
           <h3 id="activity-title">Latest activity</h3>
           <ul id="activity" class="activity"></ul>
@@ -47,37 +48,28 @@
         <section class="card" aria-labelledby="sessions-title">
           <h3 id="sessions-title">Recent runs</h3>
           <div class="table-wrap">
-            <table id="sessions" class="responsive">
+            <table id="sessions" class="cards">
               <thead>
                 <tr>
                   <th scope="col">Started</th>
                   <th scope="col">Conversation</th>
-                  <th scope="col">Mode</th>
+                  <th scope="col">Capture</th>
                   <th scope="col">Status</th>
                   <th scope="col">Result</th>
-                  <th scope="col" class="num">New</th>
-                  <th scope="col" class="num">Updated</th>
-                  <th scope="col" class="num">Already archived</th>
-                  <th scope="col" class="num">Images</th>
                   <th scope="col">Duration</th>
                 </tr>
               </thead>
               <tbody></tbody>
             </table>
           </div>
+          <button type="button" class="link" id="btn-all-runs" hidden></button>
           <p id="no-sessions" class="muted" hidden>No runs yet. Open a chat in Teams Web and click the toolbar button to start one.</p>
         </section>
       </section>
 
       <!-- Conversations -->
       <section id="view-conversations" class="view" aria-labelledby="conversations-title" hidden>
-        <div class="section-head">
-          <h2 id="conversations-title" class="view-title" tabindex="-1">Conversations</h2>
-          <div class="button-row">
-            <button type="button" id="btn-export-all" title="HTML, PDF, Markdown, text, CSV, JSON or a knowledge package; one, several or all chats">Export…</button>
-            <button type="button" data-import title="A JSON export or a knowledge package (ZIP)">Import archive…</button>
-          </div>
-        </div>
+        <h2 id="conversations-title" class="view-title" tabindex="-1">Conversations</h2>
         <div class="card">
           <div class="toolbar" role="search">
             <div class="field toolbar-search">
@@ -92,7 +84,7 @@
             <span id="conv-count" class="muted small" aria-live="polite"></span>
           </div>
           <div class="table-wrap">
-            <table id="conversations" class="responsive">
+            <table id="conversations" class="cards">
               <thead>
                 <tr>
                   <th scope="col">Conversation</th>
@@ -100,9 +92,7 @@
                   <th scope="col" class="num">Messages</th>
                   <th scope="col" class="num">Images</th>
                   <th scope="col">History</th>
-                  <th scope="col">Archived period</th>
                   <th scope="col">Last update</th>
-                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -115,7 +105,7 @@
 
       <!-- One conversation -->
       <section id="view-conversation" class="view" aria-labelledby="conv-view-title" hidden>
-        <a href="#conversations" class="small" id="conv-view-back">All conversations</a>
+        <a href="#conversations" class="back-link" id="conv-view-back">All conversations</a>
         <div class="card">
           <div class="conversation-head">
             <div>
@@ -137,21 +127,41 @@
             <button type="button" id="btn-load-earlier" class="load-earlier">Show earlier messages</button>
           </div>
           <ol id="conv-view-messages" class="messages" aria-labelledby="conv-view-messages-title"></ol>
+          <div class="to-top">
+            <button type="button" class="link" id="btn-to-top" hidden>Back to the top</button>
+          </div>
           <p id="conv-view-empty" class="muted" hidden>No messages are archived for this chat. Open it in Teams Web and click the toolbar button to archive them.</p>
         </div>
       </section>
 
       <!-- Export -->
       <section id="view-export" class="view" aria-labelledby="export-title" hidden>
-        <div class="section-head">
-          <h2 id="export-title" class="view-title" tabindex="-1">Export</h2>
-          <div class="export-presets">
-            <span class="muted small">Presets:</span>
-            <button type="button" id="btn-preset-knowledge" title="The knowledge package with pictures, attachments, reply context and edit history, without system messages">Knowledge system</button>
-            <button type="button" id="btn-preset-backup" title="The knowledge package with everything; importable">Full backup</button>
-          </div>
-        </div>
+        <h2 id="export-title" class="view-title" tabindex="-1">Export</h2>
         <div class="card">
+          <fieldset class="export-section">
+            <legend>Start from</legend>
+            <div class="export-presets">
+              <div class="preset">
+                <button type="button" id="btn-preset-knowledge" aria-describedby="preset-knowledge-text">Knowledge system</button>
+                <p id="preset-knowledge-text" class="muted small">
+                  The knowledge package with pictures, attachments, reply context, reactions and edit history, without system messages.
+                </p>
+              </div>
+              <div class="preset">
+                <button type="button" id="btn-preset-backup" aria-describedby="preset-backup-text">Full backup</button>
+                <p id="preset-backup-text" class="muted small">The knowledge package with everything. Import archive… restores it.</p>
+              </div>
+            </div>
+          </fieldset>
+          <div class="export-grid">
+            <label class="field" for="export-format"><span>Format</span><select id="export-format"></select></label>
+            <label class="field" for="export-packaging" id="export-packaging-field"><span>Packaging</span><select id="export-packaging"></select></label>
+          </div>
+          <p id="export-explain" class="small export-explain"></p>
+          <details class="more" id="export-inside" hidden>
+            <summary>What is inside</summary>
+            <p id="export-inside-text" class="muted small"></p>
+          </details>
           <fieldset class="export-section">
             <legend>Conversations</legend>
             <div class="button-row small" id="export-select-row">
@@ -163,8 +173,6 @@
             <p id="export-empty" class="muted small" hidden>Nothing archived yet, so there is nothing to export. Open a chat in Teams Web and click the toolbar button.</p>
           </fieldset>
           <div class="export-grid">
-            <label class="field" for="export-format"><span>Format</span><select id="export-format"></select></label>
-            <label class="field" for="export-packaging"><span>Packaging</span><select id="export-packaging"></select></label>
             <label class="field" for="export-range"><span>Messages</span><select id="export-range"></select></label>
           </div>
           <div id="export-period" class="export-grid" hidden>
@@ -174,8 +182,10 @@
           <fieldset class="export-section">
             <legend>Content</legend>
             <div id="export-content" class="export-content"></div>
+            <p id="export-content-note" class="muted small" hidden>
+              File attachments and reply context are always included in JSON and package exports: they are part of each archive record.
+            </p>
           </fieldset>
-          <p id="export-explain" class="muted small"></p>
           <p id="export-message" class="small" role="status" aria-live="polite" hidden></p>
           <div class="button-row">
             <button type="button" id="btn-export-run" class="primary" aria-describedby="export-run-hint">Export</button>
@@ -267,6 +277,30 @@
         <button type="button" id="btn-image-close">Close</button>
       </div>
       <div id="image-grid" class="image-grid"></div>
+    </dialog>
+
+    <dialog id="rename-dialog" class="image-dialog merge-dialog" aria-labelledby="rename-dialog-title">
+      <form id="rename-form" novalidate>
+        <h2 id="rename-dialog-title">Rename</h2>
+        <label class="field" for="rename-input">
+          <span>Name for this chat in the archive and in exports. Leave it empty to show the Teams title.</span>
+          <input type="text" id="rename-input" maxlength="200" autocomplete="off" />
+        </label>
+        <div class="button-row">
+          <button type="submit" class="primary">Rename</button>
+          <button type="button" id="btn-rename-cancel">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="delete-dialog" class="image-dialog merge-dialog" aria-labelledby="delete-dialog-title" aria-describedby="delete-text">
+      <h2 id="delete-dialog-title">Delete this conversation?</h2>
+      <p class="small" id="delete-text"></p>
+      <p class="muted small">This cannot be undone. Export a backup first if you may need it.</p>
+      <div class="button-row">
+        <button type="button" id="btn-delete-confirm" class="danger">Delete</button>
+        <button type="button" id="btn-delete-cancel" autofocus>Cancel</button>
+      </div>
     </dialog>
 
     <dialog id="merge-dialog" class="image-dialog merge-dialog" aria-labelledby="merge-dialog-title">

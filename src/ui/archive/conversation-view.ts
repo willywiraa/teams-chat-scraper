@@ -37,6 +37,11 @@ export function closeConversation(): void {
 
 export function wireConversationView(app: AppContext): void {
   byId('btn-load-earlier').addEventListener('click', guarded(app, () => loadEarlier(app)));
+  // The view opens at the newest message; this goes back to the chat's heading and actions.
+  byId('btn-to-top').addEventListener('click', () => {
+    window.scrollTo(0, 0);
+    byId('conv-view-title').focus({ preventScroll: true });
+  });
 }
 
 /** Shows a conversation; a key merged into another entry shows that entry. Returns the title shown. */
@@ -60,6 +65,7 @@ export async function showConversation(app: AppContext, key: string): Promise<st
     for (const id of ['conv-view-history', 'conv-view-details', 'conv-view-key', 'conv-view-range']) byId(id).textContent = '';
     byId('conv-view-actions').replaceChildren();
     byId('btn-load-earlier').hidden = true;
+    byId('btn-to-top').hidden = true;
     byId('conv-view-empty').hidden = true;
     return 'Conversation not found';
   }
@@ -80,7 +86,7 @@ function renderHead(app: AppContext, record: ConversationRecord, imageCount: num
   byId('conv-view-history').textContent = historyLine(record);
   byId('conv-view-details').textContent = conversationDetails(record);
   byId('conv-view-key').textContent = record.conversationKey;
-  byId('conv-view-actions').replaceChildren(...conversationActions(app, record, imageCount, { list: false }));
+  byId('conv-view-actions').replaceChildren(...conversationActions(app, record, imageCount));
 }
 
 async function loadEarlier(app: AppContext): Promise<void> {
@@ -124,6 +130,7 @@ async function renderMessages(app: AppContext, mine: number): Promise<void> {
   byId('conv-view-messages').replaceChildren(...items.map((item) => timelineItem(item)));
   byId('conv-view-empty').hidden = keys.length > 0;
   byId('btn-load-earlier').hidden = from === 0;
+  byId('btn-to-top').hidden = keys.length === 0;
   byId('conv-view-range').textContent =
     keys.length === 0 ? '' : keys.length === 1 ? '1 message' : from === 0 ? `All ${formatNumber(keys.length)} messages` : `The newest ${formatNumber(keys.length - from)} of ${formatNumber(keys.length)} messages`;
   await loadPictures(app, mine);
@@ -159,20 +166,21 @@ async function loadPictures(app: AppContext, mine: number): Promise<void> {
 
 function timelineItem(item: TimelineItem): HTMLLIElement {
   if (item.kind === 'day') return el('li', { className: 'day' }, el('h4', { className: 'visually-hidden' }, item.label), el('span', { 'aria-hidden': 'true' }, item.label));
-  return messageItem(item.message);
+  return messageItem(item.message, item.continued);
 }
 
-function messageItem(message: MessageView): HTMLLIElement {
+/** A message; one that continues its sender's run shows the name to screen readers only. */
+function messageItem(message: MessageView, continued: boolean): HTMLLIElement {
   if (message.system) return el('li', { className: 'msg system', 'data-key': message.key }, `${message.time} · ${message.text}`);
   const flags = [message.edited ? 'edited' : '', message.deleted ? 'deleted' : ''].filter(Boolean);
   const text = message.text || (message.deleted ? 'This message was deleted.' : '');
   return el(
     'li',
-    { className: `msg${message.self ? ' self' : ''}`, 'data-key': message.key },
+    { className: `msg${message.self ? ' self' : ''}${continued ? ' continued' : ''}`, 'data-key': message.key },
     el(
       'div',
       { className: 'msg-meta' },
-      el('span', { className: 'who' }, message.sender),
+      el('span', { className: continued ? 'who visually-hidden' : 'who' }, message.sender),
       el('span', {}, message.time),
       flags.length > 0 ? el('span', {}, `(${flags.join(', ')})`) : null,
     ),

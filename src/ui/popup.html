@@ -12,6 +12,7 @@
       <img src="icons/logo.svg" alt="" width="20" height="20" />
       <h1>Chat Archiver</h1>
       <div class="header-actions">
+        <button type="button" id="btn-theme" class="icon-button"></button>
         <button type="button" id="btn-archive" class="icon-button" title="Open the archive" aria-label="Open the archive"></button>
         <button type="button" id="btn-panel" class="icon-button" title="Open in the side panel" aria-label="Open in the side panel"></button>
       </div>
@@ -34,6 +35,7 @@
           <h2 class="conv-title" id="conv-title"></h2>
           <div class="muted small" id="conv-meta"></div>
           <div class="small" id="arch-summary"></div>
+          <div class="muted small" id="visible-count" hidden></div>
           <div class="warning small" id="conv-warning" hidden></div>
           <div class="muted small" id="arch-note" hidden></div>
           <p class="small" id="troubleshoot-hint" hidden>
@@ -58,25 +60,21 @@
               <option value="last-30d">Last 30 days</option>
               <option value="from-date">From a date…</option>
               <option value="everything">Full history</option>
+              <option value="visible">Only the messages on screen now</option>
             </select>
             <label class="field" for="capture-from" id="capture-from-field" hidden><span>From</span><input type="date" id="capture-from" /></label>
           </div>
           <div class="muted small" id="capture-hint"></div>
-          <div class="button-row">
-            <button type="button" id="btn-start" class="primary">Start</button>
-          </div>
+          <button type="button" id="btn-start" class="primary wide">Capture</button>
           <details class="more" id="more">
-            <summary>More</summary>
-            <div class="button-row">
-              <button type="button" id="btn-visible" title="Archive only the messages currently rendered on screen, without scrolling">Visible only</button>
-            </div>
+            <summary>Options</summary>
             <label class="check small" for="opt-rescan">
               <input type="checkbox" id="opt-rescan" />
               <span>Re-read archived parts at normal speed (picks up edits and deletions)</span>
             </label>
-            <div class="muted small">
-              <span id="visible-count">–</span> · <a href="#" id="link-troubleshoot">Troubleshooting</a>
-            </div>
+            <p class="small">
+              <a href="#" id="link-troubleshoot">Troubleshooting</a> checks what the extension can see on this page.
+            </p>
           </details>
         </div>
 
@@ -90,7 +88,6 @@
             <div><dt>New</dt><dd id="run-new">0</dd></div>
             <div><dt>Updated</dt><dd id="run-updated">0</dd></div>
             <div><dt>Already archived</dt><dd id="run-unchanged">0</dd></div>
-            <div><dt>Images</dt><dd id="run-images">0</dd></div>
           </dl>
           <div class="muted small" id="run-detail"></div>
           <ul class="warnings small" id="run-warnings" hidden></ul>

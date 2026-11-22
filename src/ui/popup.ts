@@ -19,9 +19,9 @@ import { ArchiveRepository } from '../storage/repository';
 import {
   byId,
   captureLabel,
+  countOf,
   el,
   errorText,
-  formatAgo,
   formatDate,
   formatDateTime,
   formatDuration,
@@ -35,7 +35,11 @@ import {
   TYPE_LABELS,
 } from './common';
 import { icon } from './icons';
+import { nextTheme, readTheme, saveTheme, THEME_STORAGE_KEY, themeLabel } from './theme';
 import { historyLine, routeHash, type Route } from './view-models';
+
+/** The capture choices of the popup: the capture ranges, and the messages on screen only. */
+type PopupChoice = CaptureChoice | 'visible';
 
 const isPanel = document.body.dataset.mode === 'panel';
 let tab: chrome.tabs.Tab | null = null;
@@ -137,7 +141,7 @@ function renderStatus(status: ContentStatus): void {
   setText(
     'conv-meta',
     conversation
-      ? `${TYPE_LABELS[conversation.type]}${conversation.threadId ? '' : ' · recognised by its title and messages'}`
+      ? TYPE_LABELS[conversation.type]
       : status.conversationError ?? 'Open a 1:1 or group chat in Teams.',
   );
   // Without a chat id, the messages on screen tell renamed chats and chats with the same title apart.
@@ -146,10 +150,8 @@ function renderStatus(status: ContentStatus): void {
     : '';
   setText('conv-warning', warning);
   setHidden('conv-warning', !warning);
-  setText(
-    'visible-count',
-    status.visibleMessages === null ? 'Messages on screen: unknown' : `${formatNumber(status.visibleMessages)} ${status.visibleMessages === 1 ? 'message' : 'messages'} on screen`,
-  );
+  setText('visible-count', status.visibleMessages === null ? '' : `${countOf(status.visibleMessages, 'message')} on screen`);
+  setHidden('visible-count', status.visibleMessages === null || !conversation);
 
   const idle = status.state === 'idle';
   // Troubleshooting is offered up front only when the extension finds nothing to archive.
@@ -157,11 +159,10 @@ function renderStatus(status: ContentStatus): void {
   const runFoundNothing = result !== undefined && result.uniqueSeen + result.inserted + result.updated + result.unchanged === 0;
   const foundNothing = !conversation || (idle && (status.visibleMessages === 0 || runFoundNothing));
   setHidden('troubleshoot-hint', !foundNothing);
-  for (const id of ['btn-visible', 'btn-resume-session']) {
-    (byId<HTMLButtonElement>(id)).disabled = !idle || !conversation || busy;
-  }
-  byId<HTMLInputElement>('opt-rescan').disabled = !idle;
+  byId<HTMLButtonElement>('btn-resume-session').disabled = !idle || !conversation || busy;
 
+  // During a run its progress and Stop take the place of the capture controls.
+  setHidden('actions', !idle);
   setHidden('run-panel', idle);
   if (!idle) renderProgress(status);
   setHidden('result-panel', !idle || !status.lastResult);
@@ -179,20 +180,20 @@ function renderProgress(status: ContentStatus): void {
   setText('run-phase', phase);
   setText(
     'run-elapsed',
-    status.session ? `${captureLabel(status.session.mode, status.session.captureFrom)} · ${formatDuration(Date.now() - Date.parse(status.session.startedAt))}` : '',
+    status.session ? `${runName(status.session.mode, status.session.captureFrom)} · ${formatDuration(Date.now() - Date.parse(status.session.startedAt))}` : '',
   );
   setText('run-seen', formatNumber(counters?.uniqueSeen ?? 0));
   setText('run-new', formatNumber(counters?.inserted ?? 0));
   setText('run-updated', formatNumber(counters?.updated ?? 0));
   setText('run-unchanged', formatNumber(counters?.unchanged ?? 0));
-  setText('run-images', formatNumber(counters?.imagesSaved ?? 0));
   const captureFrom = status.session?.captureFrom;
   const detail = [
     progress?.oldestReached ? `Reached back to ${formatDateTime(progress.oldestReached)}` : '',
     typeof captureFrom === 'number' ? `going back to ${formatMoment(captureFrom)}` : '',
     counters ? `${formatNumber(counters.passes)} scroll steps` : '',
     counters?.gapsDetected ? `${counters.gapsDetected} gap checks` : '',
-    counters?.imagesFailed ? `${formatNumber(counters.imagesFailed)} images not saved` : '',
+    counters?.imagesSaved ? `${countOf(counters.imagesSaved, 'image')} saved` : '',
+    counters?.imagesFailed ? `${countOf(counters.imagesFailed, 'image')} not saved` : '',
   ].filter(Boolean);
   setText('run-detail', detail.join(' · '));
   const warnings = byId('run-warnings');
@@ -203,6 +204,13 @@ function renderProgress(status: ContentStatus): void {
   setHidden('btn-continue', !paused);
   byId<HTMLButtonElement>('btn-pause').disabled = status.state !== 'running';
   byId<HTMLButtonElement>('btn-stop').disabled = status.state === 'stopping';
+}
+
+/** The run in progress, named as in the capture choice. */
+function runName(mode: ScrapeMode, captureFrom: number | null | undefined): string {
+  if (mode === 'incremental') return 'New messages since the last update';
+  if (mode === 'visible') return 'The messages on screen';
+  return captureLabel(mode, captureFrom);
 }
 
 /** "· 3 images saved (1 not saved)", or nothing when the run met no images. */
@@ -229,6 +237,7 @@ function renderResult(result: FinishedSessionInfo): void {
       ? el('div', { className: 'muted small' }, 'Start it again to continue; parts already archived are passed quickly.')
       : null,
     ...result.warnings.slice(0, 3).map((warning) => el('div', { className: 'warning small' }, warning)),
+    el('div', { className: 'small result-link' }, archiveLink({ view: 'conversation', key: result.conversationKey }, 'Open this chat in the archive')),
   ];
   panel.replaceChildren(...children.filter((child): child is HTMLElement => child !== null));
 }
@@ -328,11 +337,32 @@ function todayValue(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
-function selectedChoice(): CaptureChoice {
-  return byId<HTMLSelectElement>('capture-choice').value as CaptureChoice;
+function selectedChoice(): PopupChoice {
+  return byId<HTMLSelectElement>('capture-choice').value as PopupChoice;
 }
 
-function captureHint(choice: CaptureChoice, record: ConversationRecord | null): string {
+/** The capture button says what it captures. */
+function startLabel(choice: PopupChoice, rangeStart: number | null): string {
+  switch (choice) {
+    case 'update':
+      return 'Capture new messages';
+    case 'last-24h':
+      return 'Capture the last 24 hours';
+    case 'last-7d':
+      return 'Capture the last 7 days';
+    case 'last-30d':
+      return 'Capture the last 30 days';
+    case 'from-date':
+      return rangeStart === null ? 'Capture from a date' : `Capture from ${formatDate(rangeStart)}`;
+    case 'everything':
+      return 'Capture the full history';
+    case 'visible':
+      return 'Capture the messages on screen';
+  }
+}
+
+function captureHint(choice: PopupChoice, record: ConversationRecord | null): string {
+  if (choice === 'visible') return 'Archives only the messages Teams shows on screen now, without scrolling.';
   const passed = byId<HTMLInputElement>('opt-rescan').checked ? 'Parts already archived are read again.' : 'Parts already archived are passed quickly.';
   if (choice === 'update') {
     const days = settings.updateOverlapDays;
@@ -358,7 +388,8 @@ function renderCapture(next?: { record: ConversationRecord | null; conversationK
   const archived = updateAnchor(record) !== null;
   if (updateOption) {
     updateOption.disabled = !archived;
-    updateOption.textContent = record?.lastUpdate ? `New messages since the last update (${formatAgo(record.lastUpdate.at)})` : 'New messages since the newest archived one';
+    // When that was is in the hint: a long option would set the width of the whole popup.
+    updateOption.textContent = record?.lastUpdate ? 'New messages since the last update' : 'New messages since the newest archived one';
   }
   if (conversationKey !== null && captureState.presetFor !== conversationKey) {
     captureState.presetFor = conversationKey;
@@ -373,12 +404,21 @@ function renderCapture(next?: { record: ConversationRecord | null; conversationK
   dateInput.max = todayValue();
   const choice = selectedChoice();
   setText('capture-hint', conversationKey === null ? '' : captureHint(choice, record));
-  const plan = capturePlan(choice, Date.now(), dateInput.value);
-  byId<HTMLButtonElement>('btn-start').disabled = !idle || busy || conversationKey === null || plan === null;
+  const plan = choice === 'visible' ? null : capturePlan(choice, Date.now(), dateInput.value);
+  const start = byId<HTMLButtonElement>('btn-start');
+  start.textContent = startLabel(choice, plan?.rangeStart ?? null);
+  start.disabled = !idle || busy || conversationKey === null || (choice !== 'visible' && plan === null);
+  // Re-reading applies to the capture ranges, not to the messages on screen.
+  byId<HTMLInputElement>('opt-rescan').disabled = !idle || choice === 'visible';
 }
 
 function startCapture(): void {
-  const plan = capturePlan(selectedChoice(), Date.now(), byId<HTMLInputElement>('capture-from').value);
+  const choice = selectedChoice();
+  if (choice === 'visible') {
+    void start('visible', false, null);
+    return;
+  }
+  const plan = capturePlan(choice, Date.now(), byId<HTMLInputElement>('capture-from').value);
   if (plan) void start(plan.mode, byId<HTMLInputElement>('opt-rescan').checked, null, plan.rangeStart);
 }
 
@@ -405,9 +445,26 @@ async function command(type: 'content/pause' | 'content/resume' | 'content/stop'
   }
 }
 
+/** The theme button shows the theme in use; a click switches to the next one. */
+function renderThemeButton(): void {
+  const theme = readTheme();
+  const button = byId('btn-theme');
+  button.replaceChildren(icon(`theme-${theme}`));
+  button.setAttribute('aria-label', `Theme: ${themeLabel(theme)}`);
+  button.title = `Theme: ${themeLabel(theme)}. Click for ${themeLabel(nextTheme(theme))}.`;
+}
+
 function wire(): void {
   byId('btn-start').addEventListener('click', startCapture);
-  byId('btn-visible').addEventListener('click', () => void start('visible', false, null));
+  renderThemeButton();
+  byId('btn-theme').addEventListener('click', () => {
+    saveTheme(nextTheme(readTheme()));
+    renderThemeButton();
+  });
+  // The archive page, or the side panel, may change the theme while this is open.
+  window.addEventListener('storage', (event) => {
+    if (event.key === THEME_STORAGE_KEY) renderThemeButton();
+  });
   for (const id of ['capture-choice', 'capture-from', 'opt-rescan']) {
     byId(id).addEventListener('change', () => renderCapture());
     byId(id).addEventListener('input', () => renderCapture());

@@ -29,7 +29,7 @@ After rebuilding, click **Reload** on the extension card in `edge://extensions` 
 
 1. In Teams Web, open the chat (1:1, group or meeting chat).
 2. Click the extension icon. The popup shows the chat it found and one line about its archive, for example *1,234 messages · complete back to 3 Jan 2023 · updated 3 days ago*. A warning appears only when you can act on it, such as a chat archived in two entries (with a link to merge them).
-3. Under **Capture**, choose what to archive, then click **Start**:
+3. Under **Capture**, choose what to archive, then click the button under it, which names your choice (for example **Capture new messages**):
 
 | Choice | What it does | Ends when |
 | --- | --- | --- |
@@ -37,14 +37,16 @@ After rebuilding, click **Reload** on the extension card in `edge://extensions` 
 | **Last 24 hours**, **Last 7 days**, **Last 30 days** | Archives the messages of that period. | The start of the period is reached, or it joins archived messages that already reach back that far. |
 | **From a date…** | The same, from midnight of the chosen day. | As above. |
 | **Full history** | Scrolls back to the beginning of the chat and archives everything. Preselected for a chat with nothing archived. | The beginning of the chat is reached, or it has caught up with a complete archive. |
+| **Only the messages on screen now** | Archives the messages Teams shows on screen, without scrolling. | At once. |
 
 Every choice keeps the newer messages it passes on the way, so there is no "to" date: the archive never gets a hole between the period and now.
 
-Under **More**:
+The popup also shows how many messages are on screen. Under **Options**:
 
-- **Visible only** archives the messages on screen without scrolling.
 - **Re-read archived parts at normal speed** reads archived stretches again, with their images, instead of passing them quickly. Use it to pick up edits and deletions in older messages. The setting *Re-read archived parts by default* presets it.
-- The number of messages on screen, and a link to **Troubleshooting**. When the popup finds no chat or no messages, it shows that link on its own.
+- A link to **Troubleshooting**. When the popup finds no chat or no messages, it shows that link on its own.
+
+During a run, the progress and **Stop** take the place of the capture controls. Afterwards the result links to the chat in the archive.
 
 **The last update** is the most recent run after which the archive held every message, without a gap, from the previous update up to the newest message. Any capture can be one: an update, a period or the full history, also one that was stopped once it got that far. A run that leaves a gap (for example *Last 24 hours* a week after the last update) is not, so the next **New messages since the last update** still goes back to the last update and closes the gap. The archive page shows the time of each chat's last update.
 
@@ -68,11 +70,11 @@ Running any capture again is always safe: messages are never stored twice.
 
 Open it with the archive button at the top right of the popup, or via the extension's *Extension options*. It has four sections; each has its own address (for example `archive.html#conversations`), so Back and Forward work and you can bookmark one.
 
-- **Overview**: totals (conversations, messages, saved images, complete histories, storage used), when the last full backup was made, the chats archived most recently, and **Recent runs**: every run with what it captured (*Update*, *Since 14 Nov 2026*, *Full history*, *Visible only*), its status (*Running*, *Paused*, *Completed*, *Stopped*, *Interrupted*, *Failed*), result, counters (including images saved and not saved) and duration. **Back up now…** opens Export with the full backup; once that export is downloaded, Overview shows its date.
-- **Conversations**: each archived chat with its message count, number of saved images, completeness, archived period and last update. **Search** finds a chat by any word of its name, an earlier title or its key; filter by type and sort by recent activity, name or size. Click a chat's name to read it:
-  - the **message view** shows the newest 200 messages with a heading for each day, replies with the message they quote, pictures where they were sent (click one for full size), attachments with their links, and the earlier versions of edited messages. **Show earlier messages** loads the 200 before, keeping your place;
-  - its actions: **Export…**, **Images** (each saved picture with who sent it and when, to view or download), **Rename**, **Merge…** and **Delete**.
-- **Export**: one place for every export. Choose:
+- **Overview**: when the last full backup was made, with **Back up now…**; totals (conversations, messages, saved images, complete histories); the chats archived most recently; and **Recent runs**: the latest 5 runs (**Show all runs** for the rest), each with what it captured (*Update*, *Since 14 Nov 2026*, *Full history*, *On screen*), its status (*Running*, *Paused*, *Completed*, *Stopped*, *Interrupted*, *Failed*), result, counters (including images saved and not saved) and duration. **Back up now…** opens Export with the full backup; once that export is downloaded, Overview shows its date.
+- **Conversations**: each archived chat with its message count, number of saved images (click it to see them), completeness (*Complete*, *Not back to the start*, *Not checked*), archived period and last update. **Search** finds a chat by any word of its name, an earlier title or its key; filter by type and sort by recent activity, name or size. Click a chat's name to read it:
+  - the **message view** opens at the newest of the latest 200 messages (**Back to the top** below them), with a heading for each day, the sender's name once for messages less than five minutes apart, replies with the message they quote, pictures where they were sent (click one for full size), attachments with their links, and the earlier versions of edited messages. **Show earlier messages** loads the 200 before, keeping your place;
+  - its actions, above the messages: **Export…**, **Images** (each saved picture with who sent it and when, to view or download), **Rename…**, **Merge…** and **Delete…**.
+- **Export**: one place for every export. Start from a preset or choose, in this order:
   - the **conversations**: one, several or all;
   - the **format**:
     - **HTML page**: read the chat message by message in the browser, each picture where it was sent;
@@ -90,11 +92,11 @@ Open it with the archive button at the top right of the popup, or via the extens
 
 What you can do with a chat:
 
-- **Rename** gives a chat its own name in the archive and in exports. The title Teams shows stays visible below it, with earlier titles. Leave the name empty to show the Teams title again.
+- **Rename…** gives a chat its own name in the archive and in exports. The title Teams shows stays visible below it, with earlier titles. Leave the name empty to show the Teams title again.
 - **Merge…** combines two archive entries of the same chat, for example a chat archived under its old and its new title. The dialog lists first the entries that hold some of the same messages or have a similar name, and you choose the one to merge into. Every message is kept once, with its pictures and runs. A merge can't be undone, so export a backup first if in doubt. If the page closes during a merge, the merge finishes the next time the archive page opens.
-- **Import archive…** (Conversations, Export and Settings › Storage) merges a JSON export or a knowledge package (`.zip`) back in. Use it to restore a backup or combine archives from two browser profiles. The whole file is checked before anything is written, so a damaged file changes nothing, and importing the same file twice changes nothing. An imported chat joins the entry of the same chat, also when that entry has another title. If the page closes during an import, the chat being imported shows as partial; import the file again to complete it.
+- **Import archive…** (Export and Settings › Storage) merges a JSON export or a knowledge package (`.zip`) back in. Use it to restore a backup or combine archives from two browser profiles. The whole file is checked before anything is written, so a damaged file changes nothing, and importing the same file twice changes nothing. An imported chat joins the entry of the same chat, also when that entry has another title. If the page closes during an import, the chat being imported is left incomplete; import the file again to complete it.
 
-The pages follow the Windows light or dark theme, or the one you choose under Settings. They work with the keyboard alone (a **Skip to content** link, visible focus, headings to navigate by), and narrow windows show each table row as a card.
+The pages follow the Windows light or dark theme (*Same as Windows*), or *Light* or *Dark* as you choose with **Theme** at the top right of the archive page, or the theme button in the popup and side panel. The choice applies at once, to every open page of the extension. They work with the keyboard alone (a **Skip to content** link, visible focus, headings to navigate by), and narrow windows show each table row as a short card.
 
 ### Settings
 
@@ -102,7 +104,6 @@ The pages follow the Windows light or dark theme, or the one you choose under Se
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| Theme | System | **System** follows Windows; **Light** or **Dark** always. Applies at once, to every open page of the extension. |
 | Scrolling speed | Normal | **Gentle**, **Normal** or **Fast** set the scrolling and waiting values below together (see the table after this one). **Custom** shows when the values under Advanced match no preset. |
 | Maximum run duration | 360 min | Hard limit, so a run can never loop forever. |
 | Update: days before the last update to check again | 2 | **New messages since the last update** reads this many days before the last update again, for edits, deletions and late replies. 0 to 30; 0 stops at the first archived messages. |
@@ -140,7 +141,7 @@ The scrolling speed presets:
 
 Settings saved by earlier versions are kept as they are: a speed is shown as a preset only when all six values match it.
 
-**Storage** shows the space used and available, the totals, and whether the browser keeps the data when space runs low, with **Back up now…** and **Import archive…**.
+**Storage** shows the space used and available, and whether the browser keeps the data when space runs low, with **Back up now…** and **Import archive…**.
 
 **Troubleshooting** runs Diagnostics in an open Teams tab (see below).
 

@@ -1,6 +1,6 @@
 {
   "name": "teams-chat-extractor",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "private": true,
   "description": "Chat Archiver for Microsoft Teams: a Microsoft Edge extension that archives the Teams Web chats you can see, locally.",
   "type": "module",

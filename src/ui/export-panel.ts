@@ -61,28 +61,50 @@ function packagingLabel(format: ExportFormat, packaging: Packaging): string {
   return format === 'html' ? 'One file, pictures embedded' : 'One file';
 }
 
-/** What the export will produce, in a sentence or two. */
-export function explainChoices(choices: ExportChoices, conversations: number): string {
+/**
+ * What the export will produce: a sentence or two for everyone, and for JSON and the package, the
+ * files inside for those who need them ('' for the other formats).
+ */
+export function explainChoices(choices: ExportChoices, conversations: number): { text: string; inside: string } {
   const several = conversations > 1;
   const folders = several ? ' One folder per conversation.' : '';
   const { content } = choices;
+  const plain = (text: string) => ({ text, inside: '' });
   switch (choices.format) {
     case 'html':
-      if (choices.packaging === 'zip') return `A ZIP with chat.html and an images folder, the pictures shown in place.${folders}${several ? ' index.html links the conversations.' : ''}`;
-      return `One HTML page${several ? ' with all selected conversations' : ''}.${content.images ? ' The pictures are embedded, so the file can be large.' : ''}`;
+      if (choices.packaging === 'zip') return plain(`A ZIP with chat.html and an images folder, the pictures shown in place.${folders}${several ? ' index.html links the conversations.' : ''}`);
+      return plain(`One HTML page${several ? ' with all selected conversations' : ''}.${content.images ? ' The pictures are embedded, so the file can be large.' : ''}`);
     case 'pdf':
-      return 'Opens a printable page in a new tab and the print dialog: choose "Save as PDF" as the printer.';
+      return plain('Opens a printable page in a new tab and the print dialog: choose "Save as PDF" as the printer.');
     case 'markdown':
-      return choices.packaging === 'zip' ? `A ZIP with chat.md and an images folder, the pictures shown in place.${folders}` : 'One Markdown file. Select Pictures to get a ZIP with them.';
+      return plain(choices.packaging === 'zip' ? `A ZIP with chat.md and an images folder, the pictures shown in place.${folders}` : 'One Markdown file. Select Pictures to get a ZIP with them.');
     case 'text':
-      return choices.packaging === 'zip' ? `A ZIP with chat.txt and an images folder; the text names each picture's file.${folders}` : 'One plain-text file. Select Pictures to get a ZIP with them.';
+      return plain(choices.packaging === 'zip' ? `A ZIP with chat.txt and an images folder; the text names each picture's file.${folders}` : 'One plain-text file. Select Pictures to get a ZIP with them.');
     case 'csv':
-      return `${choices.packaging === 'zip' ? `A ZIP with messages.csv and an images folder; the pictures column names the files.${folders}` : 'One CSV file.'} One row per message, UTF-8 for Excel; cells that look like formulas are kept as text.`;
+      return plain(
+        `${choices.packaging === 'zip' ? `A ZIP with messages.csv and an images folder; the pictures column names the files.${folders}` : 'One CSV file.'} One row per message, and it opens in Excel. Cells that look like formulas are kept as text.`,
+      );
     case 'json':
-      return `Complete archive records in one file, which Import archive… reads back.${content.images ? ' Pictures are included as base64 data.' : ''} Attachments and reply context are always kept.`;
+      return {
+        text: `One file with the complete archive records, which Import archive… reads back.${content.images ? ' The pictures are included in the file.' : ''}`,
+        inside: `JSON: each conversation's record and its messages${content.images ? ', with the pictures as base64 data' : ''}.`,
+      };
     case 'package':
-      return 'A ZIP with manifest.json and, per conversation, conversation.json, messages.jsonl, a Markdown transcript and the pictures named by their SHA-256. Import archive… reads it back, so it is also the backup format for large archives. Attachments and reply context are always kept.';
+      return {
+        text: 'A ZIP for knowledge tools and backups, with a Markdown transcript of each conversation and its pictures. Import archive… reads it back, so it is also the backup format for large archives.',
+        inside: 'manifest.json and, per conversation, conversation.json, messages.jsonl, a Markdown transcript and the pictures named by their SHA-256.',
+      };
   }
+}
+
+/** What the Export button writes, in its label. */
+const FILE_KINDS: Record<ExportFormat, string> = { html: 'HTML', pdf: 'PDF', markdown: 'Markdown', text: 'text', csv: 'CSV', json: 'JSON', package: 'ZIP' };
+
+/** "Export 2 conversations (ZIP)"; for PDF, what the button opens. */
+export function exportButtonLabel(choices: Pick<ExportChoices, 'format' | 'packaging'>, conversations: number): string {
+  if (choices.format === 'pdf') return 'Open the print dialog';
+  if (conversations === 0) return 'Export';
+  return `Export ${countOf(conversations, 'conversation')} (${choices.packaging === 'zip' ? 'ZIP' : FILE_KINDS[choices.format]})`;
 }
 
 export class ExportPanel {
@@ -169,7 +191,7 @@ export class ExportPanel {
   private applyPreset(preset: ExportPreset): void {
     this.choices = normalizeChoices(presetChoices(preset));
     this.writeControls();
-    this.message(preset === 'knowledge' ? 'Knowledge system: the package with pictures, attachments, replies and edit history, without system messages.' : 'Full backup: the package with everything.');
+    this.message(preset === 'knowledge' ? 'Knowledge system chosen: the knowledge package without system messages.' : 'Full backup chosen: the knowledge package with everything.');
   }
 
   /** Reads the choices from the controls, then makes them consistent and shows them again. */
@@ -205,7 +227,8 @@ export class ExportPanel {
     const packaging = byId<HTMLSelectElement>('export-packaging');
     packaging.replaceChildren(...packagings.map((value) => el('option', { value }, packagingLabel(choices.format, value))));
     packaging.value = choices.packaging;
-    packaging.disabled = packagings.length < 2;
+    // With one way to package it, the explanation says which.
+    byId('export-packaging-field').hidden = packagings.length < 2;
     byId<HTMLSelectElement>('export-range').value = choices.range;
     byId<HTMLInputElement>('export-from').value = choices.from;
     byId<HTMLInputElement>('export-to').value = choices.to;
@@ -216,16 +239,21 @@ export class ExportPanel {
       const forced = fixed[key];
       input.checked = forced ?? choices.content[key];
       input.disabled = forced !== undefined;
-      input.parentElement!.title = forced !== undefined ? 'Always kept in archive records: they are part of the message.' : '';
     }
+    byId('export-content-note').hidden = Object.keys(fixed).length === 0;
     this.update();
   }
 
   private update(): void {
     const count = this.selectedKeys().length;
     byId('export-selected-count').textContent = `${count} of ${this.records.length} selected`;
-    byId('export-explain').textContent = explainChoices(this.choices, count);
-    byId<HTMLButtonElement>('btn-export-run').disabled = this.running || count === 0;
+    const explained = explainChoices(this.choices, count);
+    byId('export-explain').textContent = explained.text;
+    byId('export-inside-text').textContent = explained.inside;
+    byId('export-inside').hidden = explained.inside === '';
+    const button = byId<HTMLButtonElement>('btn-export-run');
+    button.textContent = exportButtonLabel(this.choices, count);
+    button.disabled = this.running || count === 0;
     // A disabled Export says why.
     const hint = byId('export-run-hint');
     hint.textContent = this.running ? '' : this.records.length === 0 ? 'Nothing to export yet.' : count === 0 ? 'Select at least one conversation.' : '';

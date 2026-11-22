@@ -1,6 +1,7 @@
 /**
- * The Conversations section: the list with search, type filter and sorting, and the actions on
- * a conversation (export, rename, merge, delete, its images), which the message view uses too.
+ * The Conversations section: the list with search, type filter and sorting, for finding and
+ * opening a chat; and the actions on a conversation (export, its images, rename, merge, delete),
+ * which its message view shows.
  */
 import { STALE_SESSION_MS } from '../../shared/protocol';
 import { imageFileName } from '../../shared/images';
@@ -9,10 +10,12 @@ import { titleHistoryOf } from '../../storage/conversation-identity';
 import { byId, countOf, el, errorText, formatAgo, formatDate, formatDateTime, formatNumber, TYPE_LABELS } from '../common';
 import { icon } from '../icons';
 import {
+  archivedPeriod,
   conversationDetails,
   CONVERSATION_SORTS,
   filterConversations,
   historyLabel,
+  historyLine,
   routeHash,
   TYPE_FILTERS,
   type ConversationSort,
@@ -27,7 +30,6 @@ export function buildConversationList(app: AppContext): void {
   byId('conv-type').replaceChildren(...TYPE_FILTERS.map(({ value, label }) => el('option', { value }, label)));
   byId('conv-sort').replaceChildren(...CONVERSATION_SORTS.map(({ value, label }) => el('option', { value }, label)));
   for (const id of ['conv-search', 'conv-type', 'conv-sort']) byId(id).addEventListener('input', () => void renderConversations(app));
-  byId('btn-export-all').addEventListener('click', () => app.exportConversations());
   byId('btn-clear-search').addEventListener('click', () => {
     byId<HTMLInputElement>('conv-search').value = '';
     byId<HTMLSelectElement>('conv-type').value = TYPE_FILTERS[0]!.value;
@@ -50,22 +52,33 @@ export async function renderConversations(app: AppContext): Promise<void> {
   byId('no-conversations').hidden = all.length > 0;
   byId('no-matches').hidden = all.length === 0 || shown.length > 0;
   byId('conv-count').textContent = all.length === 0 ? '' : shown.length === all.length ? countOf(all.length, 'conversation') : `${formatNumber(shown.length)} of ${countOf(all.length, 'conversation')}`;
-  byId<HTMLButtonElement>('btn-export-all').disabled = all.length === 0;
 }
 
-/** The name, linking to the messages, then what else the chat was called and its key. */
+/**
+ * The name, linking to the messages, then what else the chat was called. In a narrow window the
+ * row is a card, and this cell also gives the type and the history on one line.
+ */
 function conversationCell(record: ConversationRecord): HTMLTableCellElement {
   const details = conversationDetails(record);
   return el(
     'td',
-    { 'data-label': 'Conversation' },
-    el(
-      'div',
-      {},
-      el('a', { className: 'conv-title', href: routeHash({ view: 'conversation', key: record.conversationKey }) }, conversationLabel(record)),
-      details ? el('div', { className: 'muted small' }, details) : null,
-      el('div', { className: 'muted small mono' }, record.conversationKey),
-    ),
+    {},
+    el('a', { className: 'conv-title', href: routeHash({ view: 'conversation', key: record.conversationKey }) }, conversationLabel(record)),
+    details ? el('div', { className: 'muted small' }, details) : null,
+    el('div', { className: 'narrow-only muted small' }, `${TYPE_LABELS[record.type]} · ${historyLine(record)}`),
+  );
+}
+
+/** When the chat was last brought up to date, and its last run when that was later. */
+function lastUpdateCell(record: ConversationRecord): HTMLTableCellElement {
+  const update = record.lastUpdate?.at;
+  const laterRun = update && Date.parse(record.lastExtractedAt) - Date.parse(update) > 60_000;
+  return el(
+    'td',
+    { className: 'wide-only' },
+    el('div', {}, update ? formatAgo(update) : 'Not yet'),
+    el('div', { className: 'muted small' }, update ? formatDateTime(update) : `last run ${formatDateTime(record.lastExtractedAt)}`),
+    laterRun ? el('div', { className: 'muted small' }, `last run ${formatDateTime(record.lastExtractedAt)}`) : null,
   );
 }
 
@@ -75,60 +88,117 @@ function conversationRow(app: AppContext, record: ConversationRecord, imageCount
     'tr',
     {},
     conversationCell(record),
-    el('td', { 'data-label': 'Type' }, TYPE_LABELS[record.type]),
-    el('td', { className: 'num', 'data-label': 'Messages' }, formatNumber(record.messageCount)),
+    el('td', { className: 'wide-only' }, TYPE_LABELS[record.type]),
+    el('td', { className: 'num wide-only' }, formatNumber(record.messageCount)),
     el(
       'td',
-      { className: 'num', 'data-label': 'Images' },
+      { className: `num${imageCount > 0 ? '' : ' wide-only'}` },
       imageCount > 0
-        ? el('button', { type: 'button', className: 'link', title: 'View the saved images', 'aria-label': `View the ${countOf(imageCount, 'saved image')} of ${label}`, onclick: guarded(app, () => showImages(record)) }, formatNumber(imageCount))
+        ? el(
+            'button',
+            { type: 'button', className: 'link', 'aria-label': `View the ${countOf(imageCount, 'saved image')} of ${label}`, onclick: guarded(app, () => showImages(record)) },
+            formatNumber(imageCount),
+            el('span', { className: 'narrow-only-inline' }, imageCount === 1 ? ' saved image' : ' saved images'),
+          )
         : '0',
     ),
-    el('td', { 'data-label': 'History' }, historyLabel(record)),
-    el('td', { 'data-label': 'Archived period' }, record.oldestSortKey !== null ? `${formatDate(record.oldestSortKey)} – ${formatDate(record.newestSortKey)}` : '–'),
-    el(
-      'td',
-      { 'data-label': 'Last update', title: record.lastUpdate ? `Brought up to date on ${formatDateTime(record.lastUpdate.at)}` : 'No run has brought this chat up to date yet' },
-      el('div', {}, record.lastUpdate ? formatAgo(record.lastUpdate.at) : '–', el('div', { className: 'muted small' }, `last run ${formatDateTime(record.lastExtractedAt)}`)),
-    ),
-    el('td', { className: 'actions', 'data-label': 'Actions' }, el('div', { className: 'cell-actions' }, ...conversationActions(app, record, imageCount, { list: true }))),
+    el('td', { className: 'wide-only' }, el('div', {}, historyLabel(record)), el('div', { className: 'muted small' }, archivedPeriod(record))),
+    lastUpdateCell(record),
   );
 }
 
-/** Export, Rename, Merge and Delete for a conversation (and its images, outside the list). */
-export function conversationActions(app: AppContext, record: ConversationRecord, imageCount: number, where: { list: boolean }): HTMLButtonElement[] {
+/** Export, its images, Rename, Merge and Delete for a conversation, on its message view. */
+export function conversationActions(app: AppContext, record: ConversationRecord, imageCount: number): HTMLButtonElement[] {
   const merging = Boolean(record.mergedInto);
-  const label = conversationLabel(record);
-  const named = (action: string) => (where.list ? `${action} ${label}` : undefined);
-  const buttons: HTMLButtonElement[] = [
-    el('button', { type: 'button', title: 'Export this chat: HTML, PDF, Markdown, text, CSV, JSON or a knowledge package', 'aria-label': named('Export'), onclick: () => app.exportConversations([record.conversationKey]) }, 'Export…'),
-  ];
-  if (!where.list && imageCount > 0) buttons.push(el('button', { type: 'button', onclick: guarded(app, () => showImages(record)) }, `Images (${formatNumber(imageCount)})`));
+  const buttons: HTMLButtonElement[] = [el('button', { type: 'button', onclick: () => app.exportConversations([record.conversationKey]) }, 'Export…')];
+  if (imageCount > 0) buttons.push(el('button', { type: 'button', onclick: guarded(app, () => showImages(record)) }, `Images (${formatNumber(imageCount)})`));
   buttons.push(
-    el('button', { type: 'button', disabled: merging, title: 'Give this chat a name in the archive', 'aria-label': named('Rename'), onclick: guarded(app, () => renameConversation(app, record)) }, 'Rename'),
-    el('button', { type: 'button', disabled: merging, title: 'Merge with another entry of the same chat', 'aria-label': named('Merge'), onclick: guarded(app, () => openMerge(app, record)) }, 'Merge…'),
-    el('button', { type: 'button', className: 'danger', disabled: merging, 'aria-label': named('Delete'), onclick: guarded(app, () => deleteConversation(app, record, imageCount, where)) }, 'Delete'),
+    el('button', { type: 'button', disabled: merging, onclick: guarded(app, () => renameConversation(app, record)) }, 'Rename…'),
+    el('button', { type: 'button', disabled: merging, onclick: guarded(app, () => openMerge(app, record)) }, 'Merge…'),
+    el('button', { type: 'button', className: 'danger', disabled: merging, onclick: guarded(app, () => deleteConversation(app, record, imageCount)) }, 'Delete…'),
   );
   return buttons;
 }
 
+/** Opens a dialog and settles with what its buttons gave once it closes (Escape gives `cancelled`). */
+function ask<T>(dialog: HTMLDialogElement, cancelled: T, wire: (answer: (value: T) => void) => () => void): Promise<T> {
+  return new Promise((resolve) => {
+    let result = cancelled;
+    const unwire = wire((value) => {
+      result = value;
+      dialog.close();
+    });
+    dialog.addEventListener(
+      'close',
+      () => {
+        unwire();
+        resolve(result);
+      },
+      { once: true },
+    );
+    dialog.showModal();
+  });
+}
+
+/** The new name, '' for the Teams title again, or null when cancelled. */
+function askName(current: string): Promise<string | null> {
+  const dialog = byId<HTMLDialogElement>('rename-dialog');
+  const input = byId<HTMLInputElement>('rename-input');
+  input.value = current;
+  const promise = ask<string | null>(dialog, null, (answer) => {
+    const form = byId('rename-form');
+    const cancel = byId('btn-rename-cancel');
+    const submit = (event: Event) => {
+      event.preventDefault();
+      answer(input.value);
+    };
+    const close = () => dialog.close();
+    form.addEventListener('submit', submit);
+    cancel.addEventListener('click', close);
+    return () => {
+      form.removeEventListener('submit', submit);
+      cancel.removeEventListener('click', close);
+    };
+  });
+  input.select();
+  return promise;
+}
+
+function askDelete(text: string): Promise<boolean> {
+  const dialog = byId<HTMLDialogElement>('delete-dialog');
+  byId('delete-text').textContent = text;
+  return ask(dialog, false, (answer) => {
+    const confirmButton = byId('btn-delete-confirm');
+    const cancel = byId('btn-delete-cancel');
+    const yes = () => answer(true);
+    const close = () => dialog.close();
+    confirmButton.addEventListener('click', yes);
+    cancel.addEventListener('click', close);
+    return () => {
+      confirmButton.removeEventListener('click', yes);
+      cancel.removeEventListener('click', close);
+    };
+  });
+}
+
 async function renameConversation(app: AppContext, record: ConversationRecord): Promise<void> {
-  const name = prompt('Name for this chat in the archive and in exports. Leave empty to show the Teams title.', record.displayName ?? record.title ?? '');
+  const name = await askName(record.displayName ?? record.title ?? '');
   if (name === null) return;
   const renamed = await (await app.repository()).renameConversation(record.conversationKey, name);
   app.notify(renamed.displayName ? `Renamed to “${renamed.displayName}”.` : 'The Teams title is shown again.', 'success');
   await app.refresh();
+  // The refresh drew the buttons again; keep the focus where the keyboard left it.
+  [...byId('conv-view-actions').querySelectorAll('button')].find((button) => button.textContent === 'Rename…')?.focus();
 }
 
-async function deleteConversation(app: AppContext, record: ConversationRecord, imageCount: number, where: { list: boolean }): Promise<void> {
-  const ok = confirm(
-    `Delete "${conversationLabel(record)}" with ${countOf(record.messageCount, 'archived message')}${imageCount > 0 ? ` and ${countOf(imageCount, 'image')}` : ''} from this browser?\n\nThis cannot be undone. Export a backup first if you may need it.`,
+async function deleteConversation(app: AppContext, record: ConversationRecord, imageCount: number): Promise<void> {
+  const ok = await askDelete(
+    `“${conversationLabel(record)}”, with ${countOf(record.messageCount, 'archived message')}${imageCount > 0 ? ` and ${countOf(imageCount, 'image')}` : ''}, will be deleted from this browser.`,
   );
   if (!ok) return;
   const removed = await (await app.repository()).deleteConversation(record.conversationKey);
   app.notify(`Deleted ${countOf(removed.messages, 'message')}, ${countOf(removed.images, 'image')} and ${countOf(removed.sessions, 'run')}.`, 'success', { carry: true });
-  if (where.list) await app.refresh();
-  else app.go({ view: 'conversations' });
+  app.go({ view: 'conversations' });
 }
 
 // ------------------------------------------------------------------ images

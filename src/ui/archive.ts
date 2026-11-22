@@ -6,13 +6,14 @@
 import { importArchiveFile } from '../export/import';
 import type { ExportPreset } from '../export/options';
 import { ArchiveRepository } from '../storage/repository';
-import { byId, countOf, errorText, formatNumber } from './common';
+import { byId, countOf, el, errorText, formatNumber } from './common';
 import { ExportPanel } from './export-panel';
 import type { AppContext, MessageKind } from './archive/context';
 import { closeConversation, showConversation, wireConversationView } from './archive/conversation-view';
 import { buildConversationList, renderConversations, resumeMerges, wireConversationDialogs } from './archive/conversations';
-import { renderOverview, renderSessions, storageUsed } from './archive/overview';
+import { renderOverview, renderSessions, wireOverview } from './archive/overview';
 import { buildSettings, settingsHeading, showSettings } from './archive/settings-view';
+import { normalizeTheme, readTheme, saveTheme, THEME_CHOICES, THEME_STORAGE_KEY } from './theme';
 import { navOf, parseRoute, routeHash, type Route } from './view-models';
 
 const APP_NAME = 'Chat Archiver';
@@ -126,13 +127,20 @@ async function show(route: Route, { navigated }: { navigated: boolean }): Promis
   if (navigated) {
     const heading = (route.view === 'settings' ? settingsHeading(route.section) : null) ?? byId(`view-${route.view}`).querySelector<HTMLElement>('.view-title');
     heading?.focus({ preventScroll: true });
+    // A conversation opens at its newest message, which is the last one in the list.
+    if (route.view === 'conversation') byId('conv-view-messages').lastElementChild?.scrollIntoView({ block: 'end' });
   }
-  void renderStorageInfo();
 }
 
-async function renderStorageInfo(): Promise<void> {
-  const storage = await storageUsed();
-  byId('storage-info').textContent = storage ? `${storage.used} used in this browser profile` : '';
+/** The theme select in the header; it follows a choice made in another page of the extension. */
+function wireTheme(): void {
+  const select = byId<HTMLSelectElement>('header-theme');
+  select.replaceChildren(...THEME_CHOICES.map(({ value, label }) => el('option', { value }, label)));
+  select.value = readTheme();
+  select.addEventListener('change', () => saveTheme(normalizeTheme(select.value)));
+  window.addEventListener('storage', (event) => {
+    if (event.key === THEME_STORAGE_KEY) select.value = normalizeTheme(event.newValue);
+  });
 }
 
 // ------------------------------------------------------------------ import
@@ -179,6 +187,8 @@ function wire(): void {
     if (file) void importFile(file);
   });
   byId('btn-backup-now').addEventListener('click', () => app.exportConversations(undefined, 'backup'));
+  wireTheme();
+  wireOverview(app);
   byId('about-version').textContent = `Chat Archiver for Microsoft Teams, version ${chrome.runtime.getManifest().version}`;
   window.addEventListener('hashchange', () => void show(parseRoute(location.hash), { navigated: true }));
 }
@@ -195,7 +205,6 @@ async function main(): Promise<void> {
   setInterval(() => {
     if (document.visibilityState !== 'visible') return;
     if (current.view === 'overview') void renderSessions(app).catch(() => undefined);
-    void renderStorageInfo();
   }, 10_000);
   document.addEventListener('visibilitychange', () => {
     // The message view keeps its place: it is drawn again only when opened again.

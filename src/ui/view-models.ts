@@ -140,22 +140,40 @@ export function conversationDetails(record: ConversationRecord): string {
 
 // ---------------------------------------------------------- summary lines
 
-/** "Complete", "Partial" or "–". */
+/** "Complete", "Not back to the start" or "Not checked". */
+/**
+ * How much of a chat's history is archived, in the same words everywhere: complete back to its
+ * beginning, not back to the start, or not checked (no capture covered a stretch of it: only
+ * messages on screen, for example).
+ */
 export function historyLabel(record: ConversationRecord): string {
   const status = coverageStatus(record.coverage, record.newestSortKey);
-  return status === 'complete' ? 'Complete' : status === 'partial' ? 'Partial' : '–';
+  return status === 'complete' ? 'Complete' : status === 'partial' ? 'Not back to the start' : 'Not checked';
+}
+
+/** "3 Jan 2023 – 5 Mar 2024", or '' when nothing is archived. */
+export function archivedPeriod(record: Pick<ConversationRecord, 'oldestSortKey' | 'newestSortKey'>): string {
+  if (record.oldestSortKey === null) return '';
+  const from = formatDate(record.oldestSortKey);
+  const to = formatDate(record.newestSortKey);
+  // One day is one date, not "21 Nov – 21 Nov".
+  return from === to ? from : `${from} – ${to}`;
 }
 
 /**
  * One line about a chat's archive: "1,234 messages · complete back to 3 Jan 2023 · updated 3 days ago".
- * A partial history gives its period instead; a chat without messages is "Not archived yet".
+ * Otherwise it gives the period and what is missing; a chat without messages is "Not archived yet".
  */
 export function historyLine(record: ConversationRecord | null | undefined, nowMs: number = Date.now()): string {
   if (!record || record.messageCount === 0) return 'Not archived yet';
   const parts = [`${formatNumber(record.messageCount)} ${record.messageCount === 1 ? 'message' : 'messages'}`];
   const status = coverageStatus(record.coverage, record.newestSortKey);
   if (record.oldestSortKey !== null) {
-    parts.push(status === 'complete' ? `complete back to ${formatDate(record.oldestSortKey)}` : `partial, ${formatDate(record.oldestSortKey)} – ${formatDate(record.newestSortKey)}`);
+    parts.push(
+      status === 'complete'
+        ? `complete back to ${formatDate(record.oldestSortKey)}`
+        : `${archivedPeriod(record)}, ${status === 'partial' ? 'not back to the start' : 'history not checked'}`,
+    );
   }
   parts.push(record.lastUpdate ? `updated ${formatAgo(record.lastUpdate.at, nowMs)}` : `last run ${formatAgo(record.lastExtractedAt, nowMs)}`);
   return parts.join(' · ');
@@ -260,7 +278,19 @@ export function messageView(message: StoredMessage, time: TimeFormat, replyTarge
   };
 }
 
-export type TimelineItem = { kind: 'day'; label: string } | { kind: 'message'; message: MessageView };
+/**
+ * A day heading, or a message. `continued` marks a message that follows one from the same sender
+ * within {@link GROUP_GAP_MS} on the same day: its sender's name is not shown again.
+ */
+export type TimelineItem = { kind: 'day'; label: string } | { kind: 'message'; message: MessageView; continued: boolean };
+
+/** Messages from one sender this close together read as one run. */
+export const GROUP_GAP_MS = 5 * 60_000;
+
+function messageTime(message: StoredMessage): number | null {
+  const ms = message.timestamp ? Date.parse(message.timestamp) : Number.NaN;
+  return Number.isFinite(ms) ? ms : null;
+}
 
 /**
  * Messages in timeline order, with a day heading before the first message of each day. A reply
@@ -274,13 +304,27 @@ export function timeline(messages: readonly StoredMessage[], time: TimeFormat): 
   };
   const items: TimelineItem[] = [];
   let currentDay: string | null = null;
+  let previous: { view: MessageView; at: number | null } | null = null;
   for (const message of messages) {
     const view = messageView(message, time, replyTarget);
     if (view.day && view.day !== currentDay) {
       currentDay = view.day;
       items.push({ kind: 'day', label: view.day });
+      previous = null;
     }
-    items.push({ kind: 'message', message: view });
+    const at = messageTime(message);
+    const continued =
+      previous !== null &&
+      !view.system &&
+      !previous.view.system &&
+      previous.view.sender === view.sender &&
+      previous.view.self === view.self &&
+      at !== null &&
+      previous.at !== null &&
+      at - previous.at >= 0 &&
+      at - previous.at <= GROUP_GAP_MS;
+    items.push({ kind: 'message', message: view, continued });
+    previous = { view, at };
   }
   return items;
 }

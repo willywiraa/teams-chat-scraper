@@ -1,7 +1,8 @@
 /**
- * The Settings section: General (theme, scrolling speed, images, pausing, run limits),
+ * The Settings section: General (scrolling speed, images, pausing, run limits),
  * Advanced (collapsed: every scrolling and waiting value, names and dates, selector overrides),
- * Storage (usage, backup, import) and Troubleshooting (diagnostics of an open Teams tab).
+ * Storage (usage, backup, import), Troubleshooting (diagnostics of an open Teams tab) and About.
+ * The theme is in the page's header: it applies at once, while these wait for Save settings.
  *
  * The stored settings keep their keys; the speed preset is worked out from the stored values,
  * so earlier custom values show as Custom.
@@ -23,8 +24,7 @@ import {
   type ScrollSpeed,
 } from '../../shared/settings';
 import { byId, el, errorText, formatNumber, TYPE_LABELS } from '../common';
-import { readTheme, saveTheme, THEME_CHOICES, type ThemeChoice } from '../theme';
-import { overviewTotals, type SettingsSection } from '../view-models';
+import type { SettingsSection } from '../view-models';
 import type { AppContext } from './context';
 import { storageUsed } from './overview';
 
@@ -92,12 +92,6 @@ export function buildSettings(app: AppContext): void {
   byId('settings-general-fields').replaceChildren(
     el(
       'label',
-      { className: 'field', for: 'ui-theme' },
-      el('span', {}, 'Theme (applies at once)'),
-      el('select', { id: 'ui-theme' }, ...THEME_CHOICES.map(({ value, label }) => el('option', { value }, label))),
-    ),
-    el(
-      'label',
       { className: 'field', for: 'scroll-speed' },
       el('span', {}, 'Scrolling speed'),
       el('select', { id: 'scroll-speed' }, ...(Object.keys(SPEED_LABELS) as Array<ScrollSpeed | 'custom'>).map((speed) => el('option', { value: speed }, SPEED_LABELS[speed]))),
@@ -125,7 +119,6 @@ export function buildSettings(app: AppContext): void {
     checkField('rescanByDefault', 'Re-read archived parts at normal speed by default (the popup’s option under More)'),
   );
 
-  byId<HTMLSelectElement>('ui-theme').addEventListener('change', (event) => saveTheme((event.target as HTMLSelectElement).value as ThemeChoice));
   byId<HTMLSelectElement>('scroll-speed').addEventListener('change', (event) => {
     const speed = (event.target as HTMLSelectElement).value as ScrollSpeed | 'custom';
     if (speed === 'custom') return;
@@ -224,8 +217,7 @@ export async function showSettings(app: AppContext, section: SettingsSection | n
     fillSettings(await loadSettings());
     filled = true;
   }
-  byId<HTMLSelectElement>('ui-theme').value = readTheme();
-  await renderStorage(app);
+  await renderStorage();
   if (section === 'troubleshooting' || tabId !== null || byId<HTMLSelectElement>('diag-tab').options.length === 0) await findTeamsTabs(tabId);
   if (section === 'advanced') byId<HTMLDetailsElement>('settings-advanced').open = true;
   const target = section === 'storage' ? 'settings-storage' : section === 'troubleshooting' ? 'settings-troubleshooting' : section === 'advanced' ? 'settings-advanced' : null;
@@ -237,10 +229,8 @@ export function settingsHeading(section: SettingsSection | null): HTMLElement | 
   return section ? byId(`${section}-title`) : null;
 }
 
-async function renderStorage(app: AppContext): Promise<void> {
-  const repo = await app.repository();
-  const records = await repo.listConversations();
-  const totals = overviewTotals(records, await Promise.all(records.map((record) => repo.countImages(record.conversationKey))));
+/** The storage figures; what the archive holds is in Overview. */
+async function renderStorage(): Promise<void> {
   const storage = await storageUsed();
   let persisted: boolean | null = null;
   try {
@@ -252,9 +242,6 @@ async function renderStorage(app: AppContext): Promise<void> {
   byId('storage-stats').replaceChildren(
     stat('Used', storage?.used ?? '–'),
     stat('Available to the browser', storage?.quota ?? '–'),
-    stat('Conversations', formatNumber(totals.conversations)),
-    stat('Messages', formatNumber(totals.messages)),
-    stat('Saved images', formatNumber(totals.images)),
     stat('Kept when space runs low', persisted === null ? '–' : persisted ? 'Yes' : 'No'),
   );
 }
