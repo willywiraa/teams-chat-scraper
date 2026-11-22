@@ -252,7 +252,7 @@ Compared with the selectors of the reference exporter (all unverified against yo
 
 Each phase works test-first, ends with `npm run check` and a short manual checklist in Edge, and is committed and pushed to `main`.
 
-**Status (21 November 2026):** Phases 0 to 5 are built, except the Phase 1 selector fixes and the name (decision 1).
+**Status (22 November 2026):** Phases 0 to 6 are built, except the Phase 1 selector fixes and the store screenshots.
 
 - **Phase 0:** Diagnostics includes the identifier probe.
 - **Phase 1 (extension 1.2.0):** database version 3, the resolver, title history, renaming, and manual merge with a journal.
@@ -286,7 +286,11 @@ Each phase works test-first, ends with `npm run check` and a short manual checkl
   - Settings: General (theme, scrolling speed Gentle/Normal/Fast, images, pausing, maximum duration, update overlap), Advanced collapsed (the other values, display name, date order, **Re-read archived parts by default**, selector overrides, reset), Storage and Troubleshooting. The stored keys and safety limits are unchanged; the speed is worked out from the stored values and shows *Custom* when they match no preset. Gentle uses 1,000 ms rather than 1,200 ms, so it can never be mistaken for the default that revision 2 replaced.
   - Keyboard: skip link, visible focus, focus moved to the heading of the section opened. Narrow windows show table rows as labelled cards.
   - View-model tests (routes, search and filters, summary lines, totals, the message view and its pages, speed presets, theme) and [MANUAL_CHECKLIST.md](MANUAL_CHECKLIST.md) for Edge.
-- **Next:** the selector fixes, which wait for two Diagnostics reports from your Teams: one from a 1:1 chat and one from a group chat.
+- **Phase 6 (extension 1.7.0):**
+  - Decision 1: the name is "Chat Archiver for Microsoft Teams" ("Chat Archiver" in the popup and on the archive page), with a not-affiliated note in the manifest, the README, Settings → About and the listing.
+  - Reactions are captured: each emoji, its count and whether you chose it (not who else did). They aren't part of the content hash, so a reaction is not an edit. They show in the message view and every export format, with a **Reactions** content option; JSON gains an optional `reactions` field per message and in `selection`, CSV a last `reactions` column. The selectors are not yet checked against Teams: Diagnostics counts them and warns when reaction markup goes unmatched.
+  - Store packaging: [PRIVACY.md](PRIVACY.md), [STORE_LISTING.md](STORE_LISTING.md) (description, single purpose, permission justifications, data disclosures, notes for certification) and `npm run package`, which writes the upload ZIP without source maps. The screenshots are still to be taken, from made-up chats.
+- **Next:** the selector fixes, which wait for two Diagnostics reports from your Teams: one from a 1:1 chat and one from a group chat. A report from a chat with reactions also confirms the reaction selectors.
 
 | Phase | Content | Size |
 | --- | --- | --- |

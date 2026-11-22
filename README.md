@@ -83,9 +83,9 @@ Open it with the archive button at the top right of the popup, or via the extens
     - **Knowledge package**: a ZIP with the records as JSON Lines, a Markdown transcript per chat and the pictures as files, for knowledge management systems. **Import archive…** reads it back too;
   - the **packaging**: one file, or a ZIP with the pictures as files, named by number and message time (`001_2026-11-02_1001.png`). Markdown, text and CSV are always a ZIP when they include pictures; HTML can embed them in the one file;
   - the **messages**: all archived messages, the last 24 hours, the last 7 days, the last 30 days, or a custom period (From included, Before not);
-  - what to **include**: pictures, file attachments, reply context, system messages and edit history.
+  - what to **include**: pictures, file attachments, reply context, reactions, system messages and edit history.
 
-  **Knowledge system** sets the knowledge package with pictures, attachments, replies and edit history, without system messages; **Full backup** sets it with everything. The section remembers your last choices; the first time it suggests an HTML page. **Export…** on a chat opens it with that chat selected. [docs/EXPORT_FORMAT.md](docs/EXPORT_FORMAT.md) describes every format.
+  **Knowledge system** sets the knowledge package with pictures, attachments, replies, reactions and edit history, without system messages; **Full backup** sets it with everything. The section remembers your last choices; the first time it suggests an HTML page. **Export…** on a chat opens it with that chat selected. [docs/EXPORT_FORMAT.md](docs/EXPORT_FORMAT.md) describes every format.
 - **Settings**: General, Advanced, Storage and Troubleshooting (see below).
 
 What you can do with a chat:
@@ -173,6 +173,7 @@ For every message:
 - Text with paragraphs, lists and line breaks preserved, plus sanitised HTML.
 - Mentions, links, attachments (file names and links; files aren't downloaded), quoted replies linked to the message they quote, and edited and deleted flags with earlier versions kept.
 - Images shown in messages (pasted pictures, image attachments), saved as displayed. See [Images](#images).
+- Reactions: each emoji, how many people chose it and whether you did (not who the others are). A new reaction isn't an edit.
 - System messages, such as someone being added to the chat.
 
 Per chat, the extension also records the participants, the title (and earlier titles), the chat type (1:1, group, meeting, channel), the archived period, and whether the archive reaches back to the beginning.
@@ -227,7 +228,7 @@ npm run build
 npm run check
 ```
 
-`npm run check` runs all three. `npm run watch` rebuilds on every change. `npm run icons` regenerates the logo files from the one description in `scripts/logo.ts` (it needs Node.js 22.18 or newer, which runs TypeScript directly); a test fails when the committed files no longer match it.
+`npm run check` runs all three. `npm run watch` rebuilds on every change. `npm run package` builds without source maps and writes the store upload, `release/chat-archiver-<version>.zip` (see [docs/STORE_LISTING.md](docs/STORE_LISTING.md) and the [privacy policy](docs/PRIVACY.md)). `npm run icons` regenerates the logo files from the one description in `scripts/logo.ts` (it needs Node.js 22.18 or newer, which runs TypeScript directly); a test fails when the committed files no longer match it.
 
 ```
 src/

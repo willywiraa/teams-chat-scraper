@@ -6,6 +6,8 @@ Build with `npm run build`, click **Reload** on the extension card in `edge://ex
 
 ## Popup and side panel
 
+- [ ] The popup and side panel are titled *Chat Archiver*; the toolbar button's tooltip says *Chat Archiver for Microsoft Teams*.
+
 - [ ] In a Teams chat, the popup shows the chat's name, its type, and one summary line (for example *451 messages · complete back to 3 Jan 2023 · updated 3 days ago*). A chat with nothing archived says *Not archived yet*.
 - [ ] No warning shows for a chat that is archived normally. A chat archived in two entries says so, with a link that opens the entry in the archive.
 - [ ] The two header buttons: the archive button opens the archive page; the side panel button opens the side panel and closes the popup. In the side panel, the side panel button is hidden.
@@ -28,6 +30,7 @@ Build with `npm run build`, click **Reload** on the extension card in `edge://ex
 - [ ] **Export…**, **Images**, **Rename**, **Merge…** and **Delete** work from the list and from the message view. Deleting from the message view returns to the list.
 - [ ] **Export**: **Export…** on one chat opens Export with only that chat selected; the presets set their choices; an HTML, a CSV and a knowledge package export download; *PDF (print)* opens the print dialog. With **Select none**, Export is disabled and says *Select at least one conversation*.
 - [ ] **Import archive…** (from Conversations, Export or Storage) imports a knowledge package and shows its progress and result.
+- [ ] **Reactions**: after capturing a chat in which messages have reactions, the message view shows *Reactions: 👍 2 · ❤️ 1 (yours: 👍)* under them, with the right counts, and *yours* only for reactions you chose. Adding a reaction in Teams and running **New messages since the last update** updates the line, without marking the message edited. HTML, Markdown, text and CSV exports show the same line; with **Reactions** unticked in Export they don't.
 
 ## Settings
 
@@ -37,6 +40,13 @@ Build with `npm run build`, click **Reload** on the extension card in `edge://ex
 - [ ] An out-of-range value is corrected on saving, and the message names it. An invalid selector override is refused, with Advanced opened.
 - [ ] **Storage** shows the space used and the totals.
 - [ ] **Troubleshooting**: **Find Teams tabs** lists the open Teams tabs; **Run diagnostics** shows the chat, the number of messages on screen and a summary; **Copy report** copies the JSON. In a Teams tab opened before the extension was reloaded, it says to reload the tab.
+
+- [ ] In a chat with reactions, **Run diagnostics** says *N with reactions* in its summary, with no warning about reaction markup. If it warns, send the report: the reaction selectors need an update.
+- [ ] **About** (at the end of Settings) shows *Chat Archiver for Microsoft Teams, version …* with the current version, and the not-affiliated note.
+
+## Release
+
+- [ ] `npm run package` writes `release/chat-archiver-<version>.zip`. Unzipped into a new folder and loaded with **Load unpacked**, it works like the development build, and `edge://extensions` shows the name, version and description.
 
 ## Keyboard, contrast and size
 

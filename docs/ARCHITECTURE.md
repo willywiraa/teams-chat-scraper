@@ -34,7 +34,8 @@ shared ◀── storage   ◀── background, export, ui
    - the author and the self-message marker;
    - the timestamp (`<time datetime>`, then `title`, then `aria-label`, then the visible label combined with the nearest date divider);
    - the body (`content-serializer.ts`: paragraphs, lists, line breaks, mentions, links, emoji, sanitised HTML);
-   - the quoted reply, attachments, the edited marker and deleted messages.
+   - the quoted reply, attachments, the edited marker and deleted messages;
+   - reactions (`parseReactions`): each pill's emoji (from a picture's alt text, the text, or a name in its accessible name such as "Like reaction"), its count and whether it is pressed (yours). Pills inside a quoted reply are skipped, an emoji is kept once, and reaction pills are never taken for attachments. The selectors (`reaction` in the profile) are not yet confirmed against Teams; Diagnostics counts them and warns when it finds reaction markup they don't match.
 
    All selectors come from a [selector profile](../src/extractor/selectors.ts) that you can override from the settings.
 4. **Complete the metadata** for the whole window:
@@ -71,6 +72,7 @@ Merge rules never lose information:
 - Better-sourced metadata wins: an explicit author beats a group inference, which beats unknown, and `datetime` beats `title`/`aria-label`, which beat id-derived times, which beat parsed visible labels.
 - Changed content pushes the previous text into `previousVersions` and sets `isEdited`. A change caused by an extractor upgrade alone doesn't set `isEdited`.
 - An empty observation (a message only partly rendered) is ignored.
+- Reactions are not part of `contentHash` or the fingerprint, so a new reaction is never an edit. An observation that shows reactions replaces the stored list; one that shows none leaves it, because a message can be drawn before its reactions. So a list emptied in Teams stays as last seen. Folding a duplicate or importing keeps the surviving (newer) record's reactions, or the other record's when it has none, and `normalizeStoredMessage` repairs reactions read from a file (`shared/reactions.ts`). Reactions are part of the engine's message signature, so a message whose reactions appear later in a run is sent again.
 - Each batch is written in one IndexedDB transaction, so a failed batch leaves nothing half-written.
 
 ## Finding a chat's archive entry
@@ -201,6 +203,7 @@ History:
 - Version 3 (extension 1.2): adds the indexes `conversations.byAlias` and `messages.byMessageId`. The upgrade only creates indexes, so all records stay as they are. The new conversation fields (`aliases`, `mergedFrom`, `mergedInto`, `titleHistory` and `displayName`) are optional: a record written before simply lacks them, which reads as empty, and gets them the next time a run writes it. Messages without a Teams id aren't in `byMessageId`.
 - Extension 1.3 adds optional fields without a database upgrade: `lastUpdate` on conversations, and `captureFrom` and `continuesFrom` on sessions. Records written before lack them: a conversation without `lastUpdate` continues from its newest archived message, and a session begun before 1.3 never becomes a last update.
 - Extension 1.4 (exports and streaming import) changes nothing in the database.
+- Extension 1.7 adds the optional `reactions` field to messages, without a database upgrade. A message written before lacks it, which reads as no reactions, and gets it the next time a capture sees its reactions. `EXTRACTOR_VERSION` is 1.2.0 from this release.
 
 `tests/integration/migration.test.ts` opens a version 1 and a version 2 database with data, and checks that everything survives the upgrade.
 
@@ -219,7 +222,7 @@ Everything in `export/` works on an `ExportReader` (`pipeline.ts`), which `Archi
 - `runExport` reads each conversation twice. A first pass counts the messages it will write, finds their reliable oldest and newest times, the pictures they show (in order of appearance) and the messages that replies point to without quoting them. The second pass writes, page by page.
 - Text goes to a `BlobSink` (`sink.ts`), which turns it into a `Blob` every 4 MB, so the browser can keep a large export on disk instead of in one string. ZIPs are written by `ZipWriter` (`zip.ts`): files are stored, written in parts (several at once), and placed in the archive when closed; the central directory comes last.
 - The renderers (`render.ts`) turn a conversation header, a day heading and a message into HTML, Markdown, text or a CSV row. Pictures come from a `PictureSource`: embedded as `data:` addresses for one HTML file (read again for each page), written once as files into a ZIP, or shown from object URLs for printing. **PDF (print)** opens its tab in the click itself (pop-up blockers allow only that), then writes the page into it in parts with `document.write`, waits for the pictures and calls `print()`.
-- `options.ts` holds the export model: formats, packagings (`packagingsFor`), presets, periods (`rangeFor`), and what the records always keep (`fixedContent`: attachments and replies, which are part of `contentHash`). Records of a part of a conversation (`exportedRecord`) count what they hold and limit `coverage` to the period (`clipCoverage`), so importing them never claims history they lack.
+- `options.ts` holds the export model: formats, packagings (`packagingsFor`), presets, periods (`rangeFor`), and what the records always keep (`fixedContent`: attachments and replies, which are part of `contentHash`). Records leave out what was not chosen (`exportedMessage`): earlier versions without edit history, `reactions` without reactions. Records of a part of a conversation (`exportedRecord`) count what they hold and limit `coverage` to the period (`clipCoverage`), so importing them never claims history they lack.
 - The Export section (`ui/export-panel.ts`) remembers its choices in `chrome.storage.local` (`exportChoices.v1`) and repairs them when read (`normalizeChoices`). When a downloaded export is a full backup (`isFullBackup`: an importable format, every archived conversation, the whole period and all content), it records the time and totals in `lastBackup.v1` (`ui/last-backup.ts`), which Overview shows.
 
 **Import** (`import.ts`) tells a ZIP from JSON by its first bytes and reads both in parts:
@@ -229,6 +232,10 @@ Everything in `export/` works on an `ExportReader` (`pipeline.ts`), which `Archi
 - Both are read twice. The first pass checks everything (every record, and every image's bytes against its size and SHA-256), so a damaged file is refused before anything is written. The second pass writes conversation by conversation through `ConversationImport`: it finds the archive entry of the chat (as described in [Finding a chat's archive entry](#finding-a-chats-archive-entry)), rekeys the records if needed, and writes messages in batches of 500 and images through the repository.
 
 **An interrupted import** (the tab closed, the browser stopped) leaves no hidden messages. `ArchiveRepository.beginImport` first writes the conversation's entry, with its identity but no coverage or last update; `importMessages` writes each batch in one transaction with the entry's message count; `finishImport` merges coverage and the last update and recounts. A conversation cut off in the middle is therefore listed, with the messages written so far, as partial, and importing the file again completes it without duplicates. `archivedImages` reports a message's images as saved only when they are stored, so a run after an import that stopped between messages and images reads those images again.
+
+## Release
+
+`npm run package` (`scripts/package.mjs`) builds `dist/` with `scripts/build.mjs --release` (no source maps), checks that the manifest version equals `package.json`'s, that no source map is left and that the required files are there, and writes `release/chat-archiver-<version>.zip` with the same ZIP writer the exports use (`export/zip.ts`, bundled by esbuild for Node). `release/` is not committed. What to enter in the store is in [STORE_LISTING.md](STORE_LISTING.md), and the privacy policy is [PRIVACY.md](PRIVACY.md).
 
 ## User interface
 
