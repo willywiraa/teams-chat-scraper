@@ -241,6 +241,8 @@ src/
 icons/         the logo: SVG masters (logo.svg, and logo-16.svg for 16 px) and the extension's PNG icons
 store/         store listing images (300 × 300 logo, 440 × 280 tile); not part of the extension
 scripts/       build, and the logo description and generator
+DESIGN.md      the design direction of the pages (palette, type, focal points, writing)
+.claude/skills/ antislop rules that AI coding agents apply to interface work (see AGENTS.md)
 tests/
   unit/         parsing, dates, ordering, coverage, merge rules, controls, exports, diagnostics, view models, colours
   integration/  engine on a simulated virtualised Teams chat, archive repository, end-to-end pipeline
