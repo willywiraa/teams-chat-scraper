@@ -43,7 +43,7 @@ describe('runDiagnostics', () => {
     renderStaticChat(chat, { title: 'Secret Project' });
     const report = diagnose();
 
-    expect(report.reportVersion).toBe(3);
+    expect(report.reportVersion).toBe(4);
     expect(report.conversation).toEqual({ detected: true, keySource: 'dom', type: 'group', hasThreadId: true, titleLength: 'Secret Project'.length });
     expect(report.page).toMatchObject({ origin: 'https://teams.microsoft.com', path: '/l/chat/<thread:v2>/0' });
     expect(report.messageList.found).toBe(true);
@@ -138,6 +138,77 @@ describe('identifier probe in the report', () => {
 
     const json = JSON.stringify(report);
     for (const secret of PAGE_SECRETS) expect(json).not.toContain(secret);
+  });
+});
+
+describe('message parts in the report', () => {
+  function diagnoseNewTeams() {
+    return runDiagnostics(document, {
+      profile,
+      conversation: detectConversation(document, NEW_TEAMS_URL, profile),
+      href: NEW_TEAMS_URL,
+      selfDisplayName: null,
+      dateOrder: 'DMY',
+      referenceMs: Date.UTC(2024, 0, 17, 12),
+    });
+  }
+
+  const reactions =
+    '<div data-tid="reactions-bar">' +
+    '<button data-tid="diverse-reaction-pill-button" aria-pressed="true" aria-label="Like reaction, Alice Andersen and you"><img alt="👍" src="https://statics.teams.cdn.office.net/like.png"><span>2</span></button>' +
+    '<button data-tid="diverse-reaction-pill-button" aria-pressed="false" aria-label="Heart reaction, 1 person"><span>Heart</span></button>' +
+    '<button data-tid="diverse-reaction-pill-button" aria-label="Add reaction"></button>' +
+    '</div>';
+  const picture = '<div data-tid="image-attachment"><img itemtype="http://schema.skype.com/AMSImage" src="https://contoso.example/Budget.png" alt="Budget chart"></div>';
+  const file = '<div data-tid="file-preview-root"><span data-tid="file-name">Budget.xlsx</span></div>';
+
+  it('outlines each part on screen and says where each reaction was read from, revealing nothing', () => {
+    renderNewTeamsPage({
+      items:
+        '<div data-tid="message-pane-date-divider">Monday, January 15</div>' +
+        newTeamsMessageHtml(reactions + picture + file) +
+        '<div data-tid="chat-pane-item"><div data-tid="control-message-renderer">Alice Andersen added Bob Brown to the chat.</div></div>',
+    });
+    const report = diagnoseNewTeams();
+
+    expect(report.parts.reaction).toMatchObject({ selector: '[data-tid="diverse-reaction-pill-button"]' });
+    expect(report.parts.reaction?.skeleton).toContain('<div data-tid="reactions-bar">');
+    expect(report.parts.reaction?.skeleton).toContain('<button data-tid="diverse-reaction-pill-button" [aria-pressed aria-label]>');
+    expect(report.parts.image?.skeleton).toContain('<img itemtype="http://schema.skype.com/AMSImage" [src alt]>');
+    expect(report.parts.file?.selector).toBe('[data-tid="file-preview-root"]');
+    expect(report.parts.systemMessage?.skeleton).toMatch(/<div data-tid="control-message-renderer"> \[text \d+\]/);
+    expect(report.parts.dateDivider?.selector).toBe('[data-tid="message-pane-date-divider"]');
+    expect(report.parts.timestamp?.selector).toBe('time[datetime]');
+    expect(report.parts.selfMessage).toBeNull();
+
+    expect(report.reactionReads).toEqual({
+      from: 'profile',
+      pills: 3,
+      reads: [
+        { emojiFrom: 'picture', countFrom: 'text', pressedAttribute: 'aria-pressed', read: true, mine: true },
+        { emojiFrom: 'label-name', countFrom: 'label', pressedAttribute: 'aria-pressed', read: true, mine: false },
+        { emojiFrom: 'none', countFrom: 'none', pressedAttribute: null, read: false, mine: false },
+      ],
+    });
+    expect(report.warnings.join(' ')).toMatch(/reaction pills show no emoji/);
+
+    const json = JSON.stringify(report);
+    for (const secret of [...PAGE_SECRETS, '👍', 'Heart', 'Bob Brown', 'Budget', 'statics.teams', 'Monday']) expect(json).not.toContain(secret);
+  });
+
+  it('reads looser reaction markup when the reaction selectors match none', () => {
+    renderNewTeamsPage({ items: newTeamsMessageHtml('<span data-tid="message-reaction"><span>😂 3</span></span>') });
+    const report = diagnoseNewTeams();
+    expect(report.reactionReads).toMatchObject({ from: 'probe', pills: 1, reads: [{ emojiFrom: 'text', countFrom: 'text', read: true }] });
+    expect(report.parts.reaction?.selector).toBe('[data-tid*="reaction"]');
+    expect(JSON.stringify(report)).not.toContain('😂');
+  });
+
+  it('leaves the parts empty on a page without a message list', () => {
+    document.body.innerHTML = '<div data-tid="app-shell"><p>Calendar</p></div>';
+    const report = runDiagnostics(document, { profile, conversation: null, href: NEW_TEAMS_URL, selfDisplayName: null, dateOrder: 'MDY', referenceMs: 0 });
+    expect(report.parts).toEqual({});
+    expect(report.reactionReads).toBeNull();
   });
 });
 

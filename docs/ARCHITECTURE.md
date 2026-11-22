@@ -269,7 +269,7 @@ The archive page (`ui/archive.html`) is one page with four sections, chosen by t
 - Message HTML is re-serialised through a tag and attribute allow-list, and only `http(s)`, `mailto` and `tel` links are kept. The UI writes text through `textContent` only.
 - There is no remote code and no `eval`. The only network access is re-reading images that the open chat displays, normally from the page's own copy or the browser cache (see [Images](#images)). It is off when **Save the images shown in messages** is off.
 - Saved images are shown on the archive page (the message view and the image dialog) only as `<img>` elements from `blob:` addresses, so image content (an SVG, for example) can't run scripts there.
-- Diagnostics reports hold counts and redacted page skeletons. They contain no text, names, message ids or thread ids.
+- Diagnostics reports hold counts and redacted page skeletons: the representative message, the chat header, the highlighted chat-list entry, the first quoted reply and the first of each message part (`parts`), with attribute names but not their values (except test ids, roles and item types, with identifiers removed), and text replaced by its length. `reactionReads` gives the source of each reaction's emoji and count (`readReaction`), never the values. They contain no text, names, emoji, addresses, message ids or thread ids; the copied report adds the extension's version.
   - The identifier probe (`extractor/id-probe.ts`) reads only attribute values of rendered elements.
   - It reports each identifier as its kind (`thread:v2`, `person:orgid`, …) and a label (`T1`, `P1`, …). Equal labels mean equal values, so a report shows where an identifier appears without revealing it.
 

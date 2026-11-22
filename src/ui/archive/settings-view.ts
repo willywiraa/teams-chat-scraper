@@ -317,7 +317,8 @@ async function runDiagnostics(): Promise<void> {
       : `No chat detected${status.conversationError ? `: ${status.conversationError}` : ''}`;
     const onScreen = status.visibleMessages === null ? '' : ` · ${formatNumber(status.visibleMessages)} messages on screen`;
     const report = await sendToTab<DiagnosticsReport>(tabId, { type: 'content/diagnostics' });
-    diagnosticsText = JSON.stringify(report, null, 2);
+    // The version says which selectors the report was made with.
+    diagnosticsText = JSON.stringify({ extensionVersion: chrome.runtime.getManifest().version, ...report }, null, 2);
     setDiagStatus(`${chat}${onScreen}`);
     byId('diag-summary').textContent = diagnosticsSummary(report);
     output.textContent = diagnosticsText;

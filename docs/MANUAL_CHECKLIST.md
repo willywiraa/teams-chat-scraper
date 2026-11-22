@@ -43,7 +43,8 @@ Build with `npm run build`, click **Reload** on the extension card in `edge://ex
 - [ ] **Storage** shows the space used and the totals.
 - [ ] **Troubleshooting**: **Find Teams tabs** lists the open Teams tabs; **Run diagnostics** shows the chat, the number of messages on screen and a summary; **Copy report** copies the JSON. In a Teams tab opened before the extension was reloaded, it says to reload the tab.
 
-- [ ] In a chat with reactions, **Run diagnostics** says *N with reactions* in its summary, with no warning about reaction markup. If it warns, send the report: the reaction selectors need an update.
+- [ ] In a chat with reactions, **Run diagnostics** says *N with reactions* in its summary, with no warning about reaction markup, and `reactionReads` shows `"read": true` for each reaction. If it warns, send the report: the reaction selectors need an update.
+- [ ] The copied report starts with `extensionVersion` and has `"reportVersion": 4`; searching it for a name, a word of a message or an emoji shown on screen finds nothing.
 - [ ] **About** (at the end of Settings) shows *Chat Archiver for Microsoft Teams, version …* with the current version, and the not-affiliated note.
 
 ## Release

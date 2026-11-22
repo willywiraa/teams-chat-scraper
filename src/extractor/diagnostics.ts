@@ -8,6 +8,7 @@ import type { DateOrder } from '../shared/time';
 import type { ConversationIdentity, ExtractedMessage } from '../shared/types';
 import { safeQueryAll } from './dom';
 import { probePage, redactIdentifiers, type IdentifierProbe, type ProbeRegion } from './id-probe';
+import { reactionPills, readReaction, type ReactionRead } from './message-parser';
 import { collectItems, findMessageList, parseRenderedConversation } from './page-parser';
 import type { AttributeIdRule, SelectorProfile } from './selectors';
 
@@ -18,9 +19,24 @@ export interface SelectorHit {
 
 /**
  * Version of the report layout; 2 added the identifier probe, the extra selector probes and the
- * skeletons; 3 the reaction selector, the count of messages with reactions and each sample's reactions.
+ * skeletons; 3 the reaction selector, the count of messages with reactions and each sample's
+ * reactions; 4 the outline of each message part and where each reaction's emoji and count came from.
  */
-export const DIAGNOSTICS_REPORT_VERSION = 3;
+export const DIAGNOSTICS_REPORT_VERSION = 4;
+
+/** The first element of a message part found in the list, and the selector that found it. */
+export interface PartOutline {
+  selector: string;
+  skeleton: string;
+}
+
+/** How the reaction pills on screen were read; sources only, never the emoji or the count. */
+export interface ReactionReads {
+  /** 'profile' when the reaction selectors matched; 'probe' when only looser markup did. */
+  from: 'profile' | 'probe';
+  pills: number;
+  reads: Array<Omit<ReactionRead, 'reaction'> & { read: boolean; mine: boolean }>;
+}
 
 export interface DiagnosticsReport {
   reportVersion: number;
@@ -77,6 +93,9 @@ export interface DiagnosticsReport {
   probes: Record<string, SelectorHit[]>;
   /** Outlines of the chat header, the highlighted chat-list entry and the first quoted reply. */
   skeletons: { chatHeader: string | null; highlightedEntry: string | null; reply: string | null };
+  /** Outline of the first of each message part on screen (see PARTS), or null when none is. */
+  parts: Record<string, PartOutline | null>;
+  reactionReads: ReactionReads | null;
   warnings: string[];
 }
 
@@ -111,6 +130,58 @@ const PROBES: ReadonlyArray<{ name: string; scope: 'page' | 'list'; selectors: r
   { name: 'message.image', scope: 'list', selectors: ['img[data-tid="rich-file-preview-image"]', 'img[itemtype*="AMSImage"]', 'img[data-gallery-src]', 'img[src^="blob:"]', 'img'] },
   { name: 'message.file', scope: 'list', selectors: ['[data-tid="file-preview-root"]', '[data-tid*="file-preview"]', '[data-tid*="file-card"]', '[data-tid*="attachment"]'] },
 ];
+
+/**
+ * The message parts outlined in the report: the profile's selectors first, then looser markup
+ * seen in new Teams. `up` climbs that many levels from the match (never past the list), so the
+ * outline shows what surrounds a small element such as a picture or a time.
+ */
+const PARTS: ReadonlyArray<{ name: string; selectors: (profile: SelectorProfile) => readonly string[]; up: number; nodes: number }> = [
+  { name: 'selfMessage', selectors: (p) => p.selfMessage, up: 0, nodes: 80 },
+  { name: 'systemMessage', selectors: (p) => p.systemMessage, up: 0, nodes: 40 },
+  { name: 'dateDivider', selectors: (p) => p.dateDivider, up: 0, nodes: 20 },
+  { name: 'author', selectors: (p) => [...p.author, '[id^="author-"]'], up: 1, nodes: 30 },
+  { name: 'timestamp', selectors: (p) => p.timestamp, up: 1, nodes: 30 },
+  { name: 'edited', selectors: (p) => [...p.edited, '[data-tid*="edit"]'], up: 1, nodes: 30 },
+  { name: 'mention', selectors: (p) => p.mention, up: 0, nodes: 20 },
+  { name: 'reaction', selectors: (p) => [...p.reaction, '[data-tid*="reaction"]'], up: 1, nodes: 40 },
+  { name: 'image', selectors: (p) => [...p.attachments.image, 'img[data-tid="rich-file-preview-image"]', 'img[src^="blob:"]'], up: 2, nodes: 30 },
+  { name: 'file', selectors: (p) => [...p.attachments.container, '[data-tid*="file-preview"]', '[data-tid*="file"]'], up: 0, nodes: 40 },
+  { name: 'card', selectors: (p) => p.attachments.card, up: 0, nodes: 40 },
+  { name: 'linkPreview', selectors: (p) => p.attachments.linkPreview, up: 0, nodes: 40 },
+];
+
+/** How many pills the report reads at most. */
+const REACTION_READS = 12;
+
+function partOutline(list: Element, selectors: readonly string[], up: number, nodes: number): PartOutline | null {
+  for (const selector of selectors) {
+    const found = safeQueryAll(list, selector)[0];
+    if (!found) continue;
+    let root: Element = found;
+    for (let level = 0; level < up && root.parentElement && root.parentElement !== list; level++) root = root.parentElement;
+    return { selector, skeleton: skeletonOf(root, nodes, 10) };
+  }
+  return null;
+}
+
+function readReactions(list: Element, profile: SelectorProfile): ReactionReads | null {
+  let from: ReactionReads['from'] = 'profile';
+  let pills = reactionPills(list, profile.reaction, profile);
+  if (pills.length === 0) {
+    from = 'probe';
+    pills = reactionPills(list, ['[data-tid*="reaction"]'], profile);
+  }
+  if (pills.length === 0) return null;
+  return {
+    from,
+    pills: pills.length,
+    reads: pills.slice(0, REACTION_READS).map((pill) => {
+      const { reaction, ...sources } = readReaction(pill);
+      return { ...sources, read: reaction !== null, mine: reaction?.mine ?? false };
+    }),
+  };
+}
 
 const REGION_NAMES: Record<ProbeRegion, string> = {
   'selected-entry': 'selected chat entry',
@@ -259,6 +330,8 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
   };
   const samples: DiagnosticsReport['samples'] = [];
   let skeleton: string | null = null;
+  const parts: DiagnosticsReport['parts'] = {};
+  let reactionReads: ReactionReads | null = null;
 
   if (!list) warnings.push('Message list not found: open a chat, or override "messageList".');
   if (!conversation) warnings.push('Conversation could not be identified: override "selectedChatItem" or "chatTitle".');
@@ -316,6 +389,11 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
     const items = collectItems(list, profile);
     const representative = items.find((item) => item.textContent && item.textContent.trim().length > 0) ?? items[0] ?? null;
     skeleton = representative ? skeletonOf(representative) : skeletonOf(list, 60, 6);
+    for (const part of PARTS) parts[part.name] = partOutline(list, part.selectors(profile), part.up, part.nodes);
+    reactionReads = readReactions(list, profile);
+    if (reactionReads && reactionReads.reads.some((read) => !read.read && read.emojiFrom === 'none')) {
+      warnings.push('Some reaction pills show no emoji the parser can read: see reactionReads and parts.reaction.');
+    }
   }
 
   const { probe, regions, entry } = probePage(doc, { profile, list, href: options.href });
@@ -364,6 +442,8 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
       highlightedEntry: entry ? skeletonOf(entry, 40, 8) : null,
       reply: reply ? skeletonOf(reply, 40, 8) : null,
     },
+    parts,
+    reactionReads,
     warnings,
   };
 }

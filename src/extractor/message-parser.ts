@@ -127,36 +127,68 @@ function countIn(text: string): number | null {
   return match ? Math.max(1, Number(match[1])) : null;
 }
 
+/** Attributes that mark a reaction pill as chosen by you. */
+const PRESSED_ATTRIBUTES = ['aria-pressed', 'aria-checked', 'aria-selected'] as const;
+
+/** One pill as read, with where each part came from: Diagnostics reports the sources, never the values. */
+export interface ReactionRead {
+  /** Null when the pill is another button (Add reaction) or shows no emoji. */
+  reaction: Reaction | null;
+  emojiFrom: 'picture' | 'text' | 'label' | 'label-name' | 'none';
+  countFrom: 'text' | 'label' | 'none';
+  /** The first of aria-pressed, aria-checked and aria-selected the pill has, whatever its value. */
+  pressedAttribute: (typeof PRESSED_ATTRIBUTES)[number] | null;
+}
+
 /**
  * Reads one reaction pill. The emoji comes from a picture's alt text, the pill's text or its
  * accessible name, in that order; failing those, from a name in the accessible name such as
  * "Like reaction". The count is the number in the pill's text (1 when it shows none), and it is
  * yours when the pill is pressed.
  */
-function readReaction(pill: Element): Reaction | null {
+export function readReaction(pill: Element): ReactionRead {
+  const pressedAttribute = PRESSED_ATTRIBUTES.find((name) => pill.hasAttribute(name)) ?? null;
   const label = (pill.getAttribute('aria-label') ?? pill.getAttribute('title') ?? '').replace(/\s+/g, ' ').trim();
-  if (NOT_A_REACTION.test(label)) return null;
+  const none: ReactionRead = { reaction: null, emojiFrom: 'none', countFrom: 'none', pressedAttribute };
+  if (NOT_A_REACTION.test(label)) return none;
   const text = textOf(pill);
   const image = pill.matches('img[alt]') ? pill : pill.querySelector('img[alt]');
   const alt = image?.getAttribute('alt')?.replace(/\s+/g, ' ').trim() ?? '';
   const named = label.match(/^([^\d,.;:()]{1,40}?)\s+reactions?\b/i)?.[1]?.trim() ?? '';
-  const emoji = alt.match(EMOJI)?.[0] ?? text.match(EMOJI)?.[0] ?? label.match(EMOJI)?.[0] ?? (alt || named);
-  if (!emoji) return null;
-  const count = countIn(text.replace(EMOJI_ALL, ' ')) ?? countIn(label.replace(EMOJI_ALL, ' ')) ?? 1;
-  const pressed = ['aria-pressed', 'aria-checked', 'aria-selected'].some((name) => pill.getAttribute(name) === 'true');
-  return { emoji: emoji.slice(0, MAX_REACTION_NAME), count, mine: pressed };
+  const sources: Array<[ReactionRead['emojiFrom'], string | undefined]> = [
+    ['picture', alt.match(EMOJI)?.[0]],
+    ['text', text.match(EMOJI)?.[0]],
+    ['label', label.match(EMOJI)?.[0]],
+    ['picture', alt || undefined],
+    ['label-name', named || undefined],
+  ];
+  const [emojiFrom, emoji] = sources.find(([, value]) => value) ?? ['none', undefined];
+  if (!emoji) return none;
+  const fromText = countIn(text.replace(EMOJI_ALL, ' '));
+  const fromLabel = fromText === null ? countIn(label.replace(EMOJI_ALL, ' ')) : null;
+  const pressed = PRESSED_ATTRIBUTES.some((name) => pill.getAttribute(name) === 'true');
+  return {
+    reaction: { emoji: emoji.slice(0, MAX_REACTION_NAME), count: fromText ?? fromLabel ?? 1, mine: pressed },
+    emojiFrom,
+    countFrom: fromText !== null ? 'text' : fromLabel !== null ? 'label' : 'none',
+    pressedAttribute,
+  };
 }
 
 /**
- * The reactions under a message, in the order shown, each emoji once. Pills inside a quoted
- * reply belong to the quoted message and are left out; of nested matches the innermost is read.
+ * The pills a message's reactions are read from: outside a quoted reply (those belong to the
+ * quoted message), and of nested matches the innermost.
  */
+export function reactionPills(scope: Element, selectors: readonly string[], profile: SelectorProfile): Element[] {
+  const pills = unionMatches(scope, selectors, { exclude: profile.reply.container });
+  return pills.filter((pill) => !pills.some((other) => other !== pill && pill.contains(other)));
+}
+
+/** The reactions under a message, in the order shown, each emoji once. */
 export function parseReactions(item: Element, profile: SelectorProfile): Reaction[] {
-  const pills = unionMatches(item, profile.reaction, { exclude: profile.reply.container });
-  const innermost = pills.filter((pill) => !pills.some((other) => other !== pill && pill.contains(other)));
   const reactions: Reaction[] = [];
-  for (const pill of innermost) {
-    const reaction = readReaction(pill);
+  for (const pill of reactionPills(item, profile.reaction, profile)) {
+    const { reaction } = readReaction(pill);
     if (!reaction || reactions.some((seen) => seen.emoji === reaction.emoji)) continue;
     reactions.push(reaction);
     if (reactions.length >= MAX_REACTIONS) break;
