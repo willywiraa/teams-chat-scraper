@@ -23,16 +23,20 @@
 
     <main id="main" class="archive-main" tabindex="-1">
       <p id="archive-message" class="notice small" role="status" aria-live="polite" hidden></p>
+      <p id="archive-loading" class="muted small">Reading the archive…</p>
 
       <!-- Overview -->
       <section id="view-overview" class="view" aria-labelledby="overview-title" hidden>
         <h2 id="overview-title" class="view-title" tabindex="-1">Overview</h2>
         <div class="card">
           <dl class="stats" id="overview-stats"></dl>
+          <div class="backup-row">
+            <p id="backup-status" class="small"></p>
+            <button type="button" class="primary" id="btn-backup-now" aria-describedby="backup-status">Back up now…</button>
+          </div>
           <p class="muted small">
             Data is stored only in this browser profile (IndexedDB of this extension). Removing the extension deletes it, so back it up
-            regularly: <button type="button" class="link" id="btn-backup-now">Back up now</button>. Importing a backup restores everything
-            without creating duplicates.
+            regularly. Importing a backup restores everything without creating duplicates.
           </p>
         </div>
         <section class="card" aria-labelledby="activity-title">
@@ -61,7 +65,7 @@
               <tbody></tbody>
             </table>
           </div>
-          <p id="no-sessions" class="muted" hidden>No runs yet.</p>
+          <p id="no-sessions" class="muted" hidden>No runs yet. Open a chat in Teams Web and click the toolbar button to start one.</p>
         </section>
       </section>
 
@@ -76,15 +80,15 @@
         </div>
         <div class="card">
           <div class="toolbar" role="search">
-            <label class="search-field" for="conv-search">
-              <span id="conv-search-icon"></span>
-              <span class="visually-hidden">Search conversations</span>
-              <input type="search" id="conv-search" placeholder="Search by name, earlier title or key" autocomplete="off" />
-            </label>
-            <label class="visually-hidden" for="conv-type">Type</label>
-            <select id="conv-type"></select>
-            <label class="visually-hidden" for="conv-sort">Sort by</label>
-            <select id="conv-sort"></select>
+            <div class="field toolbar-search">
+              <label for="conv-search">Search</label>
+              <label class="search-field" for="conv-search">
+                <span id="conv-search-icon"></span>
+                <input type="search" id="conv-search" placeholder="Name, earlier title or key" autocomplete="off" />
+              </label>
+            </div>
+            <label class="field" for="conv-type"><span>Type</span><select id="conv-type"></select></label>
+            <label class="field" for="conv-sort"><span>Sort by</span><select id="conv-sort"></select></label>
             <span id="conv-count" class="muted small" aria-live="polite"></span>
           </div>
           <div class="table-wrap">
@@ -105,7 +109,7 @@
             </table>
           </div>
           <p id="no-conversations" class="muted" hidden>Nothing archived yet. Open a chat in Teams Web and click the toolbar button.</p>
-          <p id="no-matches" class="muted" hidden>No conversation matches the search.</p>
+          <p id="no-matches" class="muted" hidden>No conversation matches the search and type chosen. <button type="button" class="link" id="btn-clear-search">Show all conversations</button></p>
         </div>
       </section>
 
@@ -133,7 +137,7 @@
             <button type="button" id="btn-load-earlier" class="load-earlier">Show earlier messages</button>
           </div>
           <ol id="conv-view-messages" class="messages" aria-labelledby="conv-view-messages-title"></ol>
-          <p id="conv-view-empty" class="muted" hidden>No messages are archived for this chat.</p>
+          <p id="conv-view-empty" class="muted" hidden>No messages are archived for this chat. Open it in Teams Web and click the toolbar button to archive them.</p>
         </div>
       </section>
 
@@ -150,12 +154,13 @@
         <div class="card">
           <fieldset class="export-section">
             <legend>Conversations</legend>
-            <div class="button-row small">
+            <div class="button-row small" id="export-select-row">
               <button type="button" class="link" id="btn-export-select-all">Select all</button>
               <button type="button" class="link" id="btn-export-select-none">Select none</button>
               <span id="export-selected-count" class="muted"></span>
             </div>
             <div id="export-conversations" class="export-list"></div>
+            <p id="export-empty" class="muted small" hidden>Nothing archived yet, so there is nothing to export. Open a chat in Teams Web and click the toolbar button.</p>
           </fieldset>
           <div class="export-grid">
             <label class="field" for="export-format"><span>Format</span><select id="export-format"></select></label>
@@ -173,7 +178,8 @@
           <p id="export-explain" class="muted small"></p>
           <p id="export-message" class="small" role="status" aria-live="polite" hidden></p>
           <div class="button-row">
-            <button type="button" id="btn-export-run" class="primary">Export</button>
+            <button type="button" id="btn-export-run" class="primary" aria-describedby="export-run-hint">Export</button>
+            <span id="export-run-hint" class="muted small" hidden></span>
           </div>
         </div>
         <section class="card" aria-labelledby="import-title">
@@ -217,7 +223,7 @@
             The archive is kept in this browser profile only. Removing the extension, or clearing the extension's site data, deletes it.
           </p>
           <div class="button-row">
-            <button type="button" id="btn-storage-backup" class="primary">Back up now…</button>
+            <button type="button" id="btn-storage-backup">Back up now…</button>
             <button type="button" data-import>Import archive…</button>
           </div>
         </section>
@@ -232,7 +238,7 @@
             <label class="field" for="diag-tab"><span>Teams tab</span><select id="diag-tab"></select></label>
             <div class="button-row">
               <button type="button" id="btn-diag-refresh">Find Teams tabs</button>
-              <button type="button" id="btn-diag" class="primary">Run diagnostics</button>
+              <button type="button" id="btn-diag">Run diagnostics</button>
               <button type="button" id="btn-diag-copy" hidden>Copy report</button>
             </div>
           </div>

@@ -66,7 +66,7 @@ Running any capture again is always safe: messages are never stored twice.
 
 Open it with the archive button at the top right of the popup, or via the extension's *Extension options*. It has four sections; each has its own address (for example `archive.html#conversations`), so Back and Forward work and you can bookmark one.
 
-- **Overview**: totals (conversations, messages, saved images, complete histories, storage used), the chats archived most recently, and **Recent runs**: every run with what it captured (*Update*, *Since 14 Nov 2026*, *Full history*, *Visible only*), its status (*Running*, *Paused*, *Completed*, *Stopped*, *Interrupted*, *Failed*), result, counters (including images saved and not saved) and duration. **Back up now** opens Export with the full backup.
+- **Overview**: totals (conversations, messages, saved images, complete histories, storage used), when the last full backup was made, the chats archived most recently, and **Recent runs**: every run with what it captured (*Update*, *Since 14 Nov 2026*, *Full history*, *Visible only*), its status (*Running*, *Paused*, *Completed*, *Stopped*, *Interrupted*, *Failed*), result, counters (including images saved and not saved) and duration. **Back up now…** opens Export with the full backup; once that export is downloaded, Overview shows its date.
 - **Conversations**: each archived chat with its message count, number of saved images, completeness, archived period and last update. **Search** finds a chat by any word of its name, an earlier title or its key; filter by type and sort by recent activity, name or size. Click a chat's name to read it:
   - the **message view** shows the newest 200 messages with a heading for each day, replies with the message they quote, pictures where they were sent (click one for full size), attachments with their links, and the earlier versions of edited messages. **Show earlier messages** loads the 200 before, keeping your place;
   - its actions: **Export…**, **Images** (each saved picture with who sent it and when, to view or download), **Rename**, **Merge…** and **Delete**.
@@ -191,7 +191,7 @@ When **Save the images shown in messages** is on (the default), every picture th
 ## Data and privacy
 
 - The archive lives in the extension's IndexedDB in your Edge profile, which the extension's own pages read directly. Content scripts run only on the Teams domains listed in the manifest. The extension sends nothing anywhere. Its only requests re-read images the open chat is displaying, normally from the page's own copy or the browser cache (see [Images](#images)); turn off **Save the images shown in messages** to avoid them.
-- **Removing the extension deletes its archive.** Export a backup first (archive page → **Overview → Back up now**, or **Export → Full backup**). Back up regularly anyway.
+- **Removing the extension deletes its archive.** Export a backup first (archive page → **Overview → Back up now…**, or **Export → Full backup**). Back up regularly anyway.
 - Exports contain your messages in plain text, and your saved images unless **Pictures** is off. Store them accordingly.
 
 ## Limitations

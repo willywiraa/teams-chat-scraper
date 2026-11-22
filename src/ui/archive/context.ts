@@ -20,9 +20,19 @@ export interface AppContext {
   exportConversations(keys?: readonly string[], preset?: ExportPreset): void;
 }
 
-/** Runs an action of a button, showing its error in the status line instead of losing it. */
+/**
+ * Runs an action of a button, showing its error in the status line instead of losing it. A click
+ * while the action is still running is ignored, so a double click does not run it twice.
+ */
 export function guarded(app: AppContext, action: () => Promise<unknown>): () => void {
+  let running = false;
   return () => {
-    action().catch((error: unknown) => app.notify(error instanceof Error ? error.message : String(error), 'error'));
+    if (running) return;
+    running = true;
+    action()
+      .catch((error: unknown) => app.notify(error instanceof Error ? error.message : String(error), 'error'))
+      .finally(() => {
+        running = false;
+      });
   };
 }

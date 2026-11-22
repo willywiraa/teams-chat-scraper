@@ -1,8 +1,9 @@
-/** The Overview section: totals, storage used, the chats archived most recently, and recent runs. */
+/** The Overview section: totals, storage used, the last full backup, the chats archived most recently, and recent runs. */
 import { STALE_SESSION_MS } from '../../shared/protocol';
 import { conversationLabel, type SessionCounters } from '../../shared/types';
 import { byId, captureLabel, el, formatDateTime, formatDuration, formatNumber, STATUS_LABELS, STOP_REASON_LABELS } from '../common';
-import { historyLine, latestActivity, overviewTotals, routeHash } from '../view-models';
+import { readLastBackup } from '../last-backup';
+import { backupLine, historyLine, latestActivity, overviewTotals, routeHash } from '../view-models';
 import type { AppContext } from './context';
 
 /** "12.3 MB", or null when the browser doesn't say. */
@@ -33,6 +34,8 @@ export async function renderOverview(app: AppContext): Promise<void> {
     stat('Complete histories', `${formatNumber(totals.complete)} of ${formatNumber(totals.conversations)}`),
     stat('Storage used', storage?.used ?? '–'),
   );
+  byId('backup-status').textContent = backupLine(await readLastBackup(), totals.conversations);
+  byId<HTMLButtonElement>('btn-backup-now').disabled = totals.conversations === 0;
   const latest = latestActivity(records);
   byId('activity').replaceChildren(
     ...latest.map((record) =>

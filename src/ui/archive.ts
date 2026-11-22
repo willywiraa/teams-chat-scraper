@@ -6,7 +6,7 @@
 import { importArchiveFile } from '../export/import';
 import type { ExportPreset } from '../export/options';
 import { ArchiveRepository } from '../storage/repository';
-import { byId, errorText, formatNumber } from './common';
+import { byId, countOf, errorText, formatNumber } from './common';
 import { ExportPanel } from './export-panel';
 import type { AppContext, MessageKind } from './archive/context';
 import { closeConversation, showConversation, wireConversationView } from './archive/conversation-view';
@@ -52,6 +52,8 @@ let shownCount = 0;
 let exportPanel: ExportPanel | null = null;
 /** What Export should select and set when it is shown next. */
 let pendingExport: { keys?: readonly string[]; preset?: ExportPreset } | null = null;
+/** Shows "Reading the archive…" when a section takes a moment to draw; the page opens with it shown. */
+let loadingTimer: ReturnType<typeof setTimeout> | undefined;
 
 const app: AppContext = {
   repository,
@@ -79,6 +81,11 @@ async function show(route: Route, { navigated }: { navigated: boolean }): Promis
   }
   if (previous.view === 'conversation' && route.view !== 'conversation') closeConversation();
   for (const view of VIEWS) byId(`view-${view}`).hidden = view !== route.view;
+  byId(`view-${route.view}`).setAttribute('aria-busy', 'true');
+  if (navigated) {
+    clearTimeout(loadingTimer);
+    loadingTimer = setTimeout(() => (byId('archive-loading').hidden = false), 200);
+  }
   for (const link of document.querySelectorAll<HTMLAnchorElement>('a[data-nav]')) {
     if (link.dataset.nav === navOf(route)) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
@@ -111,6 +118,9 @@ async function show(route: Route, { navigated }: { navigated: boolean }): Promis
     notify(errorText(error), 'error');
   }
   if (mine !== shownCount) return;
+  clearTimeout(loadingTimer);
+  byId('archive-loading').hidden = true;
+  for (const view of VIEWS) byId(`view-${view}`).removeAttribute('aria-busy');
   document.title = `${title} · ${APP_NAME}`;
   // Move the focus to the section's heading, so keyboard and screen reader users start there.
   if (navigated) {
@@ -146,7 +156,7 @@ async function importFile(file: File): Promise<void> {
       summary.keptSeparate > 0 ? `${summary.keptSeparate} kept separate because an archived chat with the same title holds other messages` : '',
     ].filter(Boolean);
     notify(
-      `Imported ${summary.conversations} conversation(s)${placed.length > 0 ? ` (${placed.join('; ')})` : ''}: ` +
+      `Imported ${countOf(summary.conversations, 'conversation')}${placed.length > 0 ? ` (${placed.join('; ')})` : ''}: ` +
         `${formatNumber(summary.inserted)} new, ${formatNumber(summary.updated)} merged, ${formatNumber(summary.unchanged)} already present.` +
         (images > 0 ? ` Images: ${formatNumber(summary.imagesInserted)} new, ${formatNumber(summary.imagesUnchanged)} already present.` : ''),
       'success',

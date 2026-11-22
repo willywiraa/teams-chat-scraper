@@ -119,6 +119,22 @@ export function effectiveContent(format: ExportFormat, content: ExportContent): 
   return { ...content, ...fixedContent(format) };
 }
 
+/**
+ * True when an export is a full backup: an importable format, every archived conversation, the
+ * whole period and all content. Overview shows when the last one was made.
+ */
+export function isFullBackup(
+  request: { conversations: readonly string[] | 'all'; format: ExportFormat; range: TimeRange; content: ExportContent },
+  archivedKeys: readonly string[],
+): boolean {
+  if (!FORMATS[request.format].importable) return false;
+  if (request.range.from !== null || request.range.to !== null) return false;
+  if (!Object.values(effectiveContent(request.format, request.content)).every(Boolean)) return false;
+  if (request.conversations === 'all') return true;
+  const chosen = new Set(request.conversations);
+  return archivedKeys.length > 0 && archivedKeys.every((key) => chosen.has(key));
+}
+
 /** Parses a `datetime-local` value (local time) to epoch ms; empty or invalid is null. */
 export function parseLocalDateTime(value: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?)?$/.test(value)) return null;

@@ -6,7 +6,7 @@ import { STALE_SESSION_MS } from '../../shared/protocol';
 import { imageFileName } from '../../shared/images';
 import { conversationLabel, type ConversationRecord, type StoredImage } from '../../shared/types';
 import { titleHistoryOf } from '../../storage/conversation-identity';
-import { byId, el, errorText, formatAgo, formatDate, formatDateTime, formatNumber, TYPE_LABELS } from '../common';
+import { byId, countOf, el, errorText, formatAgo, formatDate, formatDateTime, formatNumber, TYPE_LABELS } from '../common';
 import { icon } from '../icons';
 import {
   conversationDetails,
@@ -28,6 +28,12 @@ export function buildConversationList(app: AppContext): void {
   byId('conv-sort').replaceChildren(...CONVERSATION_SORTS.map(({ value, label }) => el('option', { value }, label)));
   for (const id of ['conv-search', 'conv-type', 'conv-sort']) byId(id).addEventListener('input', () => void renderConversations(app));
   byId('btn-export-all').addEventListener('click', () => app.exportConversations());
+  byId('btn-clear-search').addEventListener('click', () => {
+    byId<HTMLInputElement>('conv-search').value = '';
+    byId<HTMLSelectElement>('conv-type').value = TYPE_FILTERS[0]!.value;
+    void renderConversations(app);
+    byId('conv-search').focus();
+  });
 }
 
 export async function renderConversations(app: AppContext): Promise<void> {
@@ -43,7 +49,7 @@ export async function renderConversations(app: AppContext): Promise<void> {
   byId('conversations').hidden = shown.length === 0;
   byId('no-conversations').hidden = all.length > 0;
   byId('no-matches').hidden = all.length === 0 || shown.length > 0;
-  byId('conv-count').textContent = all.length === 0 ? '' : shown.length === all.length ? `${formatNumber(all.length)} conversations` : `${formatNumber(shown.length)} of ${formatNumber(all.length)} conversations`;
+  byId('conv-count').textContent = all.length === 0 ? '' : shown.length === all.length ? countOf(all.length, 'conversation') : `${formatNumber(shown.length)} of ${countOf(all.length, 'conversation')}`;
   byId<HTMLButtonElement>('btn-export-all').disabled = all.length === 0;
 }
 
@@ -75,7 +81,7 @@ function conversationRow(app: AppContext, record: ConversationRecord, imageCount
       'td',
       { className: 'num', 'data-label': 'Images' },
       imageCount > 0
-        ? el('button', { type: 'button', className: 'link', title: 'View the saved images', 'aria-label': `View the ${imageCount} saved images of ${label}`, onclick: guarded(app, () => showImages(record)) }, formatNumber(imageCount))
+        ? el('button', { type: 'button', className: 'link', title: 'View the saved images', 'aria-label': `View the ${countOf(imageCount, 'saved image')} of ${label}`, onclick: guarded(app, () => showImages(record)) }, formatNumber(imageCount))
         : '0',
     ),
     el('td', { 'data-label': 'History' }, historyLabel(record)),
@@ -116,11 +122,11 @@ async function renameConversation(app: AppContext, record: ConversationRecord): 
 
 async function deleteConversation(app: AppContext, record: ConversationRecord, imageCount: number, where: { list: boolean }): Promise<void> {
   const ok = confirm(
-    `Delete "${conversationLabel(record)}" with ${record.messageCount} archived messages${imageCount > 0 ? ` and ${imageCount} images` : ''} from this browser?\n\nThis cannot be undone. Export a backup first if you may need it.`,
+    `Delete "${conversationLabel(record)}" with ${countOf(record.messageCount, 'archived message')}${imageCount > 0 ? ` and ${countOf(imageCount, 'image')}` : ''} from this browser?\n\nThis cannot be undone. Export a backup first if you may need it.`,
   );
   if (!ok) return;
   const removed = await (await app.repository()).deleteConversation(record.conversationKey);
-  app.notify(`Deleted ${formatNumber(removed.messages)} messages, ${formatNumber(removed.images)} images and ${removed.sessions} sessions.`, 'success', { carry: true });
+  app.notify(`Deleted ${countOf(removed.messages, 'message')}, ${countOf(removed.images, 'image')} and ${countOf(removed.sessions, 'run')}.`, 'success', { carry: true });
   if (where.list) await app.refresh();
   else app.go({ view: 'conversations' });
 }
@@ -152,7 +158,7 @@ async function showImages(record: ConversationRecord): Promise<void> {
   });
   const position = (image: StoredImage) => context.get(image.imageId)?.sortKey ?? Number.MAX_VALUE;
   const ordered = [...images].sort((a, b) => position(a) - position(b) || a.firstSavedAt.localeCompare(b.firstSavedAt));
-  byId('image-dialog-title').textContent = `${conversationLabel(record)}: ${formatNumber(images.length)} saved images`;
+  byId('image-dialog-title').textContent = `${conversationLabel(record)}: ${countOf(images.length, 'saved image')}`;
   byId('image-grid').replaceChildren(...ordered.map((image) => imageTile(image, context.get(image.imageId)?.caption ?? 'No longer referenced by a message')));
   byId<HTMLDialogElement>('image-dialog').showModal();
 }
@@ -164,7 +170,7 @@ function imageTile(image: StoredImage, caption: string): HTMLElement {
   return el(
     'figure',
     { className: 'image-tile' },
-    el('a', { href: url, target: '_blank', rel: 'noopener', title: 'Open full size' }, el('img', { src: url, alt: caption, loading: 'lazy' })),
+    el('a', { href: url, target: '_blank', rel: 'noopener', title: 'Open full size' }, el('img', { src: url, alt: caption, loading: 'lazy', width: image.width ? String(image.width) : false, height: image.height ? String(image.height) : false })),
     el(
       'figcaption',
       { className: 'small' },
@@ -205,7 +211,7 @@ function nameLikeness(names: string[], others: string[]): number {
 }
 
 function mergeTargetLabel(other: ConversationRecord, shared: number): string {
-  const parts = [conversationLabel(other), `${formatNumber(other.messageCount)} messages`, `last run ${formatDate(other.lastExtractedAt)}`];
+  const parts = [conversationLabel(other), countOf(other.messageCount, 'message'), `last run ${formatDate(other.lastExtractedAt)}`];
   if (shared > 0) parts.push(`${formatNumber(shared)} in common`);
   return parts.join(' · ');
 }
@@ -228,7 +234,7 @@ async function openMerge(app: AppContext, record: ConversationRecord): Promise<v
   mergeSource = record;
   mergeTargets = others;
   mergeShared = shared;
-  byId('merge-source').textContent = `Merge “${conversationLabel(record)}” (${formatNumber(record.messageCount)} messages) with another archive entry of the same chat, for example after Teams renamed it.`;
+  byId('merge-source').textContent = `Merge “${conversationLabel(record)}” (${countOf(record.messageCount, 'message')}) with another archive entry of the same chat, for example after Teams renamed it.`;
   const select = byId<HTMLSelectElement>('merge-target');
   select.replaceChildren(
     el('option', { value: '' }, 'Choose the entry of the same chat…'),
@@ -280,11 +286,11 @@ async function confirmMerge(): Promise<void> {
     const outcome = await (await app.repository()).mergeConversations(source.conversationKey, targetKey, {
       staleSessionMs: STALE_SESSION_MS,
       onProgress: (progress) =>
-        mergeMessage(`Moving… ${formatNumber(progress.messagesMoved)} of ${formatNumber(source.messageCount)} messages${progress.imagesMoved > 0 ? `, ${formatNumber(progress.imagesMoved)} images` : ''}`),
+        mergeMessage(`Moving… ${formatNumber(progress.messagesMoved)} of ${countOf(source.messageCount, 'message')}${progress.imagesMoved > 0 ? `, ${countOf(progress.imagesMoved, 'image')}` : ''}`),
     });
     byId<HTMLDialogElement>('merge-dialog').close();
     mergedInto = outcome.target.conversationKey;
-    app.notify(`Merged into “${conversationLabel(outcome.target)}”, which now holds ${formatNumber(outcome.target.messageCount)} messages.`, 'success', { carry: true });
+    app.notify(`Merged into “${conversationLabel(outcome.target)}”, which now holds ${countOf(outcome.target.messageCount, 'message')}.`, 'success', { carry: true });
   } catch (error) {
     mergeMessage(errorText(error), 'error');
   } finally {

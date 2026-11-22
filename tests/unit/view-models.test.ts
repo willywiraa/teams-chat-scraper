@@ -1,9 +1,9 @@
 /**
  * What the app page and the popup show, worked out without a page: routes, the conversation
  * list's search, filter and sorting, summary lines, overview totals, the message view and its
- * pages; the scrolling speed presets; and the theme choice.
+ * pages; the backup line; the scrolling speed presets; the theme choice; and repeated clicks.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { timeFormat } from '../../src/export/render';
 import {
   DEFAULT_SETTINGS,
@@ -17,9 +17,12 @@ import {
   type ScrollSpeed,
 } from '../../src/shared/settings';
 import type { ConversationRecord } from '../../src/shared/types';
-import { formatDate, formatNumber } from '../../src/ui/common';
+import { guarded, type AppContext } from '../../src/ui/archive/context';
+import { countOf, formatDate, formatDateTime, formatNumber } from '../../src/ui/common';
+import { parseLastBackup } from '../../src/ui/last-backup';
 import { applyTheme, normalizeTheme, readTheme, saveTheme, THEME_STORAGE_KEY } from '../../src/ui/theme';
 import {
+  backupLine,
   conversationDetails,
   earlierPage,
   filterConversations,
@@ -30,6 +33,7 @@ import {
   navOf,
   overviewTotals,
   parseRoute,
+  pictureBox,
   routeHash,
   timeline,
   type Route,
@@ -249,6 +253,84 @@ describe('message view', () => {
     expect(oldest).toEqual({ keys: keys.slice(0, 50), from: 0 });
     expect(earlierPage(keys, 0, 200)).toEqual({ keys: [], from: 0 });
     expect(earlierPage([], 0, 200)).toEqual({ keys: [], from: 0 });
+  });
+
+  it('reserves each picture\'s space: its own size scaled to fit, or nothing when not recorded', () => {
+    expect(pictureBox(1920, 1080)).toEqual({ width: 420, height: 236 });
+    expect(pictureBox(600, 1200)).toEqual({ width: 160, height: 320 });
+    expect(pictureBox(40, 30)).toEqual({ width: 40, height: 30 });
+    expect(pictureBox(null, 300)).toBeNull();
+    expect(pictureBox(0, 0)).toBeNull();
+  });
+
+  it('counts in the singular for one', () => {
+    expect(countOf(1, 'message')).toBe('1 message');
+    expect(countOf(0, 'message')).toBe('0 messages');
+    expect(countOf(1234, 'saved image')).toBe(`${formatNumber(1234)} saved images`);
+  });
+});
+
+// ------------------------------------------------------------------ backup
+
+describe('last full backup', () => {
+  const now = Date.parse('2026-11-22T12:00:00Z');
+
+  it('says when there is nothing to back up, or no backup yet', () => {
+    expect(backupLine(null, 0, now)).toBe('Nothing to back up yet.');
+    expect(backupLine(null, 2, now)).toBe('No full backup has been made from this browser profile yet.');
+  });
+
+  it('says how long ago the last one was made and what it held', () => {
+    const at = '2026-11-19T12:00:00Z';
+    const line = backupLine({ at, conversations: 1, messages: 452 }, 2, now);
+    expect(line).toContain(`(${formatDateTime(at)})`);
+    expect(line).toMatch(/^Last full backup .+: 1 conversation, 452 messages\.$/);
+    // Older than 30 days: the date, said once.
+    const old = '2026-09-01T12:00:00Z';
+    expect(backupLine({ at: old, conversations: 2, messages: 1 }, 2, now)).toBe(`Last full backup on ${formatDateTime(old)}: 2 conversations, 1 message.`);
+  });
+
+  it('reads only a well-formed stored record', () => {
+    expect(parseLastBackup({ at: '2026-11-19T12:00:00Z', conversations: 2, messages: 452 })).toEqual({ at: '2026-11-19T12:00:00Z', conversations: 2, messages: 452 });
+    expect(parseLastBackup(undefined)).toBeNull();
+    expect(parseLastBackup({ at: 'yesterday', conversations: 2, messages: 452 })).toBeNull();
+    expect(parseLastBackup({ at: '2026-11-19T12:00:00Z', conversations: -1, messages: 452 })).toBeNull();
+    expect(parseLastBackup({ at: '2026-11-19T12:00:00Z', conversations: 2 })).toBeNull();
+  });
+});
+
+// ----------------------------------------------------------- repeated clicks
+
+describe('button actions', () => {
+  it('ignore a click while the same action is still running, then run again', async () => {
+    const notify = vi.fn();
+    const app = { notify } as unknown as AppContext;
+    let release: () => void = () => undefined;
+    const action = vi.fn(() => new Promise<void>((resolve) => (release = resolve)));
+    const click = guarded(app, action);
+    click();
+    click();
+    expect(action).toHaveBeenCalledTimes(1);
+    release();
+    await vi.waitFor(() => {
+      click();
+      expect(action).toHaveBeenCalledTimes(2);
+    });
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('show an action\'s error in the status line, and run again after it', async () => {
+    const notify = vi.fn();
+    const action = vi.fn(async () => {
+      throw new Error('The archive could not be read');
+    });
+    const click = guarded({ notify } as unknown as AppContext, action);
+    click();
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledWith('The archive could not be read', 'error'));
+    await vi.waitFor(() => {
+      click();
+      expect(action).toHaveBeenCalledTimes(2);
+    });
   });
 });
 

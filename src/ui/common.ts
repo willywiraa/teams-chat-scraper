@@ -42,6 +42,11 @@ export function formatNumber(value: number | null | undefined): string {
   return value === null || value === undefined ? '–' : value.toLocaleString();
 }
 
+/** "1 message", "451 messages": the number and the word, singular for one. */
+export function countOf(value: number, singular: string, plural = `${singular}s`): string {
+  return `${formatNumber(value)} ${value === 1 ? singular : plural}`;
+}
+
 export function formatDateTime(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === '') return '–';
   const date = new Date(value);

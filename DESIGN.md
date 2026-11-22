@@ -23,14 +23,15 @@ Dial: ENERGY 1 / RHYTHM 1 / MOTION 1
 
 ## Palette
 
-One accent, neutral greys, and the few status colours the content needs. Every value is in `src/ui/ui.css` (light, and dark twice: for *System* and for *Dark*); `tests/unit/logo.test.ts` keeps every text pair at 4.5:1 or more.
+One accent, neutral greys, and the few status colours the content needs. Every value is in `src/ui/ui.css` (light, and dark twice: for *System* and for *Dark*); `tests/unit/logo.test.ts` keeps every text pair at 4.5:1 or more and the control outline at 3:1 or more.
 
 | Role | Light | Dark | Used for |
 | --- | --- | --- | --- |
 | Accent | `#1f5fbf` | `#7aaaf5` | The one primary button of a view, links, the current navigation entry, the focus ring. Nowhere else. |
 | Background, card | `#f5f5f7`, `#ffffff` | `#1b1b1f`, `#26262c` | Page and surface. |
 | Text, muted | `#1f1f24`, `#63636e` | `#ececf1`, `#a3a3ad` | Content; secondary details (dates, keys, hints). |
-| Border, hover, selected | `#dcdce3`, `#eef0f4`, `#e3ecfa` | `#3a3a44`, `#30303a`, `#24344d` | Structure and state. |
+| Border, hover, selected | `#dcdce3`, `#eef0f4`, `#e3ecfa` | `#3a3a44`, `#30303a`, `#24344d` | Structure (card edges, table rules) and state. |
+| Control border | `#86868f` | `#7a7a86` | The outline of buttons, selects and fields: 3:1 or more against card and page, so a control can be found. |
 | Danger | `#c4314b` | `#f1707f` | Delete and Stop, errors. |
 | Warning | `#8a5300` | `#f3b65c` | Warnings that need an action. |
 | Notice, success, error backgrounds | `#eaf1fb`, `#e7f5ea`, `#fbe9ec` | `#1f2a3b`, `#1e3324`, `#3d2228` | Status messages and run results. |
@@ -49,7 +50,8 @@ No gradients, glow, glass, background textures or decorative shadows. A shadow i
 ## Shape and space
 
 - Spacing steps of 4, 8, 12, 16 and 24 px. Related items 4 to 8 px apart; separate groups 12 to 16; views 16 to 24.
-- Radius 6 px for controls, 8 px for cards. No pill shapes except the small run-phase badge, which marks a real state.
+- Radius 6 px for controls, 8 px for cards and dialogs. No pill shapes except the small run-phase badge, which marks a real state.
+- Controls (buttons, selects, fields, navigation entries, **More** and **Advanced**) are at least 32 px tall with a mouse and 44 px on a touch screen. A link inside a sentence stays a link in the text.
 - Cards are flat with a 1 px border. A coloured left edge appears only where it means something: a quoted reply, an earlier version of a message.
 
 ## Focal point of each screen
@@ -57,7 +59,7 @@ No gradients, glow, glass, background textures or decorative shadows. A shadow i
 | Screen | The one thing that matters most |
 | --- | --- |
 | Popup, side panel | **Start**, or **Resume extraction** when a run was interrupted. During a run: the progress and **Stop**. |
-| Overview | Whether the archive is safe: the totals and **Back up now**. |
+| Overview | Whether the archive is safe: the totals, when the last full backup was made, and **Back up now…**. |
 | Conversations | The list itself, and the search above it. |
 | A conversation | The messages. |
 | Export | **Export**, after the choices that lead to it. |
@@ -79,5 +81,7 @@ Few, and only where a label would not fit: the two header buttons of the popup (
 
 - Every page works with the keyboard alone: skip link, visible focus ring, focus moved to the heading of the section opened, Escape closes dialogs.
 - Status messages, run progress and results are live regions.
-- Colour is never the only signal: states also have text.
+- Colour is never the only signal: states also have text. The current navigation entry is underlined; a pressed button gets a heavier bottom edge; a disabled control is faded and shows the *not allowed* cursor.
+- Every enabled control shows the hand cursor, checkboxes and their labels included. Every field has a visible label.
+- Every view has a loading line ("Reading the archive…", "Checking this tab…"), an empty state that names the next action, and an error in the status line. A button whose action is running ignores another click.
 - Below 760 px (narrow windows, the side panel) tables become cards with labelled cells, and nothing scrolls sideways. The popup is 380 px wide.

@@ -82,6 +82,7 @@ function isMissingReceiver(error: unknown): boolean {
 }
 
 function showView(view: 'message' | 'connect' | 'main', message?: string): void {
+  setHidden('view-loading', true);
   setHidden('view-message', view !== 'message');
   setHidden('view-connect', view !== 'connect');
   setHidden('view-main', view !== 'main');
@@ -367,7 +368,7 @@ function renderCapture(next?: { record: ConversationRecord | null; conversationK
   }
   select.disabled = !idle;
   const dateInput = byId<HTMLInputElement>('capture-from');
-  dateInput.hidden = select.value !== 'from-date';
+  setHidden('capture-from-field', select.value !== 'from-date');
   dateInput.disabled = !idle;
   dateInput.max = todayValue();
   const choice = selectedChoice();
@@ -441,9 +442,9 @@ function wire(): void {
   const panelButton = byId('btn-panel');
   if (isPanel) {
     panelButton.hidden = true;
-    chrome.tabs.onActivated.addListener(() => void init());
+    chrome.tabs.onActivated.addListener(() => checkTab());
     chrome.tabs.onUpdated.addListener((_tabId, change) => {
-      if (change.url || change.status === 'complete') void init();
+      if (change.url || change.status === 'complete') checkTab();
     });
   } else {
     panelButton.addEventListener('click', async () => {
@@ -454,5 +455,10 @@ function wire(): void {
   }
 }
 
+/** Checks the active tab and shows what it found, or why it could not (never the loading line forever). */
+function checkTab(): void {
+  init().catch((error: unknown) => showView('message', `Could not check this tab: ${errorText(error)}. Close this and open it again.`));
+}
+
 wire();
-void init();
+checkTab();

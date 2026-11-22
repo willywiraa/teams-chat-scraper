@@ -1,6 +1,7 @@
 /*
  * Design tokens. Spacing 4/8/12/16/24, radius 6/8, type 12/13/14/16/20, one blue accent and
- * neutral greys. The dark values are written twice: for "System" when Windows is dark, and for
+ * neutral greys. `--border` draws structure (cards, table rules); `--control-border` outlines
+ * controls, at 3:1 or more against card and page so they can be found. The dark values are written twice: for "System" when Windows is dark, and for
  * an explicit "Dark" (tests/unit/logo.test.ts checks that both say the same, and the contrast of
  * every text colour).
  */
@@ -24,6 +25,7 @@
   --text: #1f1f24;
   --muted: #63636e;
   --border: #dcdce3;
+  --control-border: #86868f;
   --hover: #eef0f4;
   --selected: #e3ecfa;
   --accent: #1f5fbf;
@@ -52,6 +54,7 @@
     --text: #ececf1;
     --muted: #a3a3ad;
     --border: #3a3a44;
+    --control-border: #7a7a86;
     --hover: #30303a;
     --selected: #24344d;
     --accent: #7aaaf5;
@@ -77,6 +80,7 @@
   --text: #ececf1;
   --muted: #a3a3ad;
   --border: #3a3a44;
+  --control-border: #7a7a86;
   --hover: #30303a;
   --selected: #24344d;
   --accent: #7aaaf5;
@@ -186,8 +190,12 @@ body[data-mode='panel'] {
 }
 
 .app-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
   color: var(--text);
   text-decoration: none;
+  text-underline-offset: 6px;
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-s);
   font-size: var(--font-s);
@@ -196,11 +204,14 @@ body[data-mode='panel'] {
 
 .app-nav a:hover {
   background: var(--hover);
+  text-decoration: underline;
 }
 
 .app-nav a[aria-current='page'] {
   background: var(--selected);
   color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
 }
 
 /* ------------------------------------------------------------ layout */
@@ -402,11 +413,11 @@ a.conv-title:hover {
 }
 
 button,
-label.button,
 select {
   font: inherit;
   font-size: var(--font-s);
-  border: 1px solid var(--border);
+  min-height: 32px;
+  border: 1px solid var(--control-border);
   background: var(--card);
   color: var(--text);
   border-radius: var(--radius-s);
@@ -415,17 +426,46 @@ select {
 }
 
 button:hover:not(:disabled),
-label.button:hover,
 select:hover:not(:disabled) {
   border-color: var(--accent);
   background: var(--hover);
+}
+
+/* Pressed: a heavier bottom edge as well as the colour. */
+button:active:not(:disabled):not(.link):not(.icon-button) {
+  background: var(--selected);
+  border-color: var(--accent);
+  border-bottom: 2px solid var(--text);
+  padding-bottom: 4px;
 }
 
 button:disabled,
 select:disabled,
 input:disabled {
   opacity: 0.5;
-  cursor: default;
+  cursor: not-allowed;
+}
+
+label:has(> input:disabled) {
+  cursor: not-allowed;
+}
+
+/* Busy (Show earlier messages while it loads): a second click is ignored. */
+button[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+/* Every enabled control shows that it can be clicked. */
+input[type='checkbox'],
+input[type='radio'],
+label[for],
+label.check {
+  cursor: pointer;
+}
+
+input[type='checkbox'] {
+  accent-color: var(--accent);
 }
 
 button.primary {
@@ -434,9 +474,14 @@ button.primary {
   color: var(--accent-text);
 }
 
-button.primary:hover:not(:disabled) {
+button.primary:hover:not(:disabled),
+button.primary:active:not(:disabled) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
+}
+
+button.primary:active:not(:disabled) {
+  border-bottom-color: var(--text);
 }
 
 button.danger {
@@ -444,6 +489,7 @@ button.danger {
 }
 
 button.link {
+  min-width: 32px;
   border: none;
   background: none;
   color: var(--accent);
@@ -455,8 +501,15 @@ button.link:hover:not(:disabled) {
   text-decoration: underline;
 }
 
+button.link:active:not(:disabled) {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
 /* A link button inside a sentence reads as a link. */
 p button.link {
+  min-width: 0;
+  min-height: 0;
   padding: 0;
   font-size: inherit;
   text-decoration: underline;
@@ -466,9 +519,15 @@ button.icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-width: 32px;
   padding: 5px;
   border-color: transparent;
   background: none;
+}
+
+button.icon-button:active:not(:disabled) {
+  background: var(--selected);
+  border-color: var(--accent);
 }
 
 .icon {
@@ -487,6 +546,7 @@ a {
   display: flex;
   gap: var(--space-2);
   align-items: flex-start;
+  min-height: 24px;
   margin-top: var(--space-3);
 }
 
@@ -499,6 +559,7 @@ a {
 .capture-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-end;
   gap: var(--space-2);
   margin-bottom: var(--space-1);
 }
@@ -516,11 +577,18 @@ input[type='search'],
 textarea {
   font: inherit;
   font-size: var(--font-s);
+  min-height: 32px;
   color: var(--text);
   background: var(--card);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-s);
   padding: 5px var(--space-2);
+  cursor: auto;
+}
+
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 input[type='number'],
@@ -560,6 +628,8 @@ textarea {
 details > summary {
   cursor: pointer;
   font-weight: 600;
+  min-height: 32px;
+  padding: 6px 0;
 }
 
 details.more {
@@ -624,6 +694,14 @@ td.actions {
   white-space: nowrap;
 }
 
+/* A count that opens something (the saved images) lines up with the other numbers. */
+td.num button.link {
+  padding-inline: 0;
+  text-align: right;
+  /* Keeps its 32 px target while its text sits on the row's first line. */
+  margin-block: calc((1lh - 32px) / 2);
+}
+
 .cell-actions {
   display: flex;
   gap: var(--space-1);
@@ -668,6 +746,10 @@ td.actions {
     flex-wrap: wrap;
   }
 
+  table.responsive td.num button.link {
+    text-align: left;
+  }
+
   /* The navigation gets a row of its own; the storage line is in Overview and Settings. */
   .app-header {
     flex-wrap: wrap;
@@ -690,17 +772,21 @@ td.actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  align-items: center;
+  align-items: flex-end;
   margin-bottom: var(--space-3);
+}
+
+.toolbar-search {
+  flex: 1 1 240px;
 }
 
 .search-field {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  flex: 1 1 240px;
+  min-height: 32px;
   padding: 0 var(--space-2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-s);
   background: var(--card);
   color: var(--muted);
@@ -713,6 +799,7 @@ td.actions {
 
 .search-field input {
   flex: 1;
+  min-height: 0;
   border: none;
   background: none;
   padding: 5px 0;
@@ -777,7 +864,7 @@ details.advanced > summary {
   color: var(--text);
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-m);
 }
 
 .image-dialog::backdrop {
@@ -978,8 +1065,9 @@ details.advanced > summary {
 
 .msg-pictures img {
   display: block;
-  max-width: min(100%, 420px);
-  max-height: 320px;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
   border: 1px solid var(--border);
   border-radius: var(--radius-s);
   background: var(--card);
@@ -1016,6 +1104,19 @@ details.advanced > summary {
 
 /* ------------------------------------------------------------ overview */
 
+.backup-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.backup-row p {
+  margin: 0;
+}
+
 .activity {
   list-style: none;
   margin: 0;
@@ -1032,4 +1133,45 @@ details.advanced > summary {
 
 .activity li:last-child {
   border-bottom: none;
+}
+
+/* --------------------------------------------------------- touch screens */
+
+/* With a finger, every target is at least 44 px (with a mouse, 32 px keeps the pages compact). */
+@media (pointer: coarse) {
+  button,
+  select,
+  input[type='date'],
+  input[type='datetime-local'],
+  input[type='number'],
+  input[type='text'],
+  .search-field,
+  .app-nav a,
+  details > summary {
+    min-height: 44px;
+  }
+
+  details > summary {
+    padding: 12px 0;
+  }
+
+  button.icon-button,
+  button.link {
+    min-width: 44px;
+  }
+
+  td.num button.link {
+    margin-block: calc((1lh - 44px) / 2);
+  }
+
+  label.check {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .search-field input,
+  p button.link {
+    min-height: 0;
+    min-width: 0;
+  }
 }

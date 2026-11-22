@@ -8,6 +8,7 @@ import {
   EXPORT_FORMATS,
   fixedContent,
   FORMATS,
+  isFullBackup,
   normalizeChoices,
   packagingsFor,
   presetChoices,
@@ -22,7 +23,8 @@ import {
 import { runExport, writePrintable, type ExportProgress, type ExportRequest, type ExportTotals } from '../export/pipeline';
 import { conversationLabel, type ConversationRecord } from '../shared/types';
 import type { ArchiveRepository } from '../storage/repository';
-import { byId, downloadBlob, el, errorText, formatNumber } from './common';
+import { byId, countOf, downloadBlob, el, errorText, formatNumber } from './common';
+import { recordBackup } from './last-backup';
 
 export const EXPORT_CHOICES_KEY = 'exportChoices.v1';
 
@@ -137,10 +139,12 @@ export class ExportPanel {
           'label',
           { className: 'check field', for: `export-conv-${i}` },
           el('input', { type: 'checkbox', id: `export-conv-${i}`, value: record.conversationKey, checked: chosen.has(record.conversationKey) }),
-          el('span', {}, conversationLabel(record), el('span', { className: 'muted' }, ` · ${formatNumber(record.messageCount)} messages`)),
+          el('span', {}, conversationLabel(record), el('span', { className: 'muted' }, ` · ${countOf(record.messageCount, 'message')}`)),
         ),
       ),
     );
+    byId('export-empty').hidden = records.length > 0;
+    byId('export-select-row').hidden = records.length === 0;
     this.message('');
     this.writeControls();
   }
@@ -221,6 +225,10 @@ export class ExportPanel {
     byId('export-selected-count').textContent = `${count} of ${this.records.length} selected`;
     byId('export-explain').textContent = explainChoices(this.choices, count);
     byId<HTMLButtonElement>('btn-export-run').disabled = this.running || count === 0;
+    // A disabled Export says why.
+    const hint = byId('export-run-hint');
+    hint.textContent = this.running ? '' : this.records.length === 0 ? 'Nothing to export yet.' : count === 0 ? 'Select at least one conversation.' : '';
+    hint.hidden = hint.textContent === '';
   }
 
   private message(text: string, kind: 'notice' | 'error' | 'success' = 'notice'): void {
@@ -273,6 +281,10 @@ export class ExportPanel {
   private async download(request: ExportRequest): Promise<string> {
     const outcome = await runExport(await this.host.repository(), request, this.progress);
     downloadBlob(outcome.fileName, outcome.blob);
+    const archived = this.records.map((record) => record.conversationKey);
+    if (isFullBackup(request, archived)) {
+      await recordBackup({ at: new Date().toISOString(), conversations: outcome.conversations, messages: outcome.messages }).catch(() => undefined);
+    }
     return `Exported ${summaryText(outcome)} as ${outcome.fileName}.`;
   }
 
@@ -309,8 +321,7 @@ export class ExportPanel {
 }
 
 function summaryText(totals: ExportTotals): string {
-  const count = (n: number, word: string) => `${formatNumber(n)} ${word}${n === 1 ? '' : 's'}`;
-  return `${count(totals.messages, 'message')}${totals.pictures > 0 ? ` and ${count(totals.pictures, 'picture')}` : ''} from ${count(totals.conversations, 'conversation')}`;
+  return `${countOf(totals.messages, 'message')}${totals.pictures > 0 ? ` and ${countOf(totals.pictures, 'picture')}` : ''} from ${countOf(totals.conversations, 'conversation')}`;
 }
 
 /** Waits until the pictures of a page have loaded (or failed), at most `timeoutMs`. */

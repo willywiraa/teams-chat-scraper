@@ -18,6 +18,7 @@
     </header>
 
     <main class="popup-main">
+      <p id="view-loading" class="muted small">Checking this tab…</p>
       <section id="view-message" class="card notice" role="status" hidden></section>
 
       <section id="view-connect" class="card" hidden>
@@ -58,7 +59,7 @@
               <option value="from-date">From a date…</option>
               <option value="everything">Full history</option>
             </select>
-            <input type="date" id="capture-from" aria-label="Capture from this date" hidden />
+            <label class="field" for="capture-from" id="capture-from-field" hidden><span>From</span><input type="date" id="capture-from" /></label>
           </div>
           <div class="muted small" id="capture-hint"></div>
           <div class="button-row">

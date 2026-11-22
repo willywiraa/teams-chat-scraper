@@ -7,7 +7,7 @@ import { attachmentPrefix, replyTargetOf, senderLabel, timeLabel, webLink, type 
 import { conversationLabel, type ConversationRecord, type ConversationType, type StoredMessage } from '../shared/types';
 import { titleHistoryOf } from '../storage/conversation-identity';
 import { coverageStatus } from '../storage/coverage';
-import { formatAgo, formatDate, formatNumber } from './common';
+import { countOf, formatAgo, formatDate, formatDateTime, formatNumber } from './common';
 
 // ------------------------------------------------------------------ routes
 
@@ -285,4 +285,37 @@ export function timeline(messages: readonly StoredMessage[], time: TimeFormat): 
 export function earlierPage(keys: readonly string[], shownFrom: number, size: number): { keys: string[]; from: number } {
   const from = Math.max(0, shownFrom - size);
   return { keys: keys.slice(from, shownFrom), from };
+}
+
+/** The box a picture is drawn in before its size is known. */
+export const PICTURE_PLACEHOLDER = Object.freeze({ width: 240, height: 160 });
+
+/**
+ * The size to draw a saved picture at in the message view: its own size, scaled down to fit
+ * `max`, so the space is reserved before it loads. Null when the size was not recorded.
+ */
+export function pictureBox(width: number | null, height: number | null, max: { width: number; height: number } = { width: 420, height: 320 }): { width: number; height: number } | null {
+  if (!width || !height || width <= 0 || height <= 0) return null;
+  const scale = Math.min(1, max.width / width, max.height / height);
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
+// ------------------------------------------------------------------ backup
+
+/** The last full backup made from this browser profile. */
+export interface LastBackup {
+  /** ISO time the export finished. */
+  at: string;
+  conversations: number;
+  messages: number;
+}
+
+/** Overview's line about the last full backup. */
+export function backupLine(last: LastBackup | null, archived: number, nowMs: number = Date.now()): string {
+  if (archived === 0) return 'Nothing to back up yet.';
+  if (!last) return 'No full backup has been made from this browser profile yet.';
+  // Older than 30 days, formatAgo already gives the date.
+  const ago = formatAgo(last.at, nowMs);
+  const when = ago === formatDate(last.at) ? `on ${formatDateTime(last.at)}` : `${ago} (${formatDateTime(last.at)})`;
+  return `Last full backup ${when}: ${countOf(last.conversations, 'conversation')}, ${countOf(last.messages, 'message')}.`;
 }

@@ -7,7 +7,7 @@
 import { timeFormat } from '../../export/render';
 import { conversationLabel, type ConversationRecord, type StoredMessage } from '../../shared/types';
 import { byId, el, formatNumber, TYPE_LABELS } from '../common';
-import { conversationDetails, earlierPage, historyLine, timeline, type MessageView, type TimelineItem } from '../view-models';
+import { conversationDetails, earlierPage, historyLine, pictureBox, PICTURE_PLACEHOLDER, timeline, type MessageView, type TimelineItem } from '../view-models';
 import { conversationActions } from './conversations';
 import { guarded, type AppContext } from './context';
 
@@ -19,7 +19,8 @@ interface Shown {
   /** Index in `keys` of the first message shown. */
   from: number;
   messages: StoredMessage[];
-  pictures: Map<string, string>;
+  /** Each picture read so far: its address and the size to draw it at (null when not recorded). */
+  pictures: Map<string, { url: string; box: { width: number; height: number } | null }>;
 }
 
 let shown: Shown | null = null;
@@ -29,7 +30,7 @@ let generation = 0;
 /** Releases what the view holds (picture addresses), for example when another section is shown. */
 export function closeConversation(): void {
   generation++;
-  for (const url of shown?.pictures.values() ?? []) URL.revokeObjectURL(url);
+  for (const { url } of shown?.pictures.values() ?? []) URL.revokeObjectURL(url);
   shown = null;
   byId('conv-view-messages').replaceChildren();
 }
@@ -84,6 +85,20 @@ function renderHead(app: AppContext, record: ConversationRecord, imageCount: num
 
 async function loadEarlier(app: AppContext): Promise<void> {
   if (!shown || shown.from === 0) return;
+  // Says it is loading; a second click meanwhile is ignored (guarded), so no page is added twice.
+  const button = byId<HTMLButtonElement>('btn-load-earlier');
+  button.textContent = 'Loading earlier messages…';
+  button.setAttribute('aria-disabled', 'true');
+  try {
+    await addEarlierPage(app);
+  } finally {
+    button.textContent = 'Show earlier messages';
+    button.removeAttribute('aria-disabled');
+  }
+}
+
+async function addEarlierPage(app: AppContext): Promise<void> {
+  if (!shown || shown.from === 0) return;
   const mine = generation;
   const repo = await app.repository();
   const page = earlierPage(shown.keys, shown.from, PAGE);
@@ -121,19 +136,24 @@ async function loadPictures(app: AppContext, mine: number): Promise<void> {
   for (const img of byId('conv-view-messages').querySelectorAll<HTMLImageElement>('img[data-image-id]')) {
     if (mine !== generation || !shown) return;
     const imageId = img.dataset.imageId as string;
-    let url = shown.pictures.get(imageId);
-    if (!url) {
+    let picture = shown.pictures.get(imageId);
+    if (!picture) {
       const image = await repo.getImage(shown.record.conversationKey, imageId);
       if (mine !== generation || !shown) return;
       if (!image) {
         img.replaceWith(el('span', { className: 'muted small' }, `Picture not saved: ${img.alt}`));
         continue;
       }
-      url = URL.createObjectURL(new Blob([image.data], { type: image.mimeType }));
-      shown.pictures.set(imageId, url);
+      picture = { url: URL.createObjectURL(new Blob([image.data], { type: image.mimeType })), box: pictureBox(image.width, image.height) };
+      shown.pictures.set(imageId, picture);
     }
-    img.src = url;
-    (img.parentElement as HTMLAnchorElement).href = url;
+    // The size is set before the address, so the picture's space is fixed before it loads.
+    if (picture.box) {
+      img.width = picture.box.width;
+      img.height = picture.box.height;
+    }
+    img.src = picture.url;
+    (img.parentElement as HTMLAnchorElement).href = picture.url;
   }
 }
 
@@ -163,7 +183,18 @@ function messageItem(message: MessageView): HTMLLIElement {
           'div',
           { className: 'msg-pictures' },
           ...message.pictures.map((picture) =>
-            el('a', { target: '_blank', rel: 'noopener', title: 'Open full size' }, el('img', { alt: picture.name === 'image' ? 'Picture' : picture.name, 'data-image-id': picture.imageId, loading: 'lazy' })),
+            el(
+              'a',
+              { target: '_blank', rel: 'noopener', title: 'Open full size' },
+              // Drawn in a placeholder box until the picture's recorded size is read.
+              el('img', {
+                alt: picture.name === 'image' ? 'Picture' : picture.name,
+                'data-image-id': picture.imageId,
+                width: String(PICTURE_PLACEHOLDER.width),
+                height: String(PICTURE_PLACEHOLDER.height),
+                loading: 'lazy',
+              }),
+            ),
           ),
         )
       : null,

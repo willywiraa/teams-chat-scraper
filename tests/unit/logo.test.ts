@@ -143,4 +143,23 @@ describe('interface colours', () => {
       for (const back of ['card', 'bg']) expect(contrast(theme.focus as string, theme[back] as string), `${name}: --focus on --${back}`).toBeGreaterThanOrEqual(3);
     }
   });
+
+  it('outline controls at 3:1 or more, so they can be found (WCAG 1.4.11)', () => {
+    for (const [name, theme] of Object.entries(themes())) {
+      for (const back of ['card', 'bg']) {
+        expect(contrast(theme['control-border'] as string, theme[back] as string), `${name}: --control-border on --${back}`).toBeGreaterThanOrEqual(3);
+      }
+    }
+    // Buttons, selects, fields and the search box use it; --border stays for structure.
+    const css = CSS.replace(/\r\n/g, '\n');
+    for (const rule of ['button,\nselect {', "input[type='search'],\ntextarea {", '.search-field {']) {
+      const start = css.indexOf(rule);
+      expect(start, rule).toBeGreaterThanOrEqual(0);
+      expect(css.slice(start, css.indexOf('}', start)), rule).toContain('border: 1px solid var(--control-border)');
+    }
+  });
+
+  it('draw placeholder text in the muted colour, which is 4.5:1 on cards and the page', () => {
+    expect(CSS.replace(/\r\n/g, '\n')).toMatch(/::placeholder \{\n  color: var\(--muted\);\n  opacity: 1;\n\}/);
+  });
 });

@@ -7,6 +7,7 @@ import {
   effectiveContent,
   FULL_CONTENT,
   inRange,
+  isFullBackup,
   normalizeChoices,
   packagingsFor,
   parseLocalDateTime,
@@ -93,5 +94,27 @@ describe('formats and packaging', () => {
       ...DEFAULT_EXPORT_CHOICES,
       content: { ...FULL_CONTENT, editHistory: false },
     });
+  });
+});
+
+describe('full backups', () => {
+  const archived = ['title:design review', 'title:alice andersen'];
+  const backup = { conversations: archived, format: 'package' as const, range: { from: null, to: null }, content: { ...FULL_CONTENT } };
+
+  it('counts an importable export of every chat, the whole period and all content', () => {
+    expect(isFullBackup(backup, archived)).toBe(true);
+    expect(isFullBackup({ ...backup, conversations: 'all' }, archived)).toBe(true);
+    expect(isFullBackup({ ...backup, format: 'json' }, archived)).toBe(true);
+    // Attachments and reply context are always kept in importable formats.
+    expect(isFullBackup({ ...backup, content: { ...FULL_CONTENT, attachments: false, replies: false } }, archived)).toBe(true);
+  });
+
+  it('does not count part of the archive, a period, missing content or a format that cannot be imported', () => {
+    expect(isFullBackup({ ...backup, conversations: archived.slice(0, 1) }, archived)).toBe(false);
+    expect(isFullBackup({ ...backup, range: { from: NOW - DAY_MS, to: null } }, archived)).toBe(false);
+    expect(isFullBackup({ ...backup, content: { ...FULL_CONTENT, systemMessages: false } }, archived)).toBe(false);
+    expect(isFullBackup({ ...backup, content: { ...FULL_CONTENT, images: false } }, archived)).toBe(false);
+    expect(isFullBackup({ ...backup, format: 'html' }, archived)).toBe(false);
+    expect(isFullBackup({ ...backup, conversations: [] }, [])).toBe(false);
   });
 });
