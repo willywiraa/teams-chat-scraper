@@ -1,14 +1,14 @@
 # Privacy policy
 
-**Chat Archiver for Microsoft Teams** ("Chat Archiver"), a browser extension for Microsoft Edge. Last updated 22 November 2026, for version 1.7.0.
+**Teams Chat Scraper**, a browser extension for Microsoft Edge. Last updated 22 November 2026, for version 1.7.3.
 
-Chat Archiver keeps the chats you archive in your own browser profile. It has no server, no account and no analytics. It sends nothing to its developer or to anyone else.
+Teams Chat Scraper keeps the chats you archive in your own browser profile. It has no server, no account and no analytics. It sends nothing to its developer or to anyone else.
 
-Chat Archiver is an independent extension. It is not made by, endorsed by or affiliated with Microsoft.
+Teams Chat Scraper is an independent extension. It is not made by, endorsed by or affiliated with Microsoft.
 
 ## What it reads
 
-Chat Archiver works only in Teams Web tabs: `teams.microsoft.com`, `teams.cloud.microsoft` and `teams.live.com`.
+Teams Chat Scraper works only in Teams Web tabs: `teams.microsoft.com`, `teams.cloud.microsoft` and `teams.live.com`.
 
 - **When you open the popup or side panel on a Teams tab**, it reads which chat is open (its title and Teams id) and how many messages are on screen, to show them to you.
 - **When you start a capture**, it reads the messages Teams shows in that chat, and scrolls the chat upwards so Teams loads older ones. For each message it keeps:
@@ -34,7 +34,7 @@ Nothing is synced to other devices. Removing the extension deletes all of it, so
 
 ## What leaves your computer
 
-- **Network requests.** Chat Archiver makes none of its own, apart from one case. To save a picture, it reads the copy the Teams page already has, or the browser cache. Only if neither is available does it request the same picture address again, as the page did, from the service Teams loaded it from. Turn off *Save the images shown in messages* to avoid these requests.
+- **Network requests.** Teams Chat Scraper makes none of its own, apart from one case. To save a picture, it reads the copy the Teams page already has, or the browser cache. Only if neither is available does it request the same picture address again, as the page did, from the service Teams loaded it from. Turn off *Save the images shown in messages* to avoid these requests.
 - **Exports.** These are files you choose to download (HTML, PDF, Markdown, text, CSV, JSON or a ZIP package). They contain your messages and, if you include them, your pictures. Where they go after that is up to you.
 
 ## What is not done with your data

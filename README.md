@@ -1,12 +1,12 @@
-# Chat Archiver for Microsoft Teams
+# Teams Chat Scraper
 
-Chat Archiver is a Microsoft Edge extension that archives your Microsoft Teams chats on your own computer. It reads the conversations you open in **Teams Web** (teams.microsoft.com) and stores them in a local database you can export as a readable chat (HTML, PDF, Markdown, text or CSV), as JSON, or as a knowledge package for other systems.
+Teams Chat Scraper is a Microsoft Edge extension that archives your Microsoft Teams chats on your own computer. It reads the conversations you open in **Teams Web** (teams.microsoft.com) and stores them in a local database you can export as a readable chat (HTML, PDF, Markdown, text or CSV), as JSON, or as a knowledge package for other systems.
 
 - **Uses your existing sign-in.** There's no Microsoft Graph API, no Entra ID app registration and no admin consent.
 - **Reads only what Teams shows you.** The extension reads the messages Teams renders in the open chat and scrolls that chat upwards like you would, so Teams loads older messages. It never reads tokens, cookies or network traffic, never calls Teams or Microsoft APIs and never changes anything in Teams. If your account can't see a message, the extension can't either. Images are copied from what the open chat displays (see [Images](#images)).
 - **Keeps everything local.** Messages are stored in the extension's IndexedDB in your browser profile. Nothing is sent anywhere.
 
-Chat Archiver is an independent extension. It is not made by, endorsed by or affiliated with Microsoft. Microsoft Teams is a trademark of the Microsoft group of companies.
+Teams Chat Scraper is an independent extension. It is not made by, endorsed by or affiliated with Microsoft. Microsoft Teams is a trademark of the Microsoft group of companies.
 
 > The Teams desktop app can't be accessed by browser extensions. Open the same chats in Teams Web in Edge instead. Your account and data are the same.
 
@@ -230,7 +230,7 @@ npm run build
 npm run check
 ```
 
-`npm run check` runs all three. `npm run watch` rebuilds on every change. `npm run package` builds without source maps and writes the store upload, `release/chat-archiver-<version>.zip` (see [docs/STORE_LISTING.md](docs/STORE_LISTING.md) and the [privacy policy](docs/PRIVACY.md)). `npm run icons` regenerates the logo files from the one description in `scripts/logo.ts` (it needs Node.js 22.18 or newer, which runs TypeScript directly); a test fails when the committed files no longer match it.
+`npm run check` runs all three. `npm run watch` rebuilds on every change. `npm run package` builds without source maps and writes the store upload, `release/teams-chat-scraper-<version>.zip` (see [docs/STORE_LISTING.md](docs/STORE_LISTING.md) and the [privacy policy](docs/PRIVACY.md)). `npm run icons` regenerates the logo files from the one description in `scripts/logo.ts` (it needs Node.js 22.18 or newer, which runs TypeScript directly); a test fails when the committed files no longer match it.
 
 ```
 src/

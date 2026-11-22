@@ -235,7 +235,7 @@ Everything in `export/` works on an `ExportReader` (`pipeline.ts`), which `Archi
 
 ## Release
 
-`npm run package` (`scripts/package.mjs`) builds `dist/` with `scripts/build.mjs --release` (no source maps), checks that the manifest version equals `package.json`'s, that no source map is left and that the required files are there, and writes `release/chat-archiver-<version>.zip` with the same ZIP writer the exports use (`export/zip.ts`, bundled by esbuild for Node). `release/` is not committed. What to enter in the store is in [STORE_LISTING.md](STORE_LISTING.md), and the privacy policy is [PRIVACY.md](PRIVACY.md).
+`npm run package` (`scripts/package.mjs`) builds `dist/` with `scripts/build.mjs --release` (no source maps), checks that the manifest version equals `package.json`'s, that no source map is left and that the required files are there, and writes `release/teams-chat-scraper-<version>.zip` with the same ZIP writer the exports use (`export/zip.ts`, bundled by esbuild for Node). `release/` is not committed. What to enter in the store is in [STORE_LISTING.md](STORE_LISTING.md), and the privacy policy is [PRIVACY.md](PRIVACY.md).
 
 ## User interface
 

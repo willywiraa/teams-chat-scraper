@@ -16,7 +16,7 @@ import { buildSettings, settingsHeading, showSettings } from './archive/settings
 import { normalizeTheme, readTheme, saveTheme, THEME_CHOICES, THEME_STORAGE_KEY } from './theme';
 import { navOf, parseRoute, routeHash, type Route } from './view-models';
 
-const APP_NAME = 'Chat Archiver';
+const APP_NAME = 'Teams Chat Scraper';
 const VIEWS = ['overview', 'conversations', 'conversation', 'export', 'settings'] as const;
 const TITLES: Record<Route['view'], string> = {
   overview: 'Overview',
@@ -189,7 +189,7 @@ function wire(): void {
   byId('btn-backup-now').addEventListener('click', () => app.exportConversations(undefined, 'backup'));
   wireTheme();
   wireOverview(app);
-  byId('about-version').textContent = `Chat Archiver for Microsoft Teams, version ${chrome.runtime.getManifest().version}`;
+  byId('about-version').textContent = `Teams Chat Scraper, version ${chrome.runtime.getManifest().version}`;
   window.addEventListener('hashchange', () => void show(parseRoute(location.hash), { navigated: true }));
 }
 

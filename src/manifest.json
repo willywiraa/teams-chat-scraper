@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Chat Archiver for Microsoft Teams",
-  "short_name": "Chat Archiver",
+  "name": "Teams Chat Scraper",
+  "short_name": "Teams Chat Scraper",
   "description": "Saves the Microsoft Teams Web chats you can already see to this browser and exports them. Not affiliated with Microsoft.",
   "version": "0.0.0",
   "minimum_chrome_version": "116",
@@ -27,7 +27,7 @@
     }
   ],
   "action": {
-    "default_title": "Chat Archiver for Microsoft Teams",
+    "default_title": "Teams Chat Scraper",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

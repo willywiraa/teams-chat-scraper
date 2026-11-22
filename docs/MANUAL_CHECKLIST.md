@@ -6,7 +6,7 @@ Build with `npm run build`, click **Reload** on the extension card in `edge://ex
 
 ## Popup and side panel
 
-- [ ] The popup and side panel are titled *Chat Archiver*; the toolbar button's tooltip says *Chat Archiver for Microsoft Teams*.
+- [ ] The popup, the side panel and the archive page are titled *Teams Chat Scraper*, and so is the toolbar button's tooltip; the archive page's tabs read *Overview · Teams Chat Scraper*.
 
 - [ ] In a Teams chat, the popup shows the chat's name, its type, and one summary line (for example *451 messages · complete back to 3 Jan 2023 · updated 3 days ago*). A chat with nothing archived says *Not archived yet*.
 - [ ] No warning shows for a chat that is archived normally. A chat archived in two entries says so, with a link that opens the entry in the archive.
@@ -45,11 +45,11 @@ Build with `npm run build`, click **Reload** on the extension card in `edge://ex
 
 - [ ] In a chat with reactions, **Run diagnostics** says *N with reactions* in its summary, with no warning about reaction markup, and `reactionReads` shows `"read": true` for each reaction. If it warns, send the report: the reaction selectors need an update.
 - [ ] The copied report starts with `extensionVersion` and has `"reportVersion": 4`; searching it for a name, a word of a message or an emoji shown on screen finds nothing.
-- [ ] **About** (at the end of Settings) shows *Chat Archiver for Microsoft Teams, version …* with the current version, and the not-affiliated note.
+- [ ] **About** (at the end of Settings) shows *Teams Chat Scraper, version …* with the current version, and the not-affiliated note.
 
 ## Release
 
-- [ ] `npm run package` writes `release/chat-archiver-<version>.zip`. Unzipped into a new folder and loaded with **Load unpacked**, it works like the development build, and `edge://extensions` shows the name, version and description.
+- [ ] `npm run package` writes `release/teams-chat-scraper-<version>.zip`. Unzipped into a new folder and loaded with **Load unpacked**, it works like the development build, and `edge://extensions` shows the name, version and description.
 
 ## Keyboard, contrast and size
 

@@ -1,5 +1,5 @@
 // Builds the extension for release (no source maps) and puts dist/ into
-// release/chat-archiver-<version>.zip, the file to upload to the Edge Add-ons store.
+// release/teams-chat-scraper-<version>.zip, the file to upload to the Edge Add-ons store.
 // Usage: npm run package
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
@@ -42,7 +42,7 @@ const { createZip } = await import(`data:text/javascript;base64,${Buffer.from(bu
 const entries = await Promise.all(paths.map(async (file) => ({ path: file, data: new Uint8Array(await readFile(path.join(dist, file))) })));
 const parts = createZip(entries, new Date());
 await mkdir(releaseDir, { recursive: true });
-const target = path.join(releaseDir, `chat-archiver-${pkg.version}.zip`);
+const target = path.join(releaseDir, `teams-chat-scraper-${pkg.version}.zip`);
 await writeFile(target, Buffer.concat(parts));
 const bytes = parts.reduce((sum, part) => sum + part.byteLength, 0);
 console.log(`Packaged ${entries.length} files (${(bytes / 1024).toFixed(0)} KB) into ${path.relative(process.cwd(), target) || target}`);

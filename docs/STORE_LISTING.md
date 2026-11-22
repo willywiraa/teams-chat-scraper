@@ -6,14 +6,14 @@ What to enter in Microsoft Partner Center when submitting the extension, and how
 
 1. Set the new version in `package.json` (the build copies it into the manifest).
 2. Run `npm run check`, and the parts of [MANUAL_CHECKLIST.md](MANUAL_CHECKLIST.md) the release touches.
-3. Run `npm run package`. It builds `dist/` without source maps and writes `release/chat-archiver-<version>.zip`. It refuses a build whose manifest version differs from `package.json`, or one with source maps or files missing.
+3. Run `npm run package`. It builds `dist/` without source maps and writes `release/teams-chat-scraper-<version>.zip`. It refuses a build whose manifest version differs from `package.json`, or one with source maps or files missing.
 4. Upload that ZIP. `release/` is not committed.
 
 ## Listing
 
 | Field | Value |
 | --- | --- |
-| Name | Chat Archiver for Microsoft Teams (from the manifest) |
+| Name | Teams Chat Scraper (from the manifest) |
 | Short description | Saves the Microsoft Teams Web chats you can already see to this browser and exports them. Not affiliated with Microsoft. (from the manifest, 132 characters at most) |
 | Category | Productivity |
 | Privacy policy URL | The public address of [PRIVACY.md](PRIVACY.md), for example `https://github.com/willywiraa/teams-chat-scraper/blob/main/docs/PRIVACY.md`. That address works only while the repository is public; otherwise publish the policy somewhere public and use that address. |
@@ -24,19 +24,19 @@ What to enter in Microsoft Partner Center when submitting the extension, and how
 
 ### Description
 
-> Chat Archiver saves the Microsoft Teams chats you open in Teams Web to your own browser, so you keep a copy you can read, search and export.
+> Teams Chat Scraper saves the Microsoft Teams chats you open in Teams Web to your own browser, so you keep a copy you can read, search and export.
 >
-> Open a chat in Teams Web, click the extension and choose what to capture: new messages since the last update, the last day, week or month, everything from a date, or the full history. Chat Archiver reads the messages Teams shows you and scrolls the chat back like you would, so Teams loads older ones. It keeps text, senders, times, replies, mentions, links, attachment names and links, reactions, edits and the pictures shown in messages.
+> Open a chat in Teams Web, click the extension and choose what to capture: new messages since the last update, the last day, week or month, everything from a date, or the full history. Teams Chat Scraper reads the messages Teams shows you and scrolls the chat back like you would, so Teams loads older ones. It keeps text, senders, times, replies, mentions, links, attachment names and links, reactions, edits and the pictures shown in messages.
 >
 > On the archive page you can browse your chats and their messages, see which ones are complete, merge entries of the same chat, and export one chat or all of them as an HTML page, PDF, Markdown, plain text, CSV, JSON, or a ZIP package for knowledge systems. A JSON or package export is a full backup that Import restores.
 >
-> Your sign-in stays as it is: Chat Archiver needs no Microsoft Graph API, no app registration and no admin consent. It reads only what Teams already shows your account. It never reads passwords, tokens or cookies, never calls Teams or Microsoft APIs, and never changes anything in Teams.
+> Your sign-in stays as it is: Teams Chat Scraper needs no Microsoft Graph API, no app registration and no admin consent. It reads only what Teams already shows your account. It never reads passwords, tokens or cookies, never calls Teams or Microsoft APIs, and never changes anything in Teams.
 >
 > Everything stays in your browser profile. There is no server, no account and no analytics. Removing the extension deletes the archive, so back it up first.
 >
-> Chat Archiver works with Teams Web in Edge, not with the Teams desktop app. It reads Teams' page as displayed, so a Teams update can need a selector change before capture works again; Settings → Troubleshooting checks this.
+> Teams Chat Scraper works with Teams Web in Edge, not with the Teams desktop app. It reads Teams' page as displayed, so a Teams update can need a selector change before capture works again; Settings → Troubleshooting checks this.
 >
-> Chat Archiver is an independent extension. It is not made by, endorsed by or affiliated with Microsoft. Microsoft Teams is a trademark of the Microsoft group of companies.
+> Teams Chat Scraper is an independent extension. It is not made by, endorsed by or affiliated with Microsoft. Microsoft Teams is a trademark of the Microsoft group of companies.
 
 ## Single purpose
 
