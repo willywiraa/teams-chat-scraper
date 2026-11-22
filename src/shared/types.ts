@@ -9,7 +9,7 @@
 export const ARCHIVE_SCHEMA_VERSION = 3;
 
 /** Bumped whenever DOM parsing rules change in a way that can alter extracted values. */
-export const EXTRACTOR_VERSION = '1.1.0';
+export const EXTRACTOR_VERSION = '1.2.0';
 
 export type ConversationType = 'one-on-one' | 'group' | 'meeting' | 'channel' | 'unknown';
 
@@ -70,6 +70,19 @@ export interface Attachment {
    * store and in exports, under this id. Absent or null when the image was not saved.
    */
   imageId?: string | null;
+}
+
+/**
+ * A reaction under a message, as Teams shows it: one emoji, how many people chose it, and
+ * whether you are one of them. Who reacted is not recorded.
+ */
+export interface Reaction {
+  /** The emoji character, or its name when Teams shows only a picture with a name (for example "Like"). */
+  emoji: string;
+  /** At least 1. */
+  count: number;
+  /** True when your account chose it (Teams shows the reaction as pressed). */
+  mine: boolean;
 }
 
 /** How a saved image was read from the page. */
@@ -154,6 +167,11 @@ export interface ExtractedMessage {
   links: Link[];
   attachments: Attachment[];
   replyTo: ReplyReference | null;
+  /**
+   * Reactions under the message, in the order Teams shows them (added in 1.7). Absent when none
+   * were seen. Not part of `contentHash`: a new reaction is not an edit.
+   */
+  reactions?: Reaction[];
   isEdited: boolean;
   isDeleted: boolean;
   /** Hash of the visible content; changes when a message is edited. */

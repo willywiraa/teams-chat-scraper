@@ -311,7 +311,7 @@ export function diagnosticsSummary(report: DiagnosticsReport): string {
   const parts = [
     report.messageList.found ? 'message list found' : 'message list NOT found',
     report.conversation.detected ? `chat detected (${report.conversation.hasThreadId ? 'by id' : 'by title'})` : 'chat NOT detected',
-    `${p.messages} messages parsed (${p.withMessageId} with id, ${p.senderExplicit + p.senderSelf + p.senderInferred} with sender)`,
+    `${p.messages} messages parsed (${p.withMessageId} with id, ${p.senderExplicit + p.senderSelf + p.senderInferred} with sender, ${p.withReactions ?? 0} with reactions)`,
     `chat ids on the page: ${idPlaces(report, 'thread')}`,
     `person ids: ${idPlaces(report, 'person')}`,
   ];

@@ -5,7 +5,7 @@
   "generator": {
     "name": "teams-chat-extractor",
     "version": "1.4.0",
-    "extractorVersion": "1.1.0",
+    "extractorVersion": "1.2.0",
     "schemaVersion": 3
   },
   "records": {
@@ -16,6 +16,7 @@
     "from": null,
     "to": null,
     "images": true,
+    "reactions": true,
     "systemMessages": false,
     "editHistory": true
   },

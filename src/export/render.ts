@@ -7,6 +7,7 @@
  * HTML is not reused, so nothing in an archive (which may come from an import) can run code or
  * load remote content. Only `http`/`https` links are made links.
  */
+import { reactionsText } from '../shared/reactions';
 import { conversationLabel, type ConversationRecord, type StoredMessage } from '../shared/types';
 import { coverageStatus } from '../storage/coverage';
 import { FULL_CONTENT, type ExportContent, type TimeRange } from './options';
@@ -148,6 +149,11 @@ function flagsOf(message: StoredMessage): string[] {
   return [message.isEdited ? 'edited' : '', message.isDeleted ? 'deleted' : ''].filter(Boolean);
 }
 
+/** The reactions line ("👍 2 · ❤️ 1 (yours: 👍)"), or '' when there are none or they are not exported. */
+function reactionsOf(message: StoredMessage, ctx: RenderContext): string {
+  return ctx.content.reactions ? reactionsText(message.reactions) : '';
+}
+
 function historyOf(message: StoredMessage, ctx: RenderContext): StoredMessage['previousVersions'] {
   return ctx.content.editHistory ? (message.previousVersions ?? []) : [];
 }
@@ -191,6 +197,7 @@ figure { margin: 8px 0 2px; }
 figure img { display: block; width: auto; height: auto; max-width: 100%; max-height: 640px; border: 1px solid #ddd; border-radius: 4px; background: #fff; }
 figcaption { color: #616161; font-size: 12px; }
 .att { margin: 6px 0 0; padding-left: 18px; color: #444; font-size: 13px; overflow-wrap: anywhere; }
+.reactions { margin: 4px 0 0; color: #555; font-size: 13px; }
 .missing { color: #8a5300; }
 .system { margin: 8px 0; color: #666; font-size: 13px; text-align: center; }
 section + section { margin-top: 48px; break-before: page; }
@@ -276,6 +283,8 @@ export function htmlMessage(message: StoredMessage, ctx: RenderContext): string 
   if (reply) parts.push(`<blockquote class="reply">Replying to <b>${escapeHtml(reply.who)}</b>: ${escapeHtml(reply.preview)}</blockquote>`);
   if (message.text) parts.push(`<div class="text">${escapeHtml(message.text)}</div>`);
   parts.push(htmlAttachments(message, ctx));
+  const reactions = reactionsOf(message, ctx);
+  if (reactions) parts.push(`<div class="reactions">Reactions: ${escapeHtml(reactions)}</div>`);
   for (const version of historyOf(message, ctx)) {
     parts.push(`<div class="history"><div class="meta">Earlier version, replaced ${escapeHtml(ctx.time.dateTime(version.replacedAt))}</div><div class="text">${escapeHtml(version.text || '(empty)')}</div></div>`);
   }
@@ -367,6 +376,8 @@ export function markdownMessage(message: StoredMessage, ctx: RenderContext): str
     lines.push('');
   }
   for (const line of markdownAttachments(message, ctx)) lines.push(line, '');
+  const reactions = reactionsOf(message, ctx);
+  if (reactions) lines.push(`_Reactions:_ ${escapeInline(reactions)}`, '');
   for (const version of historyOf(message, ctx)) {
     lines.push(`_Earlier version, replaced ${ctx.time.dateTime(version.replacedAt)}:_`, '');
     for (const line of (version.text || '(empty)').split('\n')) lines.push(`> ${escapeMarkdownLine(line)}`);
@@ -419,6 +430,8 @@ export function textMessage(message: StoredMessage, ctx: RenderContext): string 
     }
     if (ctx.content.attachments) lines.push(`  ${attachmentPrefix(att.kind)}: ${named}`);
   }
+  const reactions = reactionsOf(message, ctx);
+  if (reactions) lines.push(`  Reactions: ${reactions}`);
   for (const version of historyOf(message, ctx)) {
     lines.push(`  Earlier version, replaced ${ctx.time.dateTime(version.replacedAt)}:`, ...indent(version.text || '(empty)', '    '));
   }
@@ -462,6 +475,8 @@ export function csvColumns(content: ExportContent): string[] {
     'edited',
     'deleted',
     ...(content.editHistory ? ['earlier_versions'] : []),
+    // Added in 1.7, last, so the columns before it keep their places.
+    ...(content.reactions ? ['reactions'] : []),
   ];
 }
 
@@ -511,6 +526,7 @@ export function csvMessage(record: ConversationRecord, message: StoredMessage, c
   if (content.editHistory) {
     values.push(historyOf(message, ctx).map((version) => `[replaced ${ctx.time.stamp(version.replacedAt)}] ${version.text}`).join('\n---\n'));
   }
+  if (content.reactions) values.push(reactionsOf(message, ctx));
   return csvRow(values);
 }
 

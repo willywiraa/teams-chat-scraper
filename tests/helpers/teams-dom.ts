@@ -33,6 +33,11 @@ export interface FixtureMessage {
   reply?: FixtureReply;
   attachments?: FixtureAttachment[];
   edited?: boolean;
+  /**
+   * Raw HTML of the reactions under the message. Default: a reaction row in markup that the
+   * reaction selectors do not match, so it is only checked to stay out of the text.
+   */
+  reactionsHtml?: string;
   /** Render as a system / control message with this text. */
   system?: string;
   /** Render as a date divider with this text. */
@@ -111,7 +116,7 @@ export function messageItemHtml(message: FixtureMessage): string {
     `<div data-tid="chat-pane-item">` +
     `<div data-tid="chat-pane-message" class="${cls}"${mid}>` +
     `<div class="${cls}__body">${author}${time}${edited}${body}</div>` +
-    `<div data-tid="message-reactions"><button>👍 2</button></div>` +
+    (message.reactionsHtml ?? `<div data-tid="message-reactions"><button>👍 2</button></div>`) +
     `</div></div>`
   );
 }

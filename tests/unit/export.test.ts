@@ -132,6 +132,8 @@ describe('import validation', () => {
     expect(broken((copy) => (copy.conversations[0]!.messages[0]!.conversationKey = 'teams:other'))).toThrow(/does not match/);
     expect(broken((copy) => (copy.conversations[0]!.messages[1]!.sortKey = Number.NaN))).toThrow(/messages\[1\]\.sortKey/);
     expect(broken((copy) => ((copy.conversations[0] as { messages: unknown }).messages = 'x'))).toThrow(/messages must be an array/);
+    expect(broken((copy) => ((copy.conversations[0]!.messages[0] as { reactions: unknown }).reactions = '👍 2'))).toThrow(/messages\[0\]\.reactions must be an array/);
+    expect(broken((copy) => (copy.conversations[0]!.messages[0]!.reactions = [{ emoji: '👍', count: 2, mine: false }]))).not.toThrow();
     expect(() => parseArchiveExport(null)).toThrow(/JSON object/);
   });
 

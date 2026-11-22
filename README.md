@@ -1,10 +1,12 @@
-# Teams Chat Extractor
+# Chat Archiver for Microsoft Teams
 
-A Microsoft Edge extension that archives your Microsoft Teams chats on your own computer. It reads the conversations you open in **Teams Web** (teams.microsoft.com) and stores them in a local database you can export as a readable chat (HTML, PDF, Markdown, text or CSV), as JSON, or as a knowledge package for other systems.
+Chat Archiver is a Microsoft Edge extension that archives your Microsoft Teams chats on your own computer. It reads the conversations you open in **Teams Web** (teams.microsoft.com) and stores them in a local database you can export as a readable chat (HTML, PDF, Markdown, text or CSV), as JSON, or as a knowledge package for other systems.
 
 - **Uses your existing sign-in.** There's no Microsoft Graph API, no Entra ID app registration and no admin consent.
 - **Reads only what Teams shows you.** The extension reads the messages Teams renders in the open chat and scrolls that chat upwards like you would, so Teams loads older messages. It never reads tokens, cookies or network traffic, never calls Teams or Microsoft APIs and never changes anything in Teams. If your account can't see a message, the extension can't either. Images are copied from what the open chat displays (see [Images](#images)).
 - **Keeps everything local.** Messages are stored in the extension's IndexedDB in your browser profile. Nothing is sent anywhere.
+
+Chat Archiver is an independent extension. It is not made by, endorsed by or affiliated with Microsoft. Microsoft Teams is a trademark of the Microsoft group of companies.
 
 > The Teams desktop app can't be accessed by browser extensions. Open the same chats in Teams Web in Edge instead. Your account and data are the same.
 
@@ -198,7 +200,7 @@ When **Save the images shown in messages** is on (the default), every picture th
 
 - It works through Teams Web's page structure, not an official API. Teams updates can require selector overrides, or an extractor update, before extraction works again.
 - It's designed for chats. Channel posts may be read partially, but reply threads under channel posts aren't expanded.
-- Reactions, read receipts and the contents of attached files aren't captured. Images are saved as displayed (often a preview size). Images the browser won't let the extension read are kept as name and link only.
+- Read receipts and the contents of attached files aren't captured. Reactions are captured (each emoji, its count and whether you chose it, not who else did), but their page selectors aren't confirmed against Teams yet: run Diagnostics in a chat with reactions. A reaction removed in Teams after it was archived stays until another reaction on that message is seen. Images are saved as displayed (often a preview size). Images the browser won't let the extension read are kept as name and link only.
 - Exports are written, and imports read, in parts, so a large archive doesn't have to fit in memory. An export of several gigabytes can still be more than the browser allows for one download; export fewer chats, a period, or without pictures.
 - A chat is identified by its Teams thread id. If that id can't be found on the page, the extension goes by the chat title and by the archived messages the chat shows:
   - A renamed chat continues its archive entry when some of the messages on screen are archived already. Otherwise it gets a new entry, which you can merge with the old one on the archive page.

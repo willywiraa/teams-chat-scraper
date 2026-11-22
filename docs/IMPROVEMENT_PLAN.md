@@ -302,7 +302,7 @@ Order: identity before export, because exports and updates depend on stable conv
 
 ## 5. Decisions needed
 
-1. **Name.** Keep "Teams Chat Extractor", or choose a distinct name with "for Microsoft Teams" as a descriptor (recommended for a store listing)?
+1. **Name.** Keep "Teams Chat Extractor", or choose a distinct name with "for Microsoft Teams" as a descriptor (recommended for a store listing)? *Chosen in 1.7.0: "Chat Archiver for Microsoft Teams", shortened to "Chat Archiver" in the popup and on the archive page, with a "not affiliated with Microsoft" note in the manifest description, the README, Settings → About and the store listing. Internal names stay as they were: the database, the `teams-chat-extractor` generator name in exports, and the package name.*
 2. **Knowledge system.** Which one will you use (Obsidian, Notion, a custom database, something else)? It decides the package layout of the preset, for example Markdown with an images folder versus JSONL. *Phase 3 builds a package with both, JSON Lines records and a Markdown transcript per chat; say which system you use if it needs another layout.*
 3. **Capture "To".** Should a capture with a range also save the newer messages it passes (recommended), or save only the range? *Built as recommended in Phase 2; say if you want a "to" date for captures.*
 4. **Diagnostics.** Run the Phase 0 report in a 1:1 chat and a group chat once it is built.

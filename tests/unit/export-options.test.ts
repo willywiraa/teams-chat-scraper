@@ -75,7 +75,7 @@ describe('formats and packaging', () => {
   });
 
   it('always keeps attachments and replies in records', () => {
-    const none = { images: false, attachments: false, replies: false, systemMessages: false, editHistory: false };
+    const none = { images: false, attachments: false, replies: false, reactions: false, systemMessages: false, editHistory: false };
     expect(effectiveContent('json', none)).toEqual({ ...none, attachments: true, replies: true });
     expect(effectiveContent('package', none)).toEqual({ ...none, attachments: true, replies: true });
     expect(effectiveContent('csv', none)).toEqual(none);
@@ -94,6 +94,10 @@ describe('formats and packaging', () => {
       ...DEFAULT_EXPORT_CHOICES,
       content: { ...FULL_CONTENT, editHistory: false },
     });
+    // Choices remembered before reactions could be chosen export them.
+    const older = { format: 'html', packaging: 'file', range: 'all', from: '', to: '', content: { images: true, attachments: true, replies: true, systemMessages: true, editHistory: true } };
+    expect(normalizeChoices(older).content.reactions).toBe(true);
+    expect(normalizeChoices({ ...older, content: { ...older.content, reactions: false } }).content.reactions).toBe(false);
   });
 });
 

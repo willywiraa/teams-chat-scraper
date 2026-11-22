@@ -15,7 +15,7 @@ import { renderOverview, renderSessions, storageUsed } from './archive/overview'
 import { buildSettings, settingsHeading, showSettings } from './archive/settings-view';
 import { navOf, parseRoute, routeHash, type Route } from './view-models';
 
-const APP_NAME = 'Teams Chat Archive';
+const APP_NAME = 'Chat Archiver';
 const VIEWS = ['overview', 'conversations', 'conversation', 'export', 'settings'] as const;
 const TITLES: Record<Route['view'], string> = {
   overview: 'Overview',
@@ -179,6 +179,7 @@ function wire(): void {
     if (file) void importFile(file);
   });
   byId('btn-backup-now').addEventListener('click', () => app.exportConversations(undefined, 'backup'));
+  byId('about-version').textContent = `Chat Archiver for Microsoft Teams, version ${chrome.runtime.getManifest().version}`;
   window.addEventListener('hashchange', () => void show(parseRoute(location.hash), { navigated: true }));
 }
 

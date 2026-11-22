@@ -178,3 +178,40 @@ describe('reply matching', () => {
     expect(findReplyTarget(reply('C'), 'k#4', 4, candidates)).toBeNull();
   });
 });
+
+describe('reactions', () => {
+  const like = { emoji: '👍', count: 2, mine: false };
+  const party = { emoji: '🎉', count: 1, mine: false };
+
+  it('takes the latest reactions shown, keeps them when none are shown, and never counts them as an edit', () => {
+    const record = createStoredMessage(message(), ctx());
+    expect(record.reactions).toBeUndefined();
+    const first = mergeObservation(record, message({ reactions: [like] }), ctx('s2'));
+    expect(first.status).toBe('updated');
+    expect(first.record).toMatchObject({ reactions: [like], contentHash: record.contentHash, isEdited: false, previousVersions: [] });
+    expect(mergeObservation(first.record, message({ reactions: [{ ...like }] }), ctx('s3')).status).toBe('unchanged');
+    const none = mergeObservation(first.record, message(), ctx('s3'));
+    expect(none.status).toBe('unchanged');
+    expect(none.record.reactions).toEqual([like]);
+    const changed = mergeObservation(first.record, message({ reactions: [{ ...like, count: 3, mine: true }, party] }), ctx('s4'));
+    expect(changed.status).toBe('updated');
+    expect(changed.record.reactions).toEqual([{ emoji: '👍', count: 3, mine: true }, party]);
+  });
+
+  it('keeps the newer record\'s reactions on import, or the other record\'s when it has none', () => {
+    const older = createStoredMessage(message({ reactions: [like] }), ctx('s1', '2024-01-15T12:00:00.000Z'));
+    const newer = createStoredMessage(message(), ctx('s2', '2024-02-01T00:00:00.000Z'));
+    expect(mergeImported(older, newer).record.reactions).toEqual([like]);
+    expect(mergeImported(newer, older).record.reactions).toEqual([like]);
+    expect(mergeImported(older, { ...newer, reactions: [party] }).record.reactions).toEqual([party]);
+    expect(mergeImported(older, { ...older }).status).toBe('unchanged');
+  });
+
+  it('repairs reactions read from a file', () => {
+    const record = createStoredMessage(message(), ctx());
+    const damaged = [{ emoji: '', count: 1 }, { emoji: '👍', count: 0 }, { emoji: ' ❤️ ', count: 2.5 }, 'x', { emoji: '❤️', count: 1, mine: true }, { emoji: '🎉', count: '1' }];
+    expect(normalizeStoredMessage({ ...record, reactions: damaged as never }).reactions).toEqual([{ emoji: '❤️', count: 2, mine: false }]);
+    expect('reactions' in normalizeStoredMessage({ ...record, reactions: [] })).toBe(false);
+    expect('reactions' in normalizeStoredMessage({ ...record, reactions: 'none' as never })).toBe(false);
+  });
+});

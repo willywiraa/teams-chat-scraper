@@ -173,7 +173,34 @@ describe('content options', () => {
     expect(edited.replyTo).not.toBeNull();
     expect(edited.previousVersions).toEqual([]);
     expect(json.conversations[0].images).toBeUndefined();
-    expect(json.selection).toEqual({ from: null, to: null, images: false, systemMessages: true, editHistory: false });
+    expect(json.selection).toEqual({ from: null, to: null, images: false, reactions: true, systemMessages: true, editHistory: false });
+  });
+
+  it('shows reactions in every format, and leaves them out when not chosen', async () => {
+    const reader = await readerOf(await exportFixture());
+    const line = '👍 2 · 🎉 1 (yours: 👍)';
+    const html = await blobText((await exportWith(reader, { format: 'html' })).blob);
+    expect(html).toContain(`<div class="reactions">Reactions: ${line}</div>`);
+    const markdown = await blobText((await exportWith(reader, { format: 'markdown', content: { images: false } })).blob);
+    expect(markdown).toContain(`_Reactions:_ ${line}`);
+    const text = await blobText((await exportWith(reader, { format: 'text', content: { images: false } })).blob);
+    expect(text).toContain(`  Reactions: ${line}`);
+    const csv = await blobText((await exportWith(reader, { format: 'csv', content: { images: false } })).blob);
+    expect(csv.split('\r\n')[0]).toMatch(/,earlier_versions,reactions$/);
+    expect(csv).toContain(`,${line}\r\n`);
+    const json = JSON.parse(await blobText((await exportWith(reader, { format: 'json' })).blob));
+    expect(json.conversations[0].messages[2].reactions).toEqual([
+      { emoji: '👍', count: 2, mine: true },
+      { emoji: '🎉', count: 1, mine: false },
+    ]);
+
+    const off = { reactions: false, images: false };
+    for (const format of ['html', 'markdown', 'text', 'csv'] as const) {
+      expect(await blobText((await exportWith(reader, { format, content: off })).blob)).not.toContain('👍');
+    }
+    const without = JSON.parse(await blobText((await exportWith(reader, { format: 'json', content: off })).blob));
+    expect(without.conversations[0].messages[2]).not.toHaveProperty('reactions');
+    expect(without.selection.reactions).toBe(false);
   });
 });
 
@@ -237,7 +264,7 @@ describe('CSV', () => {
     expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
     const text = new TextDecoder().decode(bytes);
     expect(text.split('\r\n')[0]).toBe(
-      'conversation,conversation_key,message_key,message_id,time,time_utc,sender,sender_id,from_me,kind,text,reply_to_sender,reply_to_text,reply_to_key,attachments,edited,deleted,earlier_versions',
+      'conversation,conversation_key,message_key,message_id,time,time_utc,sender,sender_id,from_me,kind,text,reply_to_sender,reply_to_text,reply_to_key,attachments,edited,deleted,earlier_versions,reactions',
     );
     expect(text).toContain(`,"'=1+1, ""quoted""",`);
     expect(text).toContain('2024-01-15 09:10:00,2024-01-15T09:10:00.000Z,Bob Brown,8:orgid:bob,no,message,Looks good *to me*,Alice Andersen,# Agenda,');

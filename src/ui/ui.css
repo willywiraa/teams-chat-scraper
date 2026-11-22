@@ -1080,6 +1080,13 @@ details.advanced > summary {
   overflow-wrap: anywhere;
 }
 
+.msg-reactions {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+  font-size: var(--font-s);
+  overflow-wrap: anywhere;
+}
+
 .msg-history {
   margin-top: var(--space-2);
   font-size: var(--font-s);

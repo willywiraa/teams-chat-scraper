@@ -16,8 +16,11 @@ export interface SelectorHit {
   count: number;
 }
 
-/** Version of the report layout; 2 added the identifier probe, the extra selector probes and the skeletons. */
-export const DIAGNOSTICS_REPORT_VERSION = 2;
+/**
+ * Version of the report layout; 2 added the identifier probe, the extra selector probes and the
+ * skeletons; 3 the reaction selector, the count of messages with reactions and each sample's reactions.
+ */
+export const DIAGNOSTICS_REPORT_VERSION = 3;
 
 export interface DiagnosticsReport {
   reportVersion: number;
@@ -47,6 +50,7 @@ export interface DiagnosticsReport {
     withText: number;
     withAttachments: number;
     withReply: number;
+    withReactions: number;
     system: number;
     edited: number;
     deleted: number;
@@ -62,6 +66,8 @@ export interface DiagnosticsReport {
     paragraphs: number;
     attachments: string[];
     reply: string | null;
+    /** Number of reactions read under the message. */
+    reactions: number;
   }>;
   /** Outline of a representative message item. */
   skeleton: string | null;
@@ -227,6 +233,7 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
     'attachments.container': countHits(scope, profile.attachments.container),
     'attachments.image': countHits(scope, profile.attachments.image),
     mention: countHits(scope, profile.mention),
+    reaction: countHits(scope, profile.reaction),
     edited: countHits(scope, profile.edited),
     loadingIndicator: countHits(doc, profile.loadingIndicator),
   };
@@ -245,6 +252,7 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
     withText: 0,
     withAttachments: 0,
     withReply: 0,
+    withReactions: 0,
     system: 0,
     edited: 0,
     deleted: 0,
@@ -280,6 +288,7 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
       if (message.text) parse.withText++;
       if (message.attachments.length) parse.withAttachments++;
       if (message.replyTo) parse.withReply++;
+      if ((message.reactions ?? []).length > 0) parse.withReactions++;
       if (message.kind === 'system') parse.system++;
       if (message.isEdited) parse.edited++;
       if (message.isDeleted) parse.deleted++;
@@ -297,6 +306,7 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
         paragraphs: paragraphCount(message),
         attachments: message.attachments.map((att) => att.kind),
         reply: message.replyTo ? message.replyTo.resolution : null,
+        reactions: (message.reactions ?? []).length,
       });
     }
     if (parse.messages > 0 && parse.withMessageId === 0) warnings.push('No Teams message ids found: duplicate detection falls back to content fingerprints.');
@@ -316,6 +326,10 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
   const replyLeads = (probes['message.reply'] ?? []).filter((hit) => REPLY_LEADS.includes(hit.selector) && hit.count > 0);
   if (replyLeads.length > 0 && !hits['reply.container']?.some((hit) => hit.count > 0)) {
     warnings.push(`Quoted replies are shown as ${replyLeads.map((hit) => hit.selector).join(' or ')}, which the reply selectors do not recognise yet.`);
+  }
+  const reactionMarkup = (probes['message.reaction'] ?? []).filter((hit) => hit.count > 0);
+  if (reactionMarkup.length > 0 && !hits.reaction?.some((hit) => hit.count > 0)) {
+    warnings.push(`Reaction markup was found (${reactionMarkup.map((hit) => hit.selector).join(', ')}), but the reaction selectors match none of it.`);
   }
   let reply: Element | null = null;
   for (const selector of [...REPLY_LEADS, ...profile.reply.container]) {

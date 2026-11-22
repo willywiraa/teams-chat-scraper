@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Teams Chat Archive</title>
+    <title>Chat Archiver</title>
     <link rel="stylesheet" href="ui.css" />
     <script src="theme.js"></script>
   </head>
@@ -11,7 +11,7 @@
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="app-header">
       <img src="icons/logo.svg" alt="" width="24" height="24" />
-      <h1>Teams Chat Archive</h1>
+      <h1>Chat Archiver</h1>
       <nav class="app-nav" aria-label="Archive sections">
         <a href="#overview" data-nav="overview">Overview</a>
         <a href="#conversations" data-nav="conversations">Conversations</a>
@@ -246,6 +246,15 @@
           <div id="diag-status" class="small" role="status" aria-live="polite"></div>
           <div id="diag-summary" class="small" hidden></div>
           <pre id="diag-output" hidden></pre>
+        </section>
+
+        <section class="card" id="settings-about" aria-labelledby="about-title">
+          <h3 id="about-title" tabindex="-1">About</h3>
+          <p id="about-version">Chat Archiver for Microsoft Teams</p>
+          <p class="muted small">
+            An independent extension, not made by or affiliated with Microsoft. Microsoft Teams is a trademark of the Microsoft group of
+            companies. It reads only the chats Teams Web shows you, and keeps them in this browser profile.
+          </p>
         </section>
       </section>
     </main>

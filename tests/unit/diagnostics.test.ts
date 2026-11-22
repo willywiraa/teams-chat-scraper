@@ -43,7 +43,7 @@ describe('runDiagnostics', () => {
     renderStaticChat(chat, { title: 'Secret Project' });
     const report = diagnose();
 
-    expect(report.reportVersion).toBe(2);
+    expect(report.reportVersion).toBe(3);
     expect(report.conversation).toEqual({ detected: true, keySource: 'dom', type: 'group', hasThreadId: true, titleLength: 'Secret Project'.length });
     expect(report.page).toMatchObject({ origin: 'https://teams.microsoft.com', path: '/l/chat/<thread:v2>/0' });
     expect(report.messageList.found).toBe(true);
@@ -73,6 +73,11 @@ describe('runDiagnostics', () => {
     const warnings = diagnose().warnings.join(' ');
     expect(warnings).toMatch(/No Teams message ids found/);
     expect(warnings).toMatch(/No timestamps found/);
+  });
+
+  it('warns when reactions are shown in markup the reaction selectors do not match', () => {
+    renderStaticChat(chat);
+    expect(diagnose().warnings.join(' ')).toContain('Reaction markup was found ([data-tid*="reaction"]), but the reaction selectors match none of it.');
   });
 });
 
@@ -114,7 +119,7 @@ describe('identifier probe in the report', () => {
     expect(diagnoseNewTeams().warnings.join(' ')).toMatch(/No thread id for this chat is shown on the page/);
   });
 
-  it('counts reply, reaction and image markup that the parser does not use yet', () => {
+  it('counts reply, reaction and image markup, and reads the reactions', () => {
     const reference = '<div data-tid="referencePreview" role="group" aria-label="Begin Reference, Alice Andersen, Original words"><p>Original words</p></div>';
     const extras = '<button data-tid="diverse-reaction-pill-button">👍 2</button><img data-tid="rich-file-preview-image" src="blob:https://teams.microsoft.com/0f0f">';
     renderNewTeamsPage({ items: newTeamsMessageHtml(reference + extras) });
@@ -123,6 +128,10 @@ describe('identifier probe in the report', () => {
     expect(report.probes['message.reply']).toContainEqual({ selector: '[data-tid="referencePreview"]', count: 1 });
     expect(report.probes['message.reply']).toContainEqual({ selector: '[role="group"][aria-label^="Begin Reference"]', count: 1 });
     expect(report.probes['message.reaction']).toContainEqual({ selector: '[data-tid="diverse-reaction-pill-button"]', count: 1 });
+    expect(report.hits.reaction).toContainEqual({ selector: '[data-tid="diverse-reaction-pill-button"]', count: 1 });
+    expect(report.parse.withReactions).toBe(1);
+    expect(report.samples[0]?.reactions).toBe(1);
+    expect(report.warnings.join(' ')).not.toMatch(/Reaction markup/);
     expect(report.probes['message.image']).toContainEqual({ selector: 'img[data-tid="rich-file-preview-image"]', count: 1 });
     expect(report.warnings.join(' ')).toMatch(/Quoted replies are shown as \[data-tid="referencePreview"\].*not recognise/);
     expect(report.skeletons.reply).toContain('<div data-tid="referencePreview" role="group" [aria-label]>');

@@ -1,5 +1,6 @@
 // Bundles the extension into dist/ (load that folder as an unpacked extension in Edge).
-// Usage: node scripts/build.mjs [--watch]
+// Usage: node scripts/build.mjs [--watch | --release]
+// --release leaves out the source maps, for the store package (npm run package).
 import { build, context } from 'esbuild';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -8,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outdir = path.join(root, 'dist');
 const watch = process.argv.includes('--watch');
+const release = process.argv.includes('--release');
 
 const entryPoints = {
   background: 'src/background/service-worker.ts',
@@ -53,7 +55,7 @@ const options = {
   bundle: true,
   format: 'iife',
   target: ['chrome116'],
-  sourcemap: 'linked',
+  sourcemap: release ? false : 'linked',
   legalComments: 'none',
   logLevel: 'info',
   plugins: [staticPlugin],
@@ -68,5 +70,5 @@ if (watch) {
   console.log('Watching for changes... (Ctrl+C to stop)');
 } else {
   await build(options);
-  console.log(`Built extension into ${path.relative(process.cwd(), outdir) || outdir}`);
+  console.log(`Built extension${release ? ' for release' : ''} into ${path.relative(process.cwd(), outdir) || outdir}`);
 }

@@ -32,6 +32,7 @@ const CONTENT_FIELDS: Array<{ key: keyof ExportContent; id: string; label: strin
   { key: 'images', id: 'export-images', label: 'Pictures' },
   { key: 'attachments', id: 'export-attachments', label: 'File attachments (names and links)' },
   { key: 'replies', id: 'export-replies', label: 'Reply context (the message a reply quotes)' },
+  { key: 'reactions', id: 'export-reactions', label: 'Reactions (emoji and how many chose each)' },
   { key: 'systemMessages', id: 'export-system', label: 'System messages (joined, added, renamed…)' },
   { key: 'editHistory', id: 'export-history', label: 'Edit history (earlier versions of edited messages)' },
 ];

@@ -154,6 +154,7 @@ export function selectionOf(range: TimeRange, content: ExportContent): ExportSel
     from: range.from === null ? null : new Date(range.from).toISOString(),
     to: range.to === null ? null : new Date(range.to).toISOString(),
     images: content.images,
+    reactions: content.reactions,
     systemMessages: content.systemMessages,
     editHistory: content.editHistory,
   };
@@ -171,7 +172,13 @@ function keeps(content: ExportContent): (message: StoredMessage) => boolean {
 
 /** A message as an export's records hold it. */
 export function exportedMessage(message: StoredMessage, content: ExportContent): StoredMessage {
-  return content.editHistory || (message.previousVersions ?? []).length === 0 ? message : { ...message, previousVersions: [] };
+  let result = message;
+  if (!content.editHistory && (message.previousVersions ?? []).length > 0) result = { ...result, previousVersions: [] };
+  if (!content.reactions && result.reactions !== undefined) {
+    const { reactions: _left, ...rest } = result;
+    result = rest;
+  }
+  return result;
 }
 
 /** What a conversation's export holds, from the first pass. */

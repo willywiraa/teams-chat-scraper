@@ -30,6 +30,16 @@ afterEach(() => {
 });
 
 describe('parseRenderedConversation', () => {
+  it('adds the reactions shown under a message without changing its content hash or fingerprint', () => {
+    const plain = { id: '1705314600000', author: 'Alice Andersen', time: '2024-01-15T10:30:00Z', paragraphs: ['Lunch at noon?'] };
+    const [without] = parse([plain]);
+    const [withReactions] = parse([{ ...plain, reactionsHtml: '<button data-tid="diverse-reaction-pill-button" aria-pressed="true">👍 2</button>' }]);
+    expect(without).not.toHaveProperty('reactions');
+    expect(withReactions?.reactions).toEqual([{ emoji: '👍', count: 2, mine: true }]);
+    expect(withReactions?.contentHash).toBe(without?.contentHash);
+    expect(withReactions?.fingerprint).toBe(without?.fingerprint);
+  });
+
   it('parses an individual (1:1) conversation', () => {
     const messages = parse(
       [

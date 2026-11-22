@@ -52,6 +52,11 @@ export interface SelectorProfile {
     emojiImage: string[];
   };
   mention: string[];
+  /**
+   * One reaction under a message (a pill with an emoji and a count). Not yet checked against
+   * Teams: run Diagnostics in a chat with reactions to see whether these match.
+   */
+  reaction: string[];
   edited: string[];
   /** Case-insensitive regular expressions matching the body text of deleted messages. */
   deletedPatterns: string[];
@@ -160,6 +165,7 @@ export const DEFAULT_SELECTOR_PROFILE: Readonly<SelectorProfile> = Object.freeze
     emojiImage: ['img[itemtype*="Emoji"]', 'img.emoji', '[data-tid*="emoji"] img', 'img[src*="emoji"]'],
   },
   mention: ['[itemtype="http://schema.skype.com/Mention"]', '[data-tid="mention"]', '[data-tid*="mention-"]'],
+  reaction: ['[data-tid="diverse-reaction-pill-button"]', '[data-tid*="reaction-pill"]'],
   edited: ['[data-tid*="edited"]', '[id^="edited-"]'],
   deletedPatterns: [
     '^this message has been deleted\\.?$',

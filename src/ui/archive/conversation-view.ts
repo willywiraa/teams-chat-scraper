@@ -1,7 +1,7 @@
 /**
  * The message view of one conversation: its newest messages first, in pages of 200, with day
- * headings, reply quotes, pictures in place, attachments, and earlier versions of edited
- * messages. Only the message keys are held for the whole chat; messages and pictures are read
+ * headings, reply quotes, pictures in place, attachments, reactions, and earlier versions of
+ * edited messages. Only the message keys are held for the whole chat; messages and pictures are read
  * per page. Text is shown through text nodes only (never parsed as HTML).
  */
 import { timeFormat } from '../../export/render';
@@ -207,6 +207,7 @@ function messageItem(message: MessageView): HTMLLIElement {
           ),
         )
       : null,
+    message.reactions ? el('p', { className: 'msg-reactions' }, `Reactions: ${message.reactions}`) : null,
     message.history.length > 0
       ? el(
           'details',

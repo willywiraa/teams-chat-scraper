@@ -127,6 +127,57 @@ describe('parseItem', () => {
     expect(message.attachments).toHaveLength(1);
   });
 
+  it('reads the reactions under a message: emoji, count and whether you chose it', () => {
+    const message = parseMessage({
+      id: '1705314700010',
+      author: 'Alice Andersen',
+      paragraphs: ['Lunch at noon?'],
+      reactionsHtml:
+        '<div data-tid="diverse-reaction-summary">' +
+        '<button data-tid="diverse-reaction-pill-button" aria-pressed="true"><span>👍</span><span>3</span></button>' +
+        '<button data-tid="diverse-reaction-pill-button" aria-pressed="false"><span>❤️</span><span>1</span></button>' +
+        '<button data-tid="diverse-reaction-pill-button"><span>👍🏽</span> 2</button>' +
+        '<button data-tid="diverse-reaction-pill-button"><img alt="😂" src="https://example.invalid/laugh.png"><span>4</span></button>' +
+        '</div>',
+    });
+    expect(message.reactions).toEqual([
+      { emoji: '👍', count: 3, mine: true },
+      { emoji: '❤️', count: 1, mine: false },
+      { emoji: '👍🏽', count: 2, mine: false },
+      { emoji: '😂', count: 4, mine: false },
+    ]);
+    expect(message.content.text).toBe('Lunch at noon?');
+    // The emoji picture of a reaction is not an attachment.
+    expect(message.attachments).toEqual([]);
+  });
+
+  it('reads a reaction known only by name, and skips the add-reaction button and repeats', () => {
+    const message = parseMessage({
+      id: '1705314700011',
+      author: 'Bob Brown',
+      paragraphs: ['Done'],
+      reactionsHtml:
+        '<button data-tid="diverse-reaction-pill-button" aria-label="Like reaction, 5 people"><span>5</span></button>' +
+        '<button data-tid="diverse-reaction-pill-button" aria-label="Add reaction"><span>+</span></button>' +
+        '<button data-tid="diverse-reaction-pill-button"><span>🎉</span></button>' +
+        '<button data-tid="diverse-reaction-pill-button"><span>🎉</span><span>9</span></button>',
+    });
+    expect(message.reactions).toEqual([
+      { emoji: 'Like', count: 5, mine: false },
+      { emoji: '🎉', count: 1, mine: false },
+    ]);
+  });
+
+  it('leaves out reactions shown inside a quoted reply, and has none when none are shown', () => {
+    const quoted = parseMessage({
+      id: '1705314700012',
+      author: 'Bob Brown',
+      html: '<div data-tid="quoted-reply-card" itemid="1705314700000"><strong>Alice Andersen</strong><p>Original</p><button data-tid="diverse-reaction-pill-button">👍 2</button></div><p>Reply</p>',
+    });
+    expect(quoted.reactions).toEqual([]);
+    expect(parseMessage({ id: '1705314700013', author: 'Bob Brown', paragraphs: ['Plain'] }).reactions).toEqual([]);
+  });
+
   it('detects edited and deleted messages', () => {
     expect(parseMessage({ id: '1705314700003', author: 'Dan', edited: true, paragraphs: ['Fixed typo'] }).isEdited).toBe(true);
     expect(parseMessage({ id: '1705314700004', author: 'Dan', paragraphs: ['Not edited'] }).isEdited).toBe(false);

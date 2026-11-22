@@ -4,6 +4,7 @@
  * the message view. The screens draw these; the tests check them.
  */
 import { attachmentPrefix, replyTargetOf, senderLabel, timeLabel, webLink, type ReplyTarget, type TimeFormat } from '../export/render';
+import { reactionsText } from '../shared/reactions';
 import { conversationLabel, type ConversationRecord, type ConversationType, type StoredMessage } from '../shared/types';
 import { titleHistoryOf } from '../storage/conversation-identity';
 import { coverageStatus } from '../storage/coverage';
@@ -218,6 +219,8 @@ export interface MessageView {
   /** Saved pictures, shown in place. */
   pictures: PictureView[];
   attachments: AttachmentView[];
+  /** "👍 2 · ❤️ 1 (yours: 👍)", or '' when it has none. */
+  reactions: string;
   /** Earlier versions, oldest first. */
   history: Array<{ replaced: string; text: string }>;
 }
@@ -252,6 +255,7 @@ export function messageView(message: StoredMessage, time: TimeFormat, replyTarge
     reply,
     pictures,
     attachments,
+    reactions: reactionsText(message.reactions),
     history: (message.previousVersions ?? []).map((version) => ({ replaced: time.dateTime(version.replacedAt), text: version.text })),
   };
 }

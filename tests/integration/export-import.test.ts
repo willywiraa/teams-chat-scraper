@@ -115,6 +115,20 @@ describe('knowledge package and JSON files', () => {
     expect(await target.countMessages(CK)).toBe(4);
   });
 
+  it('a package made without reactions leaves archived reactions in place', async () => {
+    const package_ = (await exportOf(source, 'package', { content: { reactions: false } })).blob;
+    const target = await fresh();
+    await seed(target, fixture);
+    await importArchiveFile(target, package_);
+    expect((await target.getMessages(CK))[2]?.reactions).toEqual([
+      { emoji: '👍', count: 2, mine: true },
+      { emoji: '🎉', count: 1, mine: false },
+    ]);
+    const bare = await fresh();
+    await importArchiveFile(bare, package_);
+    expect((await bare.getMessages(CK)).some((m) => m.reactions !== undefined)).toBe(false);
+  });
+
   it('a package zipped again inside a folder, compressed, can be imported', async () => {
     const files = await unzip((await exportOf(source, 'package')).blob);
     const rezipped = deflatedZip(Object.fromEntries([...files].map(([path, data]) => [`Teams export/${path}`, data])));

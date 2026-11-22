@@ -151,6 +151,7 @@ export function messageSignature(message: ExtractedMessage): string {
     message.attachments.length,
     // A message is sent again once one of its images has been saved.
     message.attachments.map((attachment) => attachment.imageId ?? '').join(','),
+    (message.reactions ?? []).map((reaction) => `${reaction.emoji}:${reaction.count}:${reaction.mine ? 1 : 0}`).join(','),
     message.isEdited,
     message.isDeleted,
   ]);

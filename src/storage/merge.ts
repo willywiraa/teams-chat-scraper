@@ -3,7 +3,12 @@
  *
  * Principles: never lose information, prefer better-sourced metadata, keep earlier contents
  * when an edit or deletion is detected, and ignore partially rendered (empty) observations.
+ *
+ * Reactions: the latest observation that shows any replaces the stored list. One that shows
+ * none leaves it, because a message can be drawn before its reactions are; so a reaction list
+ * that has since been emptied in Teams stays as last seen.
  */
+import { normalizeReactions, sameReactions } from '../shared/reactions';
 import {
   ARCHIVE_SCHEMA_VERSION,
   EXTRACTOR_VERSION,
@@ -210,6 +215,11 @@ export function mergeObservation(existing: StoredMessage | undefined, observatio
     changed = true;
   }
 
+  if ((observation.reactions ?? []).length > 0 && !sameReactions(observation.reactions, next.reactions)) {
+    next.reactions = structuredClone(observation.reactions);
+    changed = true;
+  }
+
   if (observation.isEdited && !next.isEdited) {
     next.isEdited = true;
     changed = true;
@@ -242,6 +252,7 @@ export function absorbDuplicate(target: StoredMessage, duplicate: StoredMessage)
   next.observationCount = target.observationCount + duplicate.observationCount;
   next.attachments = unionAttachments(next.attachments, duplicate.attachments);
   next.replyTo = betterReply(next.replyTo, duplicate.replyTo);
+  if ((next.reactions ?? []).length === 0 && (duplicate.reactions ?? []).length > 0) next.reactions = structuredClone(duplicate.reactions);
   for (const version of duplicate.previousVersions) next.previousVersions = pushVersion(next.previousVersions, version);
   if (SENDER_RANK[duplicate.sender.source] > SENDER_RANK[next.sender.source]) next.sender = { ...duplicate.sender };
   if (TIMESTAMP_RANK[duplicate.timestampSource] > TIMESTAMP_RANK[next.timestampSource]) {
@@ -280,8 +291,11 @@ export function mergeImported(existing: StoredMessage | undefined, incoming: Sto
 
 /** Fills defaults for records coming from older exports or hand-edited files. */
 export function normalizeStoredMessage(message: StoredMessage): StoredMessage {
+  const { reactions: rawReactions, ...rest } = message;
+  const reactions = normalizeReactions(rawReactions);
   return {
-    ...message,
+    ...rest,
+    ...(reactions.length > 0 ? { reactions } : {}),
     messageId: message.messageId ?? null,
     idSource: message.idSource ?? (message.messageId ? 'dom' : 'fingerprint'),
     kind: message.kind ?? 'message',

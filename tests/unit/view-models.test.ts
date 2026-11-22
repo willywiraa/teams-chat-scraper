@@ -230,7 +230,9 @@ describe('message view', () => {
         { label: 'Picture not saved', name: 'lost.png', href: null },
       ],
       history: [{ replaced: time.dateTime('2024-01-15T09:12:00.000Z'), text: 'Looks fine' }],
+      reactions: '👍 2 · 🎉 1 (yours: 👍)',
     });
+    expect(first?.reactions).toBe('');
     expect(formula?.pictures).toHaveLength(2);
     expect(formula?.attachments).toEqual([]);
     expect(nextDay).toMatchObject({ self: true, sender: 'Me' });

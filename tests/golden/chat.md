@@ -29,6 +29,8 @@ Looks good *to me*
 
 _Attachments:_ File: [agenda\_v2.docx](https://example.invalid/agenda_v2.docx) · Image: lost.png
 
+_Reactions:_ 👍 2 · 🎉 1 (yours: 👍)
+
 _Earlier version, replaced 15 Jan 2024, 09:12:_
 
 > Looks fine

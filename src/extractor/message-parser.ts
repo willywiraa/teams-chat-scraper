@@ -4,7 +4,8 @@
  */
 import type { DateOrder } from '../shared/time';
 import { parseHumanDateTime, parseIsoTimestamp } from '../shared/time';
-import type { Attachment, MessageKind, ReplyReference, TimestampSource } from '../shared/types';
+import { MAX_REACTION_NAME, MAX_REACTIONS } from '../shared/reactions';
+import type { Attachment, MessageKind, Reaction, ReplyReference, TimestampSource } from '../shared/types';
 import { findUserId, serializeContent, type InlineImage, type SerializedContent } from './content-serializer';
 import {
   firstMatch,
@@ -44,6 +45,8 @@ export interface RawMessage {
   /** Aligned with `attachments`: the element displaying each image attachment, else null. */
   imageElements: Array<Element | null>;
   replyTo: ReplyReference | null;
+  /** Reactions under the message, in the order shown; empty when none are shown. */
+  reactions: Reaction[];
   isEdited: boolean;
   isDeleted: boolean;
   /** True when no body element matched and the whole item was serialised instead. */
@@ -112,6 +115,55 @@ export function parseReply(item: Element, profile: SelectorProfile): ReplyRefere
   };
 }
 
+/** One emoji: a flag, a keycap, or a pictograph with its variation, skin tone and joined parts. */
+const EMOJI =
+  /\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})*)*/u;
+const EMOJI_ALL = new RegExp(EMOJI.source, 'gu');
+/** Buttons near the reactions that are not reactions. */
+const NOT_A_REACTION = /\badd (?:a )?reaction|\bmore reactions|\bsee (?:all|who)/i;
+
+function countIn(text: string): number | null {
+  const match = text.match(/\b(\d{1,6})\b/);
+  return match ? Math.max(1, Number(match[1])) : null;
+}
+
+/**
+ * Reads one reaction pill. The emoji comes from a picture's alt text, the pill's text or its
+ * accessible name, in that order; failing those, from a name in the accessible name such as
+ * "Like reaction". The count is the number in the pill's text (1 when it shows none), and it is
+ * yours when the pill is pressed.
+ */
+function readReaction(pill: Element): Reaction | null {
+  const label = (pill.getAttribute('aria-label') ?? pill.getAttribute('title') ?? '').replace(/\s+/g, ' ').trim();
+  if (NOT_A_REACTION.test(label)) return null;
+  const text = textOf(pill);
+  const image = pill.matches('img[alt]') ? pill : pill.querySelector('img[alt]');
+  const alt = image?.getAttribute('alt')?.replace(/\s+/g, ' ').trim() ?? '';
+  const named = label.match(/^([^\d,.;:()]{1,40}?)\s+reactions?\b/i)?.[1]?.trim() ?? '';
+  const emoji = alt.match(EMOJI)?.[0] ?? text.match(EMOJI)?.[0] ?? label.match(EMOJI)?.[0] ?? (alt || named);
+  if (!emoji) return null;
+  const count = countIn(text.replace(EMOJI_ALL, ' ')) ?? countIn(label.replace(EMOJI_ALL, ' ')) ?? 1;
+  const pressed = ['aria-pressed', 'aria-checked', 'aria-selected'].some((name) => pill.getAttribute(name) === 'true');
+  return { emoji: emoji.slice(0, MAX_REACTION_NAME), count, mine: pressed };
+}
+
+/**
+ * The reactions under a message, in the order shown, each emoji once. Pills inside a quoted
+ * reply belong to the quoted message and are left out; of nested matches the innermost is read.
+ */
+export function parseReactions(item: Element, profile: SelectorProfile): Reaction[] {
+  const pills = unionMatches(item, profile.reaction, { exclude: profile.reply.container });
+  const innermost = pills.filter((pill) => !pills.some((other) => other !== pill && pill.contains(other)));
+  const reactions: Reaction[] = [];
+  for (const pill of innermost) {
+    const reaction = readReaction(pill);
+    if (!reaction || reactions.some((seen) => seen.emoji === reaction.emoji)) continue;
+    reactions.push(reaction);
+    if (reactions.length >= MAX_REACTIONS) break;
+  }
+  return reactions;
+}
+
 function attachmentName(element: Element, nameSelectors: readonly string[]): string | null {
   const nameEl = firstMatch(element, nameSelectors);
   const candidates = [
@@ -169,7 +221,8 @@ function dedupeAttachments(found: FoundAttachment[]): FoundAttachment[] {
 
 export function parseAttachments(item: Element, profile: SelectorProfile, inlineImages: InlineImage[]): ParsedAttachments {
   const config = profile.attachments;
-  const exclude = profile.reply.container;
+  // Reaction pills can hold emoji pictures; they are not attachments.
+  const exclude = [...profile.reply.container, ...profile.reaction];
   const found: FoundAttachment[] = [];
   const containers = outermost(unionMatches(item, config.container, { exclude }));
   const insideContainer = (el: Element) => containers.some((container) => container.contains(el));
@@ -301,6 +354,7 @@ export function parseItem(item: Element, ctx: ItemParseContext): ParsedItem {
   const { attachments, imageElements } =
     kind === 'system' ? { attachments: [], imageElements: [] } : parseAttachments(item, profile, content.images);
   const replyTo = kind === 'system' ? null : parseReply(item, profile);
+  const reactions = kind === 'system' ? [] : parseReactions(item, profile);
 
   if (!messageId && kind === 'message' && !content.text && attachments.length === 0 && !authorEl) {
     return { type: 'skip', reason: 'empty' };
@@ -322,6 +376,7 @@ export function parseItem(item: Element, ctx: ItemParseContext): ParsedItem {
       attachments,
       imageElements,
       replyTo,
+      reactions,
       isEdited: kind === 'message' && hasEditedMarker(item, profile, replyExclude, bodyEl),
       isDeleted: isDeletedText(content.text, profile.deletedPatterns),
       usedBodyFallback,

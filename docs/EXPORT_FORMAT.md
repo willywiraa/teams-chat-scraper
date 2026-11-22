@@ -32,6 +32,7 @@ Two presets set the dialog in one click:
 | Pictures | No saved pictures. Formats that can't embed pictures (Markdown, text, CSV) are written as one file without them; with them they become a ZIP. |
 | File attachments | Transcripts don't list attachments. Records always keep them, because they are part of the message (its `contentHash`). |
 | Reply context | Transcripts don't show what a reply quotes. Records always keep `replyTo`. |
+| Reactions | Transcripts don't show reactions, and records have no `reactions`. Importing such a file keeps the reactions already archived. |
 | System messages | Messages with `kind: "system"` are left out, of records too. |
 | Edit history | Earlier versions are left out: records have `previousVersions: []`. |
 
@@ -53,7 +54,7 @@ So importing a period adds its messages and says truthfully which stretch of the
   "formatVersion": 1,
   "exportedAt": "2024-02-01T10:20:30.456Z",
   "generator": { "name": "teams-chat-extractor", "version": "1.4.0", "extractorVersion": "1.1.0", "schemaVersion": 3 },
-  "selection": { "from": null, "to": null, "images": true, "systemMessages": true, "editHistory": true },
+  "selection": { "from": null, "to": null, "images": true, "reactions": true, "systemMessages": true, "editHistory": true },
   "conversations": [
     {
       "conversationKey": "teams:19:abc…@thread.v2",
@@ -78,6 +79,7 @@ All timestamps are ISO-8601 strings in UTC. Numbers named `…SortKey`, `oldest`
 | `from` | string \| null | Start of the period (included), or null for no start. |
 | `to` | string \| null | End of the period (not included), or null for no end. |
 | `images` | boolean | Whether saved images were included. |
+| `reactions` | boolean | Whether reactions were included. Added in 1.7; an older export holds the reactions it has (none before 1.7). |
 | `systemMessages` | boolean | Whether system messages were included. |
 | `editHistory` | boolean | Whether earlier versions of edited messages were included. |
 
@@ -133,6 +135,7 @@ An export without `selection` (made before 1.4) holds the whole archive.
 | `links` | `{ href, text }[]` | Links in the message. |
 | `attachments` | `{ kind, name, url, imageId? }[]` | `kind`: `file`, `image`, `link-preview`, `card` or `other`. Files aren't downloaded. `url` usually points to SharePoint/OneDrive and requires sign-in; it is null for images Teams shows from a temporary `blob:` address. `imageId` (images only, added in 1.1) is the `imageId` of the saved copy in the conversation's `images`; it is absent when the image wasn't saved. Teams names most pasted pictures just `image`, so several attachments can share a name. |
 | `replyTo` | object \| null | Quoted reply: `messageId`, `senderName`, `timestampRaw` and `preview` (the quoted text as shown), plus `resolvedKey` (the `key` of the quoted message when known) and `resolution` (`message-id`, `content-match` or `unresolved`). |
+| `reactions` | `{ emoji, count, mine }[]`, optional | Added in 1.7. The reactions under the message as Teams last showed them, in its order: `emoji` is the character (or a name such as `Like` when Teams shows only a picture with a name), `count` how many people chose it (at least 1), `mine` whether the archiving user did. Who reacted is not recorded. Absent when no reactions were seen. Not part of `contentHash`. A capture that shows no reactions leaves the archived ones, so a reaction removed in Teams can remain until another reaction is seen. |
 | `isEdited` | boolean | Teams showed the message as edited, or a content change was observed. |
 | `isDeleted` | boolean | Teams showed the message as deleted. |
 | `previousVersions` | `{ text, html, contentHash, replacedAt }[]` | Earlier contents observed before an edit or deletion, oldest first (at most 20). Empty in exports made without edit history. |
@@ -205,7 +208,7 @@ conversations/
   "exportedAt": "2024-02-01T10:20:30.456Z",
   "generator": { "name": "teams-chat-extractor", "version": "1.4.0", "extractorVersion": "1.1.0", "schemaVersion": 3 },
   "records": { "format": "teams-chat-archive", "formatVersion": 1 },   // the record format of the .json and .jsonl files
-  "selection": { "from": null, "to": null, "images": true, "systemMessages": false, "editHistory": true },
+  "selection": { "from": null, "to": null, "images": true, "reactions": true, "systemMessages": false, "editHistory": true },
   "timeZone": "Europe/Berlin",                                            // of the times in the transcripts
   "conversations": [
     { "conversationKey": "teams:19:abc…@thread.v2", "name": "Project Alpha", "folder": "conversations/Project-Alpha-120d474f", "messages": 4, "images": 3 }
@@ -217,7 +220,7 @@ A package can be zipped again, for example inside a folder and compressed by Win
 
 ## Transcripts
 
-HTML, PDF, Markdown, plain text and CSV are for reading. They show each conversation's name, type, participants, message count, how much history the archive holds, the period and the time zone, then the messages day by day: sender, time, text, reply context, attachments, pictures, *(edited)* and *(deleted)* marks and, when chosen, earlier versions. Text is escaped for each format; only `http` and `https` links are kept.
+HTML, PDF, Markdown, plain text and CSV are for reading. They show each conversation's name, type, participants, message count, how much history the archive holds, the period and the time zone, then the messages day by day: sender, time, text, reply context, attachments, pictures, reactions (`Reactions: 👍 2 · ❤️ 1 (yours: 👍)`), *(edited)* and *(deleted)* marks and, when chosen, earlier versions. Text is escaped for each format; only `http` and `https` links are kept.
 
 | Packaging | Files |
 | --- | --- |
@@ -246,6 +249,7 @@ One row per message, for spreadsheets: UTF-8 with a byte order mark (so Excel re
 | `pictures` | The picture files, one per line, from the conversation folder (with **Pictures**, in a ZIP). |
 | `edited`, `deleted` | `yes` or `no`. |
 | `earlier_versions` | Earlier versions, `[replaced <time>] text`, separated by `---` lines (with **Edit history**). |
+| `reactions` | The reactions line, `👍 2 · ❤️ 1 (yours: 👍)` (with **Reactions**). Added in 1.7 as the last column, so the columns before it keep their places. |
 
 ## Import
 

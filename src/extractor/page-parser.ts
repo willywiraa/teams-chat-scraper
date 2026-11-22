@@ -243,8 +243,10 @@ export function parseRenderedConversation(doc: Document, options: PageParseOptio
       links: raw.content.links,
       attachments: raw.attachments,
       replyTo,
+      ...(raw.reactions.length > 0 ? { reactions: raw.reactions } : {}),
       isEdited: raw.isEdited,
       isDeleted: raw.isDeleted,
+      // Reactions are left out: a new reaction is not an edit.
       contentHash: hashParts([normalizedText, attachments, raw.isDeleted ? 'deleted' : '']),
       fingerprint,
       fingerprintStrong: strongTime !== null,

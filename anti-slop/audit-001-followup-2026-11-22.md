@@ -1,6 +1,6 @@
 # antislop audit 001, follow-up, 22 November 2026
 
-The fixes for findings 1 to 14 of [audit-001-2026-11-22.md](audit-001-2026-11-22.md), which you approved. Finding 15 (the name) was not touched; it waits on decision 1. Version 1.6.1.
+The fixes for findings 1 to 14 of [audit-001-2026-11-22.md](audit-001-2026-11-22.md), which you approved. Finding 15 (the name) waited on decision 1 and was fixed later, in 1.7.0. Version 1.6.1.
 
 ## How it was checked
 
@@ -37,7 +37,7 @@ The fixes for findings 1 to 14 of [audit-001-2026-11-22.md](audit-001-2026-11-22
 | 12 | C-4 | Fixed | **Change:** a shared `countOf()` gives the singular for one. It is used in:<ul><li>the Export list;</li><li>the merge dialog, its progress and its result;</li><li>the delete question and its result (which now says *runs*, as the rest of the page does);</li><li>the image dialog title, and the image count's accessible name;</li><li>the conversation count;</li><li>the import result, which said "conversation(s)".</li></ul>**Evidence:** the Export list now reads *Alice Andersen · 1 message*. |
 | 13 | R-11 | Fixed | The image and merge dialogs use the 8 px radius. |
 | 14 | C-1 | Fixed | The unused `label.button` rules are removed. |
-| 15 | R-20 | Not touched | Waits on decision 1 (the name). |
+| 15 | R-20 | Fixed in 1.7.0 | **Change:** decision 1 chose "Chat Archiver for Microsoft Teams". The popup and the archive page are both titled *Chat Archiver*; tab titles read *Overview · Chat Archiver*. The full name, with a note that it is not affiliated with Microsoft, is in the manifest, the toolbar tooltip and Settings → About. |
 
 ## Rules re-checked after the fixes
 

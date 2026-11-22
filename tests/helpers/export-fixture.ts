@@ -51,6 +51,10 @@ export async function exportFixture(conversationKey = CK, title = 'Project Alpha
           { kind: 'image', name: 'lost.png', url: 'javascript:alert(1)', imageId: null },
         ],
         replyTo: { messageId: id(15, 9, 0), senderName: null, timestampRaw: null, preview: null, resolvedKey: `${conversationKey}#${id(15, 9, 0)}`, resolution: 'message-id' },
+        reactions: [
+          { emoji: '👍', count: 2, mine: true },
+          { emoji: '🎉', count: 1, mine: false },
+        ],
       }),
       ctx,
     ),

@@ -37,6 +37,8 @@ export interface ExportSelectionV1 {
   from: string | null;
   to: string | null;
   images: boolean;
+  /** Added in 1.7; absent in older exports, which hold the reactions they have. */
+  reactions?: boolean;
   systemMessages: boolean;
   editHistory: boolean;
 }
@@ -169,6 +171,8 @@ export function validateMessage(value: unknown, conversationKey: string | null, 
   assert(typeof message.contentHash === 'string', `${at}.contentHash must be a string`);
   assert(typeof message.fingerprint === 'string', `${at}.fingerprint must be a string`);
   assert(typeof message.firstSeenAt === 'string' && typeof message.lastSeenAt === 'string', `${at} needs firstSeenAt/lastSeenAt`);
+  // Added in 1.7. Entries are checked when the record is stored (`normalizeReactions`).
+  assert(message.reactions === undefined || Array.isArray(message.reactions), `${at}.reactions must be an array`);
 }
 
 /** Checks the descriptive fields of an exported image (`withData`: and that it has `dataBase64`). */

@@ -20,6 +20,8 @@ export interface ExportContent {
   attachments: boolean;
   /** The quoted message a reply refers to. */
   replies: boolean;
+  /** Reactions under messages (emoji and counts). Added in 1.7; on when not stored. */
+  reactions: boolean;
   /** Events such as "X added Y to the chat". */
   systemMessages: boolean;
   /** Earlier versions of edited and deleted messages. */
@@ -42,7 +44,7 @@ export interface ExportChoices {
   content: ExportContent;
 }
 
-export const FULL_CONTENT: Readonly<ExportContent> = Object.freeze({ images: true, attachments: true, replies: true, systemMessages: true, editHistory: true });
+export const FULL_CONTENT: Readonly<ExportContent> = Object.freeze({ images: true, attachments: true, replies: true, reactions: true, systemMessages: true, editHistory: true });
 
 /** First use: one HTML page with everything (not JSON). */
 export const DEFAULT_EXPORT_CHOICES: Readonly<ExportChoices> = Object.freeze({ format: 'html', packaging: 'file', range: 'all', from: '', to: '', content: { ...FULL_CONTENT } });
@@ -50,8 +52,8 @@ export const DEFAULT_EXPORT_CHOICES: Readonly<ExportChoices> = Object.freeze({ f
 export type ExportPreset = 'knowledge' | 'backup';
 
 /**
- * Knowledge system: the package with pictures, attachments, reply context and edit history,
- * without system messages. Backup: the package with everything.
+ * Knowledge system: the package with pictures, attachments, reply context, reactions and edit
+ * history, without system messages. Backup: the package with everything.
  */
 export function presetChoices(preset: ExportPreset): ExportChoices {
   return {
