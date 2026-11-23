@@ -18,32 +18,37 @@ export type Route =
   | { view: 'overview' }
   | { view: 'conversations' }
   | { view: 'conversation'; key: string }
-  | { view: 'export' }
+  | { view: 'export'; key?: string }
   | { view: 'settings'; section: SettingsSection | null; tabId: number | null };
 
 const SETTINGS_SECTIONS: readonly SettingsSection[] = ['general', 'advanced', 'storage', 'troubleshooting'];
 
 /**
  * The app page's routes: `#overview`, `#conversations`, `#conversation/<key>`, `#export`,
- * `#settings`, `#settings/<section>` and `#settings/troubleshooting/<tab id>` (diagnostics of
- * that Teams tab). Anything else is the overview.
+ * `#export/<key>` (Export with that conversation selected), `#settings`, `#settings/<section>`
+ * and `#settings/troubleshooting/<tab id>` (diagnostics of that Teams tab). Anything else is the
+ * overview.
  */
 export function parseRoute(hash: string): Route {
   const [view = '', ...rest] = hash.replace(/^#\/?/, '').split('/');
+  const key = (): string => {
+    try {
+      return decodeURIComponent(rest.join('/'));
+    } catch {
+      return '';
+    }
+  };
   switch (view) {
     case 'conversations':
       return { view: 'conversations' };
     case 'conversation': {
-      let key = '';
-      try {
-        key = decodeURIComponent(rest.join('/'));
-      } catch {
-        key = '';
-      }
-      return key ? { view: 'conversation', key } : { view: 'conversations' };
+      const conversation = key();
+      return conversation ? { view: 'conversation', key: conversation } : { view: 'conversations' };
     }
-    case 'export':
-      return { view: 'export' };
+    case 'export': {
+      const conversation = key();
+      return conversation ? { view: 'export', key: conversation } : { view: 'export' };
+    }
     case 'settings': {
       const section = SETTINGS_SECTIONS.includes(rest[0] as SettingsSection) ? (rest[0] as SettingsSection) : null;
       const tab = section === 'troubleshooting' && rest[1] && /^\d+$/.test(rest[1]) ? Number(rest[1]) : null;
@@ -58,6 +63,8 @@ export function routeHash(route: Route): string {
   switch (route.view) {
     case 'conversation':
       return `#conversation/${encodeURIComponent(route.key)}`;
+    case 'export':
+      return route.key ? `#export/${encodeURIComponent(route.key)}` : '#export';
     case 'settings':
       return `#settings${route.section ? `/${route.section}` : ''}${route.section === 'troubleshooting' && route.tabId !== null ? `/${route.tabId}` : ''}`;
     default:
@@ -68,6 +75,23 @@ export function routeHash(route: Route): string {
 /** The navigation entry a route belongs to. */
 export function navOf(route: Route): 'overview' | 'conversations' | 'export' | 'settings' {
   return route.view === 'conversation' ? 'conversations' : route.view;
+}
+
+// ------------------------------------------------------------ run progress
+
+/**
+ * How far a capture with a start date has got: the share of the time from the run's start back
+ * to that date which the oldest message reached covers, 0 to 1. Null when there is no start date
+ * (the full history) or it is not before the run's start.
+ */
+export function reachShare(startedAt: string, captureFrom: number | null | undefined, oldestReached: string | null | undefined): number | null {
+  if (typeof captureFrom !== 'number' || !Number.isFinite(captureFrom)) return null;
+  const start = Date.parse(startedAt);
+  const span = start - captureFrom;
+  if (!Number.isFinite(span) || span <= 0) return null;
+  const reached = oldestReached ? Date.parse(oldestReached) : Number.NaN;
+  if (Number.isNaN(reached)) return 0;
+  return Math.min(1, Math.max(0, (start - reached) / span));
 }
 
 // ------------------------------------------------------- conversation list

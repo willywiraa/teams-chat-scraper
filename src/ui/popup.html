@@ -43,29 +43,47 @@
           </p>
         </div>
 
-        <div class="card notice" id="resume-box" hidden>
-          <div id="resume-text" class="small"></div>
-          <div class="button-row">
-            <button type="button" id="btn-resume-session" class="primary">Resume extraction</button>
-          </div>
-        </div>
-
         <div class="card" id="actions">
-          <label class="capture-label small" for="capture-choice">Capture</label>
-          <div class="capture-row">
-            <select id="capture-choice" aria-describedby="capture-hint">
-              <option value="update">New messages since the last update</option>
-              <option value="last-24h">Last 24 hours</option>
-              <option value="last-7d">Last 7 days</option>
-              <option value="last-30d">Last 30 days</option>
-              <option value="from-date">From a date…</option>
-              <option value="everything">Full history</option>
-              <option value="visible">Only the messages on screen now</option>
-            </select>
-            <label class="field" for="capture-from" id="capture-from-field" hidden><span>From</span><input type="date" id="capture-from" /></label>
+          <div id="resume-box" hidden>
+            <p id="resume-text" class="small"></p>
+            <button type="button" id="btn-resume-session" class="primary wide">Resume extraction</button>
+            <button type="button" id="btn-other-capture" class="link small">Start another capture instead</button>
           </div>
-          <div class="muted small" id="capture-hint"></div>
-          <button type="button" id="btn-start" class="primary wide">Capture</button>
+          <div id="capture-box">
+            <fieldset class="choice-group" aria-describedby="capture-hint">
+              <legend class="group-label">Capture</legend>
+              <div class="tile-grid capture-tiles">
+                <label class="tile" for="capture-update">
+                  <input type="radio" name="capture" id="capture-update" value="update" />
+                  <span class="tile-text"><span class="tile-name">New messages</span><span class="tile-line" id="capture-update-line"></span></span>
+                </label>
+                <label class="tile" for="capture-period-tile">
+                  <input type="radio" name="capture" id="capture-period-tile" value="period" />
+                  <span class="tile-text"><span class="tile-name">A period</span><span class="tile-line">24 hours, 7 or 30 days, or from a date</span></span>
+                </label>
+                <label class="tile" for="capture-everything">
+                  <input type="radio" name="capture" id="capture-everything" value="everything" />
+                  <span class="tile-text"><span class="tile-name">Full history</span><span class="tile-line">Back to the chat's start</span></span>
+                </label>
+                <label class="tile" for="capture-visible">
+                  <input type="radio" name="capture" id="capture-visible" value="visible" />
+                  <span class="tile-text"><span class="tile-name">On screen</span><span class="tile-line">Only what is shown, no scrolling</span></span>
+                </label>
+              </div>
+            </fieldset>
+            <fieldset class="choice-group" id="capture-period" hidden>
+              <legend class="visually-hidden">Period</legend>
+              <div class="segments">
+                <label class="segment" for="period-24h"><input type="radio" name="capture-period" id="period-24h" value="last-24h" /><span>24 hours</span></label>
+                <label class="segment" for="period-7d"><input type="radio" name="capture-period" id="period-7d" value="last-7d" checked /><span>7 days</span></label>
+                <label class="segment" for="period-30d"><input type="radio" name="capture-period" id="period-30d" value="last-30d" /><span>30 days</span></label>
+                <label class="segment" for="period-date"><input type="radio" name="capture-period" id="period-date" value="from-date" /><span>From a date…</span></label>
+              </div>
+            </fieldset>
+            <label class="field" for="capture-from" id="capture-from-field" hidden><span>From</span><input type="date" id="capture-from" /></label>
+            <div class="muted small" id="capture-hint"></div>
+            <button type="button" id="btn-start" class="primary wide">Capture</button>
+          </div>
           <details class="more" id="more">
             <summary>Options</summary>
             <label class="check small" for="opt-rescan">
@@ -83,6 +101,10 @@
             <span id="run-phase" class="badge" role="status"></span>
             <span id="run-elapsed" class="muted small"></span>
           </div>
+          <div class="progress" id="run-bar" role="progressbar" aria-label="How far back the capture has reached" aria-valuemin="0" aria-valuemax="100" hidden>
+            <div class="progress-fill" id="run-bar-fill"></div>
+          </div>
+          <div class="small" id="run-reach" hidden></div>
           <dl class="stats">
             <div><dt>Seen</dt><dd id="run-seen">0</dd></div>
             <div><dt>New</dt><dd id="run-new">0</dd></div>
@@ -91,7 +113,7 @@
           </dl>
           <div class="muted small" id="run-detail"></div>
           <ul class="warnings small" id="run-warnings" hidden></ul>
-          <div class="button-row">
+          <div class="button-row run-buttons">
             <button type="button" id="btn-pause">Pause</button>
             <button type="button" id="btn-continue" class="primary" hidden>Continue</button>
             <button type="button" id="btn-stop" class="danger">Stop</button>

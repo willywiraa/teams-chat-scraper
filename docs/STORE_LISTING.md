@@ -66,6 +66,6 @@ No remote code is loaded or run. All scripts are part of the package.
 
 ## Notes for certification
 
-> Testing needs a Microsoft account with Teams (a free personal account works on teams.live.com). Open a chat with a few messages in Teams Web, click the extension, keep **Full history** and click **Start**. Then click the archive button at the top of the popup to see the chat on the archive page, and try **Export**.
+> Testing needs a Microsoft account with Teams (a free personal account works on teams.live.com). Open a chat with a few messages in Teams Web, click the extension, keep **Full history** and click **Capture the full history**. Then click the archive button at the top of the popup to see the chat on the archive page, and try **Export**.
 >
 > The extension reads only the rendered page of the chat the user opens. It does not use any Microsoft API, does not read tokens or cookies, and sends no data anywhere. It is not affiliated with Microsoft; "for Microsoft Teams" describes what it works with. The logo is its own (a white archive box shaped like a speech bubble, on a blue tile), not a Microsoft logo or colour.

@@ -137,59 +137,93 @@
       <!-- Export -->
       <section id="view-export" class="view" aria-labelledby="export-title" hidden>
         <h2 id="export-title" class="view-title" tabindex="-1">Export</h2>
-        <div class="card">
-          <fieldset class="export-section">
-            <legend>Start from</legend>
-            <div class="export-presets">
-              <div class="preset">
-                <button type="button" id="btn-preset-knowledge" aria-describedby="preset-knowledge-text">Knowledge system</button>
-                <p id="preset-knowledge-text" class="muted small">
-                  The knowledge package with pictures, attachments, reply context, reactions and edit history, without system messages.
+        <div class="card export-card">
+          <div class="export-layout">
+            <div class="export-choices">
+              <fieldset class="export-section">
+                <legend>Start from</legend>
+                <div class="tile-grid preset-tiles">
+                  <label class="tile" for="preset-knowledge">
+                    <input type="radio" name="export-preset" id="preset-knowledge" value="knowledge" />
+                    <span class="tile-text">
+                      <span class="tile-name">Knowledge system<span class="tile-state"> · In use</span></span>
+                      <span class="tile-line">The knowledge package with pictures, attachments, reply context, reactions and edit history, without system messages.</span>
+                    </span>
+                  </label>
+                  <label class="tile" for="preset-backup">
+                    <input type="radio" name="export-preset" id="preset-backup" value="backup" />
+                    <span class="tile-text">
+                      <span class="tile-name">Full backup<span class="tile-state"> · In use</span></span>
+                      <span class="tile-line">The knowledge package with everything. Import archive… restores it.</span>
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
+              <fieldset class="export-section">
+                <legend>Format</legend>
+                <div class="tile-grid format-tiles" id="export-formats"></div>
+                <p id="export-explain" class="small export-explain"></p>
+                <details class="more" id="export-inside" hidden>
+                  <summary>What is inside</summary>
+                  <p id="export-inside-text" class="muted small"></p>
+                </details>
+              </fieldset>
+              <fieldset class="export-section" id="export-packaging-field">
+                <legend>Packaging</legend>
+                <div class="segments" id="export-packaging"></div>
+              </fieldset>
+              <fieldset class="export-section">
+                <legend>Messages</legend>
+                <div class="segments" id="export-range"></div>
+                <div id="export-period" class="export-grid" hidden>
+                  <label class="field" for="export-from"><span>From (included)</span><input type="datetime-local" id="export-from" /></label>
+                  <label class="field" for="export-to"><span>Before (not included)</span><input type="datetime-local" id="export-to" /></label>
+                </div>
+              </fieldset>
+              <fieldset class="export-section">
+                <legend>Content</legend>
+                <div id="export-content" class="export-content"></div>
+                <p id="export-content-note" class="muted small" hidden>
+                  File attachments and reply context are always included in JSON and package exports: they are part of each archive record.
                 </p>
-              </div>
-              <div class="preset">
-                <button type="button" id="btn-preset-backup" aria-describedby="preset-backup-text">Full backup</button>
-                <p id="preset-backup-text" class="muted small">The knowledge package with everything. Import archive… restores it.</p>
-              </div>
+              </fieldset>
             </div>
-          </fieldset>
-          <div class="export-grid">
-            <label class="field" for="export-format"><span>Format</span><select id="export-format"></select></label>
-            <label class="field" for="export-packaging" id="export-packaging-field"><span>Packaging</span><select id="export-packaging"></select></label>
+            <fieldset class="export-section export-picker">
+              <legend>Conversations</legend>
+              <div class="picker-tools" id="export-tools">
+                <div class="field toolbar-search">
+                  <label for="export-filter">Filter by name</label>
+                  <label class="search-field" for="export-filter">
+                    <span id="export-filter-icon"></span>
+                    <input type="search" id="export-filter" placeholder="Name, earlier title or key" autocomplete="off" />
+                  </label>
+                </div>
+                <fieldset class="choice-group" id="export-types-field">
+                  <legend class="visually-hidden">Chat type</legend>
+                  <div class="segments" id="export-types"></div>
+                </fieldset>
+              </div>
+              <div class="button-row small" id="export-select-row">
+                <button type="button" class="link" id="btn-export-select-all">Select all</button>
+                <button type="button" class="link" id="btn-export-select-none">Select none</button>
+                <button type="button" class="link" id="btn-export-select-shown" hidden>Select shown</button>
+                <span id="export-selected-count" class="muted"></span>
+              </div>
+              <div id="export-conversations" class="export-list"></div>
+              <p id="export-no-match" class="muted small" hidden>No conversation matches the filter. Clear it to see them all.</p>
+              <p id="export-empty" class="muted small" hidden>Nothing archived yet, so there is nothing to export. Open a chat in Teams Web and click the toolbar button.</p>
+            </fieldset>
           </div>
-          <p id="export-explain" class="small export-explain"></p>
-          <details class="more" id="export-inside" hidden>
-            <summary>What is inside</summary>
-            <p id="export-inside-text" class="muted small"></p>
-          </details>
-          <fieldset class="export-section">
-            <legend>Conversations</legend>
-            <div class="button-row small" id="export-select-row">
-              <button type="button" class="link" id="btn-export-select-all">Select all</button>
-              <button type="button" class="link" id="btn-export-select-none">Select none</button>
-              <span id="export-selected-count" class="muted"></span>
+          <div class="export-bar">
+            <div class="export-bar-text">
+              <p id="export-message" class="small" role="status" aria-live="polite" hidden></p>
+              <div id="export-will-save" class="small"></div>
+              <div class="progress" id="export-progress" role="progressbar" aria-label="Export progress" aria-valuemin="0" aria-valuemax="100" hidden>
+                <div class="progress-fill" id="export-progress-fill"></div>
+              </div>
+              <span id="export-run-hint" class="muted small" hidden></span>
             </div>
-            <div id="export-conversations" class="export-list"></div>
-            <p id="export-empty" class="muted small" hidden>Nothing archived yet, so there is nothing to export. Open a chat in Teams Web and click the toolbar button.</p>
-          </fieldset>
-          <div class="export-grid">
-            <label class="field" for="export-range"><span>Messages</span><select id="export-range"></select></label>
-          </div>
-          <div id="export-period" class="export-grid" hidden>
-            <label class="field" for="export-from"><span>From (included)</span><input type="datetime-local" id="export-from" /></label>
-            <label class="field" for="export-to"><span>Before (not included)</span><input type="datetime-local" id="export-to" /></label>
-          </div>
-          <fieldset class="export-section">
-            <legend>Content</legend>
-            <div id="export-content" class="export-content"></div>
-            <p id="export-content-note" class="muted small" hidden>
-              File attachments and reply context are always included in JSON and package exports: they are part of each archive record.
-            </p>
-          </fieldset>
-          <p id="export-message" class="small" role="status" aria-live="polite" hidden></p>
-          <div class="button-row">
             <button type="button" id="btn-export-run" class="primary" aria-describedby="export-run-hint">Export</button>
-            <span id="export-run-hint" class="muted small" hidden></span>
           </div>
         </div>
         <section class="card" aria-labelledby="import-title">

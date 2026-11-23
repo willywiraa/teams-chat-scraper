@@ -585,23 +585,214 @@ a {
   margin-top: var(--space-3);
 }
 
-.capture-label {
-  display: block;
-  font-weight: 600;
-  margin-bottom: var(--space-1);
+/* ------------------------------------------- tiles and segmented rows */
+
+/*
+ * Choices drawn as controls: a tile is a radio with a name and a line under it, a segment one of
+ * a row of buttons. They take the control outline like a button; the chosen one has the selected
+ * tint, the accent edge, and a radio dot (tiles) or a heavier bottom edge (segments).
+ */
+.choice-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
 }
 
-.capture-row {
+.group-label {
+  padding: 0 0 var(--space-2);
+  font-size: var(--font-s);
+  font-weight: 600;
+}
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.tile {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  min-width: 0;
+  min-height: 32px;
+  padding: var(--space-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-s);
+  background: var(--card);
+  font-size: var(--font-s);
+}
+
+.tile:hover:not(:has(input:disabled)) {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+
+.tile:has(input:checked) {
+  border: 2px solid var(--accent);
+  padding: calc(var(--space-2) - 1px);
+  background: var(--selected);
+}
+
+.tile:has(input:disabled) {
+  opacity: 0.5;
+}
+
+.tile:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.tile input {
+  flex: none;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.tile input:focus-visible {
+  outline: none;
+}
+
+.tile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tile-name {
+  font-weight: 600;
+}
+
+.tile-line {
+  font-size: var(--font-xs);
+  color: var(--muted);
+}
+
+/* "In use" on a preset tile, shown only on the chosen one. */
+.tile-state {
+  font-weight: 400;
+}
+
+.tile:not(:has(input:checked)) .tile-state {
+  display: none;
+}
+
+.segments {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-2);
-  margin-bottom: var(--space-1);
+  gap: var(--space-1);
 }
 
-.capture-row select {
+.segment {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 5px var(--space-3);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-s);
+  background: var(--card);
+  font-size: var(--font-s);
+  text-align: center;
+}
+
+.segment:hover:not(:has(input:disabled)) {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+
+.segment:has(input:checked) {
+  border-color: var(--accent);
+  border-bottom: 2px solid var(--text);
+  padding-bottom: 4px;
+  background: var(--selected);
+  font-weight: 600;
+}
+
+.segment:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The radio itself is kept for the keyboard and screen readers, but not drawn. */
+.segment input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.segment-count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* A share that is known (how far back a range capture has reached, the conversation an export
+   is writing). It changes in steps, with no transition. */
+.progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.progress-fill {
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* ------------------------------------------------------------- popup */
+
+#capture-box,
+#resume-box {
+  display: grid;
+  gap: var(--space-2);
+}
+
+#resume-box p {
+  margin: 0;
+}
+
+#resume-box button.link,
+#resume-box button.wide {
+  justify-self: start;
+  margin-top: 0;
+}
+
+#resume-box button.wide,
+#capture-box button.wide {
+  justify-self: stretch;
+  margin-top: var(--space-1);
+}
+
+#capture-period .segment {
   flex: 1 1 auto;
-  min-width: 0;
+}
+
+#capture-from-field {
+  max-width: 200px;
+}
+
+#run-panel {
+  display: grid;
+  gap: var(--space-2);
+}
+
+#run-panel .stats {
+  margin: var(--space-1) 0 0;
+}
+
+.run-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: var(--space-1);
 }
 
 input[type='date'],
@@ -657,6 +848,9 @@ textarea {
 }
 
 .result-link {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
   margin-top: var(--space-1);
 }
 
@@ -968,28 +1162,117 @@ details.advanced > summary {
 
 /* -------------------------------------------------------------- export */
 
-.export-presets {
+/* One column of choices, then the conversations; side by side from 1200 px. */
+.export-layout {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
-.preset {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-1);
+.export-choices {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  min-width: 0;
 }
 
-.preset p {
-  margin: 0;
+@media (min-width: 1200px) {
+  .export-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-5);
+  }
 }
 
 .export-section {
   min-width: 0;
-  margin: var(--space-4) 0 0;
+  margin: 0;
   padding: 0;
   border: none;
+}
+
+.preset-tiles {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.format-tiles {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+@media (max-width: 760px) {
+  .format-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 320px) {
+  .format-tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.picker-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: flex-end;
+  margin-bottom: var(--space-2);
+}
+
+.picker-tools .toolbar-search {
+  flex: 1 1 220px;
+}
+
+/*
+ * The bar at the bottom of the Export card: the file it will save (or the progress) and the
+ * button. It stays at the window's bottom edge while the card is on screen.
+ */
+.export-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-4) calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
+  padding: var(--space-3);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-m) var(--radius-m);
+  background: var(--card);
+}
+
+.export-bar-text {
+  display: grid;
+  gap: var(--space-1);
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.export-bar-text > * {
+  margin: 0;
+}
+
+/* In the bar a result or an error is a line of text, not a box. */
+.export-bar p.notice,
+.export-bar p.success,
+.export-bar p.error {
+  padding: 0;
+  border: none;
+  background: none;
+  overflow-wrap: anywhere;
+}
+
+.export-bar p.error {
+  color: var(--danger);
+}
+
+#export-will-save {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .export-bar button {
+    flex: 1 1 100%;
+  }
 }
 
 .export-section legend {
@@ -1007,8 +1290,6 @@ details.advanced > summary {
 }
 
 .export-list {
-  max-height: 220px;
-  overflow: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -1018,8 +1299,14 @@ details.advanced > summary {
 
 .export-content {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2) var(--space-3);
+}
+
+@media (min-width: 761px) {
+  .export-content {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .export-content .field,
@@ -1236,6 +1523,8 @@ details.advanced > summary {
   a.conv-title,
   .back-link,
   .result-link a,
+  .tile,
+  .segment,
   details > summary {
     min-height: 44px;
   }

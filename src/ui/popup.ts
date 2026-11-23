@@ -23,6 +23,7 @@ import {
   el,
   errorText,
   formatDate,
+  formatAgo,
   formatDateTime,
   formatDuration,
   formatMoment,
@@ -36,7 +37,7 @@ import {
 } from './common';
 import { icon } from './icons';
 import { nextTheme, readTheme, saveTheme, THEME_STORAGE_KEY, themeLabel } from './theme';
-import { historyLine, routeHash, type Route } from './view-models';
+import { historyLine, reachShare, routeHash, type Route } from './view-models';
 
 /** The capture choices of the popup: the capture ranges, and the messages on screen only. */
 type PopupChoice = CaptureChoice | 'visible';
@@ -51,6 +52,8 @@ let busy = false;
 let settings: ScrapeSettings = { ...DEFAULT_SETTINGS };
 /** The re-read option is preset from the settings once; after that it is the user's choice. */
 let rescanPreset = false;
+/** Set by **Start another capture instead**: the capture choices replace Resume for this chat. */
+let otherCapture = false;
 /** What the capture controls were last drawn for; the choice is preset once per chat. */
 const captureState: { record: ConversationRecord | null; conversationKey: string | null; idle: boolean; presetFor: string | null } = {
   record: null,
@@ -186,10 +189,25 @@ function renderProgress(status: ContentStatus): void {
   setText('run-new', formatNumber(counters?.inserted ?? 0));
   setText('run-updated', formatNumber(counters?.updated ?? 0));
   setText('run-unchanged', formatNumber(counters?.unchanged ?? 0));
-  const captureFrom = status.session?.captureFrom;
+  const session = status.session;
+  const captureFrom = session?.captureFrom;
+  const oldest = progress?.oldestReached ?? null;
+  // Only a range capture knows where it ends; an update usually takes seconds.
+  const share = session?.mode === 'full' ? reachShare(session.startedAt, captureFrom, oldest) : null;
+  const bar = byId('run-bar');
+  bar.hidden = share === null;
+  if (share !== null) {
+    const percent = Math.round(share * 100);
+    byId('run-bar-fill').style.width = `${percent}%`;
+    bar.setAttribute('aria-valuenow', String(percent));
+    bar.setAttribute('aria-valuetext', oldest ? `${percent}%, back to ${formatDateTime(oldest)}` : `${percent}%`);
+  }
+  let reach = '';
+  if (typeof captureFrom === 'number') reach = oldest ? `Back to ${formatDateTime(oldest)}, going back to ${formatMoment(captureFrom)}` : `Going back to ${formatMoment(captureFrom)}`;
+  else if (oldest) reach = `Reached back to ${formatDateTime(oldest)}`;
+  setText('run-reach', reach);
+  setHidden('run-reach', reach === '');
   const detail = [
-    progress?.oldestReached ? `Reached back to ${formatDateTime(progress.oldestReached)}` : '',
-    typeof captureFrom === 'number' ? `going back to ${formatMoment(captureFrom)}` : '',
     counters ? `${formatNumber(counters.passes)} scroll steps` : '',
     counters?.gapsDetected ? `${counters.gapsDetected} gap checks` : '',
     counters?.imagesSaved ? `${countOf(counters.imagesSaved, 'image')} saved` : '',
@@ -237,7 +255,12 @@ function renderResult(result: FinishedSessionInfo): void {
       ? el('div', { className: 'muted small' }, 'Start it again to continue; parts already archived are passed quickly.')
       : null,
     ...result.warnings.slice(0, 3).map((warning) => el('div', { className: 'warning small' }, warning)),
-    el('div', { className: 'small result-link' }, archiveLink({ view: 'conversation', key: result.conversationKey }, 'Open this chat in the archive')),
+    el(
+      'div',
+      { className: 'small result-link' },
+      archiveLink({ view: 'conversation', key: result.conversationKey }, 'Open this chat in the archive'),
+      archiveLink({ view: 'export', key: result.conversationKey }, 'Export this chat…'),
+    ),
   ];
   panel.replaceChildren(...children.filter((child): child is HTMLElement => child !== null));
 }
@@ -249,7 +272,7 @@ async function renderArchive(status: ContentStatus): Promise<void> {
     setText('arch-summary', '');
     setHidden('arch-note', true);
     setHidden('resume-box', true);
-    byId('btn-start').classList.add('primary');
+    setHidden('capture-box', false);
     renderCapture({ record: null, conversationKey: null, idle: false });
     return;
   }
@@ -266,10 +289,10 @@ async function renderArchive(status: ContentStatus): Promise<void> {
     await repo.markStaleSessions(Date.now(), STALE_SESSION_MS);
     resumable = await repo.findResumableSession(record.conversationKey);
   }
-  const showResume = status.state === 'idle' && resumable !== null && coverage !== 'complete';
+  const showResume = status.state === 'idle' && resumable !== null && coverage !== 'complete' && !otherCapture;
+  // Resume takes the capture choices' place while it is offered.
   setHidden('resume-box', !showResume);
-  // Resume takes the primary place while it is offered.
-  byId('btn-start').classList.toggle('primary', !showResume);
+  setHidden('capture-box', showResume);
   if (showResume && resumable) {
     setText(
       'resume-text',
@@ -337,8 +360,20 @@ function todayValue(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
+function checkedValue(name: string): string | null {
+  return document.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)?.value ?? null;
+}
+
+function check(name: string, value: string): void {
+  const input = document.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value}"]`);
+  if (input) input.checked = true;
+}
+
+/** The tile chosen, and for **A period** the period chosen under it. */
 function selectedChoice(): PopupChoice {
-  return byId<HTMLSelectElement>('capture-choice').value as PopupChoice;
+  const tile = checkedValue('capture') ?? 'everything';
+  if (tile === 'period') return (checkedValue('capture-period') ?? 'last-7d') as PopupChoice;
+  return tile as PopupChoice;
 }
 
 /** The capture button says what it captures. */
@@ -361,49 +396,49 @@ function startLabel(choice: PopupChoice, rangeStart: number | null): string {
   }
 }
 
-function captureHint(choice: PopupChoice, record: ConversationRecord | null): string {
-  if (choice === 'visible') return 'Archives only the messages Teams shows on screen now, without scrolling.';
-  const passed = byId<HTMLInputElement>('opt-rescan').checked ? 'Parts already archived are read again.' : 'Parts already archived are passed quickly.';
+/** One sentence under the tiles: what the tile's own line does not say. */
+function captureHint(choice: PopupChoice): string {
+  if (choice === 'visible') return '';
+  const passed = byId<HTMLInputElement>('opt-rescan').checked ? 'parts already archived are read again' : 'parts already archived are passed quickly';
   if (choice === 'update') {
     const days = settings.updateOverlapDays;
-    const since = record?.lastUpdate ? `since the last update (${formatDateTime(record.lastUpdate.at)})` : 'newer than the archive';
-    const recheck = days > 0 ? `, and checks the ${days === 1 ? 'day' : `${days} days`} before again for edits and late replies` : ', until it meets archived messages';
-    return `Captures the messages ${since}${recheck}.`;
+    return days > 0 ? `Also checks the ${days === 1 ? 'day' : `${days} days`} before again, for edits and late replies.` : 'Stops when it meets archived messages.';
   }
-  if (choice === 'everything') return `Captures the whole history, back to the beginning of the chat. ${passed}`;
+  if (choice === 'everything') return `Back to the beginning of the chat; ${passed}.`;
   const plan = capturePlan(choice, Date.now(), byId<HTMLInputElement>('capture-from').value);
   if (!plan || plan.rangeStart === null) return 'Choose the first day to capture.';
-  return `Captures the messages from ${formatMoment(plan.rangeStart)} to now. ${passed}`;
+  return `From ${formatMoment(plan.rangeStart)} to now; ${passed}.`;
 }
 
 /**
- * The capture choice, its hint and the Start button. The choice is preset once per chat: new
- * messages when something is archived, else the full history.
+ * The capture tiles, the period under **A period**, the hint and the Start button. The choice is
+ * preset once per chat: new messages when something is archived, else the full history.
  */
 function renderCapture(next?: { record: ConversationRecord | null; conversationKey: string | null; idle: boolean }): void {
   if (next) Object.assign(captureState, next);
   const { record, conversationKey, idle } = captureState;
-  const select = byId<HTMLSelectElement>('capture-choice');
-  const updateOption = select.querySelector<HTMLOptionElement>('option[value="update"]');
   const archived = updateAnchor(record) !== null;
-  if (updateOption) {
-    updateOption.disabled = !archived;
-    // When that was is in the hint: a long option would set the width of the whole popup.
-    updateOption.textContent = record?.lastUpdate ? 'New messages since the last update' : 'New messages since the newest archived one';
-  }
+  setText(
+    'capture-update-line',
+    record?.lastUpdate ? `Since the last update, ${formatAgo(record.lastUpdate.at)}` : archived ? 'Since the newest archived message' : 'Nothing archived yet',
+  );
   if (conversationKey !== null && captureState.presetFor !== conversationKey) {
     captureState.presetFor = conversationKey;
-    select.value = archived ? 'update' : 'everything';
-  } else if (select.value === 'update' && !archived) {
-    select.value = 'everything';
+    otherCapture = false;
+    check('capture', archived ? 'update' : 'everything');
+  } else if ((checkedValue('capture') === 'update' && !archived) || checkedValue('capture') === null) {
+    check('capture', 'everything');
   }
-  select.disabled = !idle;
+  for (const input of byId('capture-box').querySelectorAll<HTMLInputElement>('input[type="radio"]')) input.disabled = !idle || (input.value === 'update' && !archived);
+  setHidden('capture-period', checkedValue('capture') !== 'period');
   const dateInput = byId<HTMLInputElement>('capture-from');
-  setHidden('capture-from-field', select.value !== 'from-date');
+  const choice = selectedChoice();
+  setHidden('capture-from-field', choice !== 'from-date');
   dateInput.disabled = !idle;
   dateInput.max = todayValue();
-  const choice = selectedChoice();
-  setText('capture-hint', conversationKey === null ? '' : captureHint(choice, record));
+  const hint = conversationKey === null ? '' : captureHint(choice);
+  setText('capture-hint', hint);
+  setHidden('capture-hint', hint === '');
   const plan = choice === 'visible' ? null : capturePlan(choice, Date.now(), dateInput.value);
   const start = byId<HTMLButtonElement>('btn-start');
   start.textContent = startLabel(choice, plan?.rangeStart ?? null);
@@ -465,10 +500,16 @@ function wire(): void {
   window.addEventListener('storage', (event) => {
     if (event.key === THEME_STORAGE_KEY) renderThemeButton();
   });
-  for (const id of ['capture-choice', 'capture-from', 'opt-rescan']) {
+  for (const id of ['capture-box', 'opt-rescan']) {
     byId(id).addEventListener('change', () => renderCapture());
     byId(id).addEventListener('input', () => renderCapture());
   }
+  byId('btn-other-capture').addEventListener('click', () => {
+    otherCapture = true;
+    setHidden('resume-box', true);
+    setHidden('capture-box', false);
+    byId('capture-box').querySelector<HTMLInputElement>('input[name="capture"]:checked')?.focus();
+  });
   // A resumed run continues what the interrupted one was doing: the same range, the same reading.
   byId('btn-resume-session').addEventListener('click', () => {
     if (!resumable) return;

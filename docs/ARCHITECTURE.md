@@ -144,11 +144,11 @@ A run can be given `since` (`EngineOptions.since`, the session's `captureFrom`):
 
 | Choice | Mode | `since` |
 | --- | --- | --- |
-| New messages since the last update | `incremental` | The last update's newest message (else the newest archived message) minus `updateOverlapDays`, computed by the router at `session/begin`. |
-| Last 24 hours / 7 days / 30 days | `full` | Now minus that period. |
-| From a date | `full` | Midnight local time of that day. |
+| New messages | `incremental` | The last update's newest message (else the newest archived message) minus `updateOverlapDays`, computed by the router at `session/begin`. |
+| A period: 24 hours / 7 days / 30 days | `full` | Now minus that period. |
+| A period: from a date | `full` | Midnight local time of that day. |
 | Full history | `full` | none |
-| Only the messages on screen now | `visible` | none |
+| On screen | `visible` | none |
 
 How runs end:
 
@@ -239,7 +239,7 @@ Everything in `export/` works on an `ExportReader` (`pipeline.ts`), which `Archi
 
 ## User interface
 
-The popup and the side panel are one page (`ui/popup.html`, `popup.ts`; the build writes `sidepanel.html` from it with `data-mode="panel"`). It polls the content script of the active Teams tab once a second and resolves the open chat's archive entry as a run would. The capture choices are one select, and the button under it names what it will capture (`startLabel`); during a run the progress and **Stop** take the place of the capture card. The header's theme button steps through Same as Windows, Light and Dark (`nextTheme`).
+The popup and the side panel are one page (`ui/popup.html`, `popup.ts`; the build writes `sidepanel.html` from it with `data-mode="panel"`). It polls the content script of the active Teams tab once a second and resolves the open chat's archive entry as a run would. The capture choices are four tiles (a radio group); **A period** adds a row of periods under them, and the button under them names what it will capture (`startLabel`). An interrupted run puts **Resume extraction** in the button's place until **Start another capture instead** is clicked. During a run the progress and **Stop** take the place of the capture card; for a capture with a start date, a bar shows the share of the way back the run has reached (`reachShare` in `view-models.ts`, from the session's `captureFrom` and the progress's `oldestReached`). The result links to the chat and, through `#export/<key>`, to Export with only that chat selected. The header's theme button steps through Same as Windows, Light and Dark (`nextTheme`).
 
 The archive page (`ui/archive.html`) is one page with four sections, chosen by the address:
 
@@ -248,18 +248,19 @@ The archive page (`ui/archive.html`) is one page with four sections, chosen by t
 | `#overview` (and anything unknown) | The last full backup, totals, latest activity, the latest 5 runs (or all) | `archive/overview.ts` |
 | `#conversations` | The list: search, type filter, sorting, actions | `archive/conversations.ts` |
 | `#conversation/<key>` | One chat's messages | `archive/conversation-view.ts` |
-| `#export` | Every export | `export-panel.ts` |
+| `#export`, `#export/<key>` (with that chat selected) | Every export | `export-panel.ts` |
 | `#settings`, `#settings/<general\|advanced\|storage\|troubleshooting>`, `#settings/troubleshooting/<tab id>` | Settings | `archive/settings-view.ts` |
 
 - `archive.ts` is the router. It shows the section for the address, marks it in the navigation, sets the document title, moves the focus to the section's heading, and keeps one status line (`notify`; a message sent with `carry` survives the navigation it causes). While a section is drawn it is marked `aria-busy`, and "Reading the archive…" shows if that takes more than 200 ms (and when the page opens). Button actions go through `guarded()`, which shows an error in the status line and ignores a click while the same action is still running. The sections share an `AppContext` (`archive/context.ts`): the repository, `notify`, `go(route)`, `refresh()` and `exportConversations(keys, preset)`.
 - What the screens show is worked out in `ui/view-models.ts` without the page: routes (`parseRoute`, `routeHash`), search and filters, the one-line summary (`historyLine`), overview totals, and the message view (`messageView`, `timeline`, `earlierPage`). The section modules only draw it, through `el()` and text nodes; nothing is parsed as HTML.
 - The message view holds only a chat's message keys (`ArchiveRepository.messageKeys`, from the `byConversationSort` index) and reads the messages of each page of 200 by key (`getMessagesByKey`). Pictures are read per page and shown from object URLs, which are revoked when the view closes. Each picture is drawn in a 240 × 160 box until its record is read, then at its recorded size scaled to fit 420 × 320 (`pictureBox`), set before its address so the list does not move when it loads. The view opens at the newest message, with **Back to the top** below it. Messages from one sender less than five minutes apart show the name once (`timeline` marks them `continued`; the name stays for screen readers).
 - Troubleshooting lists the open Teams tabs (`chrome.tabs.query` with the Teams host patterns, covered by the host permissions) and sends `content/status` and `content/diagnostics` to the chosen one. The popup links to it with its own tab's id.
+- Export's formats and presets are tiles and its packaging, periods and chat types segmented rows: radio groups, read as a whole on every change. A preset's tile is checked while the choices are its own (`presetInUse`). The bar at the card's bottom is `position: sticky`; before an export it names the file with `plannedFileName`, which names it as `runExport` does (a test compares the two for every format and packaging). The conversation picker filters with `filterConversations`; rows it hides keep their check.
 - Settings keep their stored keys. The scrolling speed (`SPEED_PRESETS`, `speedOf`, `withSpeed` in `shared/settings.ts`) is not stored: it is worked out from the six scrolling and waiting values, and is *Custom* when they match no preset.
 
 **Themes.** `ui/ui.css` defines the design tokens (spacing, radii, type sizes, colours) as CSS variables. The dark colours are written twice: for *System* when the operating system is dark (`@media (prefers-color-scheme: dark)` on `:root:not([data-theme='light'])`) and for an explicit *Dark* (`:root[data-theme='dark']`); `tests/unit/logo.test.ts` checks that both say the same, that every text colour has a contrast of at least 4.5:1, and that `--control-border` (the outline of buttons, selects and fields; `--border` is for structure) has at least 3:1 against card and page. The choice is a display preference kept in the extension's `localStorage` (`ui.theme`), so `theme.js` (`ui/theme-boot.ts`) can read it synchronously in each page's `<head>` and set `data-theme` before anything is drawn. Open pages follow a change through the `storage` event. The archive page sets it with the **Theme** select in its header, the popup and side panel with the theme button; *System* is labelled *Same as Windows*.
 
-**Accessibility.** Every page has a skip link, visible focus (`:focus-visible`), visible labels on every field and icon buttons with names; the status line, run progress and results are live regions. Controls are at least 32 px tall, and 44 px under `(pointer: coarse)`; enabled controls show the hand cursor, disabled ones *not allowed*, and a pressed button a heavier bottom edge. Links that act as targets (a chat's name, **All conversations**, **Open this chat in the archive**) follow the same 32 / 44 px rule. Below 760 px each table row becomes a short card (`table.cards`): its first cell sums the row up in a line or two (`.narrow-only`), and the cells that repeat it are hidden (`td.wide-only`), so nothing scrolls sideways; the popup and side panel fit from 300 px. Rename and Delete ask in `<dialog>` elements, not `prompt()` or `confirm()`; Delete opens with the focus on Cancel.
+**Accessibility.** Every page has a skip link, visible focus (`:focus-visible`), visible labels on every field and icon buttons with names; the status line, run progress and results are live regions. Controls, tiles and segments included, are at least 32 px tall, and 44 px under `(pointer: coarse)`; tiles and segmented rows are native radio groups, so the arrow keys move between options; enabled controls show the hand cursor, disabled ones *not allowed*, and a pressed button a heavier bottom edge. Links that act as targets (a chat's name, **All conversations**, **Open this chat in the archive**) follow the same 32 / 44 px rule. Below 760 px each table row becomes a short card (`table.cards`): its first cell sums the row up in a line or two (`.narrow-only`), and the cells that repeat it are hidden (`td.wide-only`), so nothing scrolls sideways; the popup and side panel fit from 300 px. Rename and Delete ask in `<dialog>` elements, not `prompt()` or `confirm()`; Delete opens with the focus on Cancel.
 
 ## Security
 

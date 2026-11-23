@@ -29,15 +29,15 @@ After rebuilding, click **Reload** on the extension card in `edge://extensions` 
 
 1. In Teams Web, open the chat (1:1, group or meeting chat).
 2. Click the extension icon. The popup shows the chat it found and one line about its archive, for example *1,234 messages · complete back to 3 Jan 2023 · updated 3 days ago*. A warning appears only when you can act on it, such as a chat archived in two entries (with a link to merge them).
-3. Under **Capture**, choose what to archive, then click the button under it, which names your choice (for example **Capture new messages**):
+3. Under **Capture**, choose one of the four tiles, then click the button under them, which names your choice (for example **Capture new messages**). **A period** shows a row with **24 hours**, **7 days**, **30 days** and **From a date…** under the tiles:
 
 | Choice | What it does | Ends when |
 | --- | --- | --- |
-| **New messages since the last update** | Archives the messages that arrived since the last update, and reads the 2 days before it again (setting) to pick up edits, deletions and late replies. Preselected once the chat has something archived. | It has re-read back to the last update minus those days, and seen at least 8 archived messages again. |
-| **Last 24 hours**, **Last 7 days**, **Last 30 days** | Archives the messages of that period. | The start of the period is reached, or it joins archived messages that already reach back that far. |
-| **From a date…** | The same, from midnight of the chosen day. | As above. |
+| **New messages** | Archives the messages that arrived since the last update, and reads the 2 days before it again (setting) to pick up edits, deletions and late replies. Preselected once the chat has something archived. | It has re-read back to the last update minus those days, and seen at least 8 archived messages again. |
+| **A period**: **24 hours**, **7 days**, **30 days** | Archives the messages of that period. | The start of the period is reached, or it joins archived messages that already reach back that far. |
+| **A period**: **From a date…** | The same, from midnight of the chosen day. | As above. |
 | **Full history** | Scrolls back to the beginning of the chat and archives everything. Preselected for a chat with nothing archived. | The beginning of the chat is reached, or it has caught up with a complete archive. |
-| **Only the messages on screen now** | Archives the messages Teams shows on screen, without scrolling. | At once. |
+| **On screen** | Archives the messages Teams shows on screen, without scrolling. | At once. |
 
 Every choice keeps the newer messages it passes on the way, so there is no "to" date: the archive never gets a hole between the period and now.
 
@@ -46,9 +46,9 @@ The popup also shows how many messages are on screen. Under **Options**:
 - **Re-read archived parts at normal speed** reads archived stretches again, with their images, instead of passing them quickly. Use it to pick up edits and deletions in older messages. The setting *Re-read archived parts by default* presets it.
 - A link to **Troubleshooting**. When the popup finds no chat or no messages, it shows that link on its own.
 
-During a run, the progress and **Stop** take the place of the capture controls. Afterwards the result links to the chat in the archive.
+During a run, the progress and **Stop** take the place of the capture controls. For a period, a bar shows how far back the run has reached; for the full history, whose beginning is unknown until it is reached, the popup says how far back it has got. Afterwards the result links to the chat in the archive, and **Export this chat…** opens Export with only that chat selected.
 
-**The last update** is the most recent run after which the archive held every message, without a gap, from the previous update up to the newest message. Any capture can be one: an update, a period or the full history, also one that was stopped once it got that far. A run that leaves a gap (for example *Last 24 hours* a week after the last update) is not, so the next **New messages since the last update** still goes back to the last update and closes the gap. The archive page shows the time of each chat's last update.
+**The last update** is the most recent run after which the archive held every message, without a gap, from the previous update up to the newest message. Any capture can be one: an update, a period or the full history, also one that was stopped once it got that far. A run that leaves a gap (for example a period of *24 hours* a week after the last update) is not, so the next **New messages** still goes back to the last update and closes the gap. The archive page shows the time of each chat's last update.
 
 While a run is active, the popup shows progress and **Pause**, **Continue** and **Stop**. Everything captured so far is saved after every scroll step, so stopping or closing the tab loses nothing.
 
@@ -58,7 +58,7 @@ For long chats, click the side panel button at the top right of the popup (next 
 
 ### Resuming
 
-If a run was interrupted, stopped or failed (tab closed or reloaded, browser closed, extension updated), the popup shows **Resume extraction** the next time you open that chat. Resuming repeats the same capture (the same period, the same reading) and continues where the previous run stopped:
+If a run was interrupted, stopped or failed (tab closed or reloaded, browser closed, extension updated), the popup shows **Resume extraction** in the capture button's place the next time you open that chat (**Start another capture instead** shows the capture choices). Resuming repeats the same capture (the same period, the same reading) and continues where the previous run stopped:
 
 - Through archived parts it takes steps of two screen heights instead of one, and doesn't read their images again. A skipped stretch counts as covered because the archive already holds it without a gap. If a step goes past the end of the archived part, the run steps back and continues normally.
 - Teams loads older history only from the newest message backwards, so a resumed run still has to pass everything newer than where it stopped. That is quick but depends on how fast Teams loads older messages.
@@ -75,8 +75,7 @@ Open it with the archive button at the top right of the popup, or via the extens
   - the **message view** opens at the newest of the latest 200 messages (**Back to the top** below them), with a heading for each day, the sender's name once for messages less than five minutes apart, replies with the message they quote, pictures where they were sent (click one for full size), attachments with their links, and the earlier versions of edited messages. **Show earlier messages** loads the 200 before, keeping your place;
   - its actions, above the messages: **Export…**, **Images** (each saved picture with who sent it and when, to view or download), **Rename…**, **Merge…** and **Delete…**.
 - **Export**: one place for every export. Start from a preset or choose, in this order:
-  - the **conversations**: one, several or all;
-  - the **format**:
+  - the **format**, from a tile for each:
     - **HTML page**: read the chat message by message in the browser, each picture where it was sent;
     - **PDF (print)**: opens the same page in a new tab with the print dialog; choose **Save as PDF** as the printer. Allow pop-ups for the archive page if Edge blocks the tab;
     - **Markdown** and **Plain text**;
@@ -85,9 +84,12 @@ Open it with the archive button at the top right of the popup, or via the extens
     - **Knowledge package**: a ZIP with the records as JSON Lines, a Markdown transcript per chat and the pictures as files, for knowledge management systems. **Import archive…** reads it back too;
   - the **packaging**: one file, or a ZIP with the pictures as files, named by number and message time (`001_2026-11-02_1001.png`). Markdown, text and CSV are always a ZIP when they include pictures; HTML can embed them in the one file;
   - the **messages**: all archived messages, the last 24 hours, the last 7 days, the last 30 days, or a custom period (From included, Before not);
-  - what to **include**: pictures, file attachments, reply context, reactions, system messages and edit history.
+  - what to **include**: pictures, file attachments, reply context, reactions, system messages and edit history;
+  - the **conversations**: one, several or all. **Filter by name** narrows the list (a name, an earlier title or a key), and when the archive holds more than one kind of chat, a row of chips narrows it by type (*All*, *1:1 chats*, *Group chats*…, each with its count). **Select shown** selects only the chats the filter shows; the count says how many selected chats it hides.
 
-  **Knowledge system** sets the knowledge package with pictures, attachments, replies, reactions and edit history, without system messages; **Full backup** sets it with everything. The section remembers your last choices; the first time it suggests an HTML page. **Export…** on a chat opens it with that chat selected. [docs/EXPORT_FORMAT.md](docs/EXPORT_FORMAT.md) describes every format.
+  A bar at the bottom of the card stays in view as you scroll. It names the file the export will save (*Will save teams-archive-2026-11-23T09-30-00.zip*; the time is when you click) and holds the button. During an export it shows how many messages have been written, with a bar when there are several conversations; afterwards, the result. From 1200 px the conversations sit beside the other choices.
+
+  **Knowledge system** sets the knowledge package with pictures, attachments, replies, reactions and edit history, without system messages; **Full backup** sets it with everything. The preset whose choices the form holds says *In use*. The section remembers your last choices; the first time it suggests an HTML page. **Export…** on a chat, and **Export this chat…** in the popup after a run, open it with that chat selected. [docs/EXPORT_FORMAT.md](docs/EXPORT_FORMAT.md) describes every format.
 - **Settings**: General, Advanced, Storage and Troubleshooting (see below).
 
 What you can do with a chat:
@@ -106,7 +108,7 @@ The pages follow the Windows light or dark theme (*Same as Windows*), or *Light*
 | --- | --- | --- |
 | Scrolling speed | Normal | **Gentle**, **Normal** or **Fast** set the scrolling and waiting values below together (see the table after this one). **Custom** shows when the values under Advanced match no preset. |
 | Maximum run duration | 360 min | Hard limit, so a run can never loop forever. |
-| Update: days before the last update to check again | 2 | **New messages since the last update** reads this many days before the last update again, for edits, deletions and late replies. 0 to 30; 0 stops at the first archived messages. |
+| Update: days before the last update to check again | 2 | **New messages** (in the popup) reads this many days before the last update again, for edits, deletions and late replies. 0 to 30; 0 stops at the first archived messages. |
 | Save the images shown in messages | on | Saves the pictures displayed in messages into the archive. See [Images](#images). |
 | Pause while the Teams tab is hidden | on | See above. |
 

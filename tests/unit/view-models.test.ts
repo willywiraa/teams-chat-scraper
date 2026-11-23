@@ -1,11 +1,13 @@
 /**
  * What the app page and the popup show, worked out without a page: routes, the conversation
  * list's search, filter and sorting, summary lines, overview totals, the message view and its
- * pages; the backup line; the scrolling speed presets; the theme choice; the export panel's
- * explanation and button; and repeated clicks.
+ * pages; the backup line; the scrolling speed presets; the theme choice; the popup's run progress;
+ * the export panel's explanation, button, presets, file name and conversation lines; and repeated
+ * clicks.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_EXPORT_CHOICES, normalizeChoices, presetChoices } from '../../src/export/options';
+import { DEFAULT_EXPORT_CHOICES, EXPORT_FORMATS, FULL_CONTENT, normalizeChoices, packagingsFor, presetChoices } from '../../src/export/options';
+import { runExport } from '../../src/export/pipeline';
 import { timeFormat } from '../../src/export/render';
 import {
   DEFAULT_SETTINGS,
@@ -21,7 +23,7 @@ import {
 import type { ConversationRecord } from '../../src/shared/types';
 import { guarded, type AppContext } from '../../src/ui/archive/context';
 import { countOf, formatDate, formatDateTime, formatNumber } from '../../src/ui/common';
-import { explainChoices, exportButtonLabel } from '../../src/ui/export-panel';
+import { conversationFacts, explainChoices, exportButtonLabel, FORMAT_TILES, plannedFileName, presetInUse } from '../../src/ui/export-panel';
 import { parseLastBackup } from '../../src/ui/last-backup';
 import { applyTheme, nextTheme, normalizeTheme, readTheme, saveTheme, THEME_STORAGE_KEY, themeLabel } from '../../src/ui/theme';
 import {
@@ -38,11 +40,13 @@ import {
   overviewTotals,
   parseRoute,
   pictureBox,
+  reachShare,
   routeHash,
   timeline,
   type Route,
 } from '../../src/ui/view-models';
-import { at, exportFixture } from '../helpers/export-fixture';
+import { memoryReader } from '../helpers/export';
+import { at, exportFixture, FIXTURE_NOW } from '../helpers/export-fixture';
 
 
 function record(overrides: Partial<ConversationRecord> = {}): ConversationRecord {
@@ -83,6 +87,7 @@ describe('routes of the app page', () => {
       { view: 'conversation', key: 'teams:19:abc@thread.v2' },
       { view: 'conversation', key: 'title:design review/2 #1' },
       { view: 'export' },
+      { view: 'export', key: 'title:design review' },
       { view: 'settings', section: null, tabId: null },
       { view: 'settings', section: 'advanced', tabId: null },
       { view: 'settings', section: 'storage', tabId: null },
@@ -92,6 +97,11 @@ describe('routes of the app page', () => {
     for (const route of routes) expect(parseRoute(routeHash(route))).toEqual(route);
     expect(routeHash({ view: 'settings', section: 'troubleshooting', tabId: 42 })).toBe('#settings/troubleshooting/42');
     expect(routeHash({ view: 'conversation', key: 'title:a/b' })).toBe('#conversation/title%3Aa%2Fb');
+    // The popup's Export this chat… names the chat; Export without one is the plain address.
+    expect(routeHash({ view: 'export', key: 'title:a/b' })).toBe('#export/title%3Aa%2Fb');
+    expect(parseRoute('#export/')).toEqual({ view: 'export' });
+    expect(parseRoute('#export/%E0%A4%A')).toEqual({ view: 'export' });
+    expect(navOf({ view: 'export', key: 'k' })).toBe('export');
   });
 
   it('show the overview for an empty or unknown address, and the list for a conversation without key', () => {
@@ -467,7 +477,79 @@ describe('theme', () => {
 
 // ------------------------------------------------------------ export panel
 
+describe('run progress in the popup', () => {
+  const start = '2026-11-23T12:00:00.000Z';
+  const startMs = Date.parse(start);
+  const DAY = 86_400_000;
+  const back = (days: number) => new Date(startMs - days * DAY).toISOString();
+
+  it('is the share of the way back to the start date that the run has reached', () => {
+    expect(reachShare(start, startMs - 10 * DAY, back(4))).toBeCloseTo(0.4);
+    expect(reachShare(start, startMs - 10 * DAY, null)).toBe(0);
+    expect(reachShare(start, startMs - 10 * DAY, back(12))).toBe(1);
+    expect(reachShare(start, startMs - 10 * DAY, back(-1))).toBe(0);
+  });
+
+  it('is unknown without a start date before the run started', () => {
+    expect(reachShare(start, null, back(4))).toBeNull();
+    expect(reachShare(start, undefined, back(4))).toBeNull();
+    expect(reachShare(start, startMs, back(4))).toBeNull();
+    expect(reachShare('not a date', startMs - DAY, back(4))).toBeNull();
+  });
+});
+
 describe('export panel', () => {
+  it('shows a preset as in use only while the choices are its own', () => {
+    const backup = normalizeChoices(presetChoices('backup'));
+    expect(presetInUse(normalizeChoices(presetChoices('knowledge')))).toBe('knowledge');
+    expect(presetInUse(backup)).toBe('backup');
+    expect(presetInUse(normalizeChoices(DEFAULT_EXPORT_CHOICES))).toBeNull();
+    expect(presetInUse({ ...backup, range: 'last-7d' })).toBeNull();
+    expect(presetInUse({ ...backup, content: { ...backup.content, editHistory: false } })).toBeNull();
+    // The package always keeps attachments and reply context, as its ticked, disabled boxes show.
+    expect(presetInUse({ ...backup, content: { ...backup.content, attachments: false } })).toBe('backup');
+  });
+
+  it('names the file as the export names it, for every format and packaging', async () => {
+    const alpha = await exportFixture();
+    const beta = await exportFixture('teams:19:beta', 'Design review', 2);
+    const reader = memoryReader([alpha, beta]);
+    expect(plannedFileName({ format: 'pdf', packaging: 'file' }, [alpha.record], FIXTURE_NOW)).toBeNull();
+    let compared = 0;
+    for (const format of EXPORT_FORMATS.filter((value) => value !== 'pdf')) {
+      for (const images of [true, false]) {
+        for (const packaging of packagingsFor(format, { images })) {
+          for (const records of [[alpha.record], [alpha.record, beta.record]]) {
+            const outcome = await runExport(reader, {
+              conversations: records.map((one) => one.conversationKey),
+              format,
+              packaging,
+              range: { from: null, to: null },
+              content: { ...FULL_CONTENT, images },
+              now: FIXTURE_NOW,
+            });
+            expect(plannedFileName({ format, packaging }, records, FIXTURE_NOW), `${format} ${packaging}`).toBe(outcome.fileName);
+            compared++;
+          }
+        }
+      }
+    }
+    expect(compared).toBeGreaterThanOrEqual(20);
+  });
+
+  it('sums a conversation up after its name in the list', () => {
+    const now = Date.parse('2024-01-20T13:00:00.000Z');
+    expect(conversationFacts(record({ messageCount: 451 }), now)).toBe('Group chat · 451 messages · updated 3 hours ago');
+    expect(conversationFacts(record({ type: 'one-on-one', messageCount: 1 }), now)).toMatch(/^1:1 chat · 1 message · updated /);
+  });
+
+  it('gives every format a tile with a short name and a line', () => {
+    for (const format of EXPORT_FORMATS) {
+      expect(FORMAT_TILES[format].name.length, format).toBeGreaterThan(0);
+      expect(FORMAT_TILES[format].line.length, format).toBeLessThanOrEqual(45);
+    }
+  });
+
   it('names what the Export button writes', () => {
     expect(exportButtonLabel({ format: 'package', packaging: 'zip' }, 2)).toBe('Export 2 conversations (ZIP)');
     expect(exportButtonLabel({ format: 'html', packaging: 'file' }, 1)).toBe('Export 1 conversation (HTML)');

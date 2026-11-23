@@ -107,7 +107,8 @@ async function show(route: Route, { navigated }: { navigated: boolean }): Promis
         const wanted = pendingExport;
         pendingExport = null;
         exportPanel ??= new ExportPanel({ repository });
-        await exportPanel.show(await (await repository()).listConversations(), wanted?.keys);
+        // The popup's Export this chat… names the chat in the address.
+        await exportPanel.show(await (await repository()).listConversations(), wanted?.keys ?? (route.key ? [route.key] : undefined));
         if (wanted?.preset) exportPanel.usePreset(wanted.preset);
         break;
       }

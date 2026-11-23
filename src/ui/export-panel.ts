@@ -5,6 +5,7 @@
  */
 import {
   DEFAULT_EXPORT_CHOICES,
+  effectiveContent,
   EXPORT_FORMATS,
   fixedContent,
   FORMATS,
@@ -20,30 +21,45 @@ import {
   type Packaging,
   type RangeChoice,
 } from '../export/options';
-import { runExport, writePrintable, type ExportProgress, type ExportRequest, type ExportTotals } from '../export/pipeline';
+import { exportFileNameFor, runExport, writePrintable, type ExportProgress, type ExportRequest, type ExportTotals } from '../export/pipeline';
 import { conversationLabel, type ConversationRecord } from '../shared/types';
 import type { ArchiveRepository } from '../storage/repository';
-import { byId, countOf, downloadBlob, el, errorText, formatNumber } from './common';
+import { byId, countOf, downloadBlob, el, errorText, formatAgo, formatNumber, TYPE_LABELS } from './common';
+import { icon } from './icons';
 import { recordBackup } from './last-backup';
+import { filterConversations, lastActivityOf, TYPE_FILTERS, type TypeFilter } from './view-models';
 
 export const EXPORT_CHOICES_KEY = 'exportChoices.v1';
 
-const CONTENT_FIELDS: Array<{ key: keyof ExportContent; id: string; label: string }> = [
-  { key: 'images', id: 'export-images', label: 'Pictures' },
-  { key: 'attachments', id: 'export-attachments', label: 'File attachments (names and links)' },
-  { key: 'replies', id: 'export-replies', label: 'Reply context (the message a reply quotes)' },
-  { key: 'reactions', id: 'export-reactions', label: 'Reactions (emoji and how many chose each)' },
-  { key: 'systemMessages', id: 'export-system', label: 'System messages (joined, added, renamed…)' },
-  { key: 'editHistory', id: 'export-history', label: 'Edit history (earlier versions of edited messages)' },
+const CONTENT_FIELDS: Array<{ key: keyof ExportContent; id: string; label: string; note: string }> = [
+  { key: 'images', id: 'export-images', label: 'Pictures', note: '' },
+  { key: 'attachments', id: 'export-attachments', label: 'File attachments', note: 'names and links' },
+  { key: 'replies', id: 'export-replies', label: 'Reply context', note: 'the message a reply quotes' },
+  { key: 'reactions', id: 'export-reactions', label: 'Reactions', note: 'emoji and how many chose each' },
+  { key: 'systemMessages', id: 'export-system', label: 'System messages', note: 'joined, added, renamed…' },
+  { key: 'editHistory', id: 'export-history', label: 'Edit history', note: 'earlier versions of edited messages' },
 ];
 
 const RANGE_LABELS: Record<RangeChoice, string> = {
-  all: 'All archived messages',
-  'last-24h': 'Last 24 hours',
-  'last-7d': 'Last 7 days',
-  'last-30d': 'Last 30 days',
-  custom: 'Custom period…',
+  all: 'All archived',
+  'last-24h': '24 hours',
+  'last-7d': '7 days',
+  'last-30d': '30 days',
+  custom: 'A period…',
 };
+
+/** The format tiles: a short name, and what the format is for. */
+export const FORMAT_TILES: Record<ExportFormat, { name: string; line: string }> = {
+  html: { name: 'HTML page', line: 'To read in a browser' },
+  pdf: { name: 'PDF', line: 'Opens the print dialog to save a PDF' },
+  markdown: { name: 'Markdown', line: 'For notes apps and wikis' },
+  text: { name: 'Plain text', line: 'Text without formatting' },
+  csv: { name: 'CSV', line: 'One row per message, opens in Excel' },
+  json: { name: 'JSON', line: 'Complete records, Import archive… reads it' },
+  package: { name: 'Knowledge package', line: 'A ZIP for knowledge tools and backups' },
+};
+
+const PRESETS: readonly ExportPreset[] = ['knowledge', 'backup'];
 
 export interface ExportPanelHost {
   repository(): Promise<ArchiveRepository>;
@@ -59,6 +75,76 @@ function packagingLabel(format: ExportFormat, packaging: Packaging): string {
   if (format === 'pdf') return 'Printed page';
   if (packaging === 'zip') return format === 'package' ? 'ZIP' : 'ZIP with the pictures as files';
   return format === 'html' ? 'One file, pictures embedded' : 'One file';
+}
+
+/** A radio drawn as a tile: a name and a line under it. */
+function tile(name: string, value: string, title: string, line: string): HTMLLabelElement {
+  const id = `${name}-${value}`;
+  return el(
+    'label',
+    { className: 'tile', for: id },
+    el('input', { type: 'radio', name, id, value }),
+    el('span', { className: 'tile-text' }, el('span', { className: 'tile-name' }, title), el('span', { className: 'tile-line' }, line)),
+  );
+}
+
+/** A radio drawn as one of a row of buttons, with an optional count after its label. */
+function segment(name: string, value: string, text: string, count?: number): HTMLLabelElement {
+  const id = `${name}-${value}`;
+  return el(
+    'label',
+    { className: 'segment', for: id },
+    el('input', { type: 'radio', name, id, value }),
+    el('span', {}, text, count === undefined ? null : el('span', { className: 'segment-count' }, ` ${formatNumber(count)}`)),
+  );
+}
+
+function checkedValue(name: string): string | null {
+  return document.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)?.value ?? null;
+}
+
+function check(name: string, value: string): void {
+  for (const input of document.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)) input.checked = input.value === value;
+}
+
+/** The preset whose choices the form holds, or null when it holds neither. */
+export function presetInUse(choices: ExportChoices): ExportPreset | null {
+  const content = effectiveContent(choices.format, choices.content);
+  for (const preset of PRESETS) {
+    const wanted = presetChoices(preset);
+    const same =
+      choices.format === wanted.format &&
+      choices.packaging === wanted.packaging &&
+      choices.range === wanted.range &&
+      (Object.keys(wanted.content) as Array<keyof ExportContent>).every((key) => content[key] === wanted.content[key]);
+    if (same) return preset;
+  }
+  return null;
+}
+
+/** The name the export will be saved under, named as the export pipeline names it; null for PDF, which is printed. */
+export function plannedFileName(choices: Pick<ExportChoices, 'format' | 'packaging'>, records: readonly ConversationRecord[], now: Date): string | null {
+  switch (choices.format) {
+    case 'pdf':
+      return null;
+    case 'package':
+      return exportFileNameFor(records, now, 'zip', 'package');
+    case 'json':
+      return exportFileNameFor(records, now, 'json');
+    default:
+      return exportFileNameFor(records, now, choices.packaging === 'zip' ? 'zip' : FORMATS[choices.format].extension);
+  }
+}
+
+/** A conversation's line in the picker, after its name: "Group chat · 451 messages · updated 3 days ago". */
+export function conversationFacts(record: ConversationRecord, nowMs: number = Date.now()): string {
+  return `${TYPE_LABELS[record.type]} · ${countOf(record.messageCount, 'message')} · updated ${formatAgo(lastActivityOf(record), nowMs)}`;
+}
+
+/** The archive keys among `records` that `keys` name, by key or by an alias. */
+function keysIn(records: readonly ConversationRecord[], keys: readonly string[]): string[] {
+  const wanted = new Set(keys);
+  return records.filter((record) => wanted.has(record.conversationKey) || (record.aliases ?? []).some((alias) => wanted.has(alias))).map((record) => record.conversationKey);
 }
 
 /**
@@ -120,26 +206,35 @@ export class ExportPanel {
   }
 
   private build(): void {
-    byId('export-format').replaceChildren(...EXPORT_FORMATS.map((format) => el('option', { value: format }, FORMATS[format].label)));
-    byId('export-range').replaceChildren(...(Object.keys(RANGE_LABELS) as RangeChoice[]).map((range) => el('option', { value: range }, RANGE_LABELS[range])));
+    byId('export-formats').replaceChildren(...EXPORT_FORMATS.map((format) => tile('export-format', format, FORMAT_TILES[format].name, FORMAT_TILES[format].line)));
+    byId('export-range').replaceChildren(...(Object.keys(RANGE_LABELS) as RangeChoice[]).map((range) => segment('export-range', range, RANGE_LABELS[range])));
     byId('export-content').replaceChildren(
-      ...CONTENT_FIELDS.map(({ id, label }) => el('label', { className: 'check field', for: id }, el('input', { type: 'checkbox', id }), el('span', {}, label))),
+      ...CONTENT_FIELDS.map(({ id, label, note }) =>
+        el('label', { className: 'check field', for: id }, el('input', { type: 'checkbox', id }), el('span', {}, label, note ? el('span', { className: 'muted' }, ` ${note}`) : null)),
+      ),
     );
-    for (const id of ['export-format', 'export-packaging', 'export-range', 'export-from', 'export-to', ...CONTENT_FIELDS.map((field) => field.id)]) {
+    byId('export-filter-icon').replaceWith(icon('search'));
+    // The controls are radios and checkboxes in these groups; a change anywhere in one is read whole.
+    for (const id of ['export-formats', 'export-packaging', 'export-range', 'export-from', 'export-to', 'export-content']) {
       byId(id).addEventListener('change', () => this.readControls());
     }
-    byId('export-conversations').addEventListener('change', () => this.update());
-    byId('btn-export-select-all').addEventListener('click', () => this.selectAll(true));
-    byId('btn-export-select-none').addEventListener('click', () => this.selectAll(false));
-    byId('btn-preset-knowledge').addEventListener('click', () => this.applyPreset('knowledge'));
-    byId('btn-preset-backup').addEventListener('click', () => this.applyPreset('backup'));
+    byId('export-conversations').addEventListener('change', () => {
+      this.message('');
+      this.update();
+    });
+    byId('export-filter').addEventListener('input', () => this.applyFilter());
+    byId('export-types').addEventListener('change', () => this.applyFilter());
+    byId('btn-export-select-all').addEventListener('click', () => this.select(() => true));
+    byId('btn-export-select-none').addEventListener('click', () => this.select(() => false));
+    byId('btn-export-select-shown').addEventListener('click', () => this.select((row) => !row.hidden));
+    for (const preset of PRESETS) byId(`preset-${preset}`).addEventListener('change', () => this.applyPreset(preset));
     // Opened from the click itself: the print tab must be opened before anything is awaited.
     byId('btn-export-run').addEventListener('click', () => this.run());
   }
 
   /**
-   * Shows the section for these conversations: the given ones selected, else those selected
-   * before (all the first time).
+   * Shows the section for these conversations: the given ones selected (by key or alias), else
+   * those selected before (all the first time).
    */
   async show(records: ConversationRecord[], selected?: readonly string[]): Promise<void> {
     if (!this.loaded) {
@@ -154,21 +249,26 @@ export class ExportPanel {
     if (this.running) return;
     this.records = records;
     if (this.chosen && !selected) this.chosen = new Set(this.selectedKeys());
-    const chosen = new Set(selected ?? (this.chosen && this.chosen.size > 0 ? [...this.chosen] : records.map((record) => record.conversationKey)));
+    const wanted = selected ? keysIn(records, selected) : [];
+    const chosen = new Set(wanted.length > 0 ? wanted : this.chosen && this.chosen.size > 0 ? [...this.chosen] : records.map((record) => record.conversationKey));
     this.chosen = chosen;
+    const now = Date.now();
     byId('export-conversations').replaceChildren(
       ...records.map((record, i) =>
         el(
           'label',
           { className: 'check field', for: `export-conv-${i}` },
           el('input', { type: 'checkbox', id: `export-conv-${i}`, value: record.conversationKey, checked: chosen.has(record.conversationKey) }),
-          el('span', {}, conversationLabel(record), el('span', { className: 'muted' }, ` · ${countOf(record.messageCount, 'message')}`)),
+          el('span', {}, conversationLabel(record), el('span', { className: 'muted' }, ` · ${conversationFacts(record, now)}`)),
         ),
       ),
     );
+    this.buildTypes();
     byId('export-empty').hidden = records.length > 0;
     byId('export-select-row').hidden = records.length === 0;
+    byId('export-tools').hidden = records.length === 0;
     this.message('');
+    this.applyFilter(false);
     this.writeControls();
   }
 
@@ -177,31 +277,68 @@ export class ExportPanel {
     this.applyPreset(preset);
   }
 
+  /** The chips for the chat types the archive holds, each with its count; none when it holds one type. */
+  private buildTypes(): void {
+    const countOfType = (type: TypeFilter) => (type === 'all' ? this.records.length : this.records.filter((record) => record.type === type).length);
+    const present = TYPE_FILTERS.filter(({ value }) => value !== 'all' && countOfType(value) > 0);
+    const current = checkedValue('export-type') ?? 'all';
+    byId('export-types').replaceChildren(
+      ...[{ value: 'all' as TypeFilter, label: 'All' }, ...present].map(({ value, label }) => segment('export-type', value, label, countOfType(value))),
+    );
+    byId('export-types-field').hidden = present.length < 2;
+    check('export-type', present.length >= 2 && present.some(({ value }) => value === current) ? current : 'all');
+  }
+
+  /** Shows the conversations the filter and the chosen type let through; the others keep their check. */
+  private applyFilter(update = true): void {
+    const query = byId<HTMLInputElement>('export-filter').value;
+    const type = (checkedValue('export-type') ?? 'all') as TypeFilter;
+    const shown = new Set(filterConversations(this.records, { query, type }).map((record) => record.conversationKey));
+    for (const input of this.inputs()) {
+      const row = input.closest('label');
+      if (row) row.hidden = !shown.has(input.value);
+    }
+    byId('export-no-match').hidden = this.records.length === 0 || shown.size > 0;
+    byId('btn-export-select-shown').hidden = shown.size === this.records.length;
+    if (update) this.update();
+  }
+
+  private inputs(): HTMLInputElement[] {
+    return Array.from(byId('export-conversations').querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+  }
+
   private selectedKeys(): string[] {
-    return Array.from(byId('export-conversations').querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))
+    return this.inputs()
       .filter((input) => input.checked)
       .map((input) => input.value);
   }
 
-  private selectAll(checked: boolean): void {
-    for (const input of byId('export-conversations').querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) input.checked = checked;
+  /** Checks the conversations whose row `wanted` accepts and clears the others. */
+  private select(wanted: (row: HTMLElement) => boolean): void {
+    this.message('');
+    for (const input of this.inputs()) {
+      const row = input.closest('label');
+      if (row) input.checked = wanted(row);
+    }
     this.update();
   }
 
+  /** The preset's tile shows *In use* while the form holds its choices. */
   private applyPreset(preset: ExportPreset): void {
     this.choices = normalizeChoices(presetChoices(preset));
+    this.message('');
     this.writeControls();
-    this.message(preset === 'knowledge' ? 'Knowledge system chosen: the knowledge package without system messages.' : 'Full backup chosen: the knowledge package with everything.');
   }
 
   /** Reads the choices from the controls, then makes them consistent and shows them again. */
   private readControls(): void {
+    this.message('');
     const content = { ...this.choices.content };
     for (const { key, id } of CONTENT_FIELDS) {
       const input = byId<HTMLInputElement>(id);
       if (!input.disabled) content[key] = input.checked;
     }
-    const range = byId<HTMLSelectElement>('export-range').value as RangeChoice;
+    const range = (checkedValue('export-range') ?? this.choices.range) as RangeChoice;
     let from = byId<HTMLInputElement>('export-from').value;
     if (range === 'custom' && !from && !byId<HTMLInputElement>('export-to').value) {
       const start = new Date();
@@ -209,8 +346,8 @@ export class ExportPanel {
       from = localInputValue(start.getTime() - 7 * 86_400_000);
     }
     this.choices = normalizeChoices({
-      format: byId<HTMLSelectElement>('export-format').value,
-      packaging: byId<HTMLSelectElement>('export-packaging').value,
+      format: checkedValue('export-format') ?? this.choices.format,
+      packaging: checkedValue('export-packaging') ?? this.choices.packaging,
       range,
       from,
       to: byId<HTMLInputElement>('export-to').value,
@@ -222,14 +359,19 @@ export class ExportPanel {
   /** Shows the choices in the controls, with what each format allows. */
   private writeControls(): void {
     const { choices } = this;
-    byId<HTMLSelectElement>('export-format').value = choices.format;
+    check('export-format', choices.format);
     const packagings = choices.format === 'pdf' ? (['file'] as Packaging[]) : packagingsFor(choices.format, choices.content);
-    const packaging = byId<HTMLSelectElement>('export-packaging');
-    packaging.replaceChildren(...packagings.map((value) => el('option', { value }, packagingLabel(choices.format, value))));
-    packaging.value = choices.packaging;
+    const packaging = byId('export-packaging');
+    // Drawn again only when the ways to package change, so the focus stays on the one chosen.
+    const signature = packagings.map((value) => `${value}:${packagingLabel(choices.format, value)}`).join('|');
+    if (packaging.dataset.signature !== signature) {
+      packaging.replaceChildren(...packagings.map((value) => segment('export-packaging', value, packagingLabel(choices.format, value))));
+      packaging.dataset.signature = signature;
+    }
+    check('export-packaging', choices.packaging);
     // With one way to package it, the explanation says which.
     byId('export-packaging-field').hidden = packagings.length < 2;
-    byId<HTMLSelectElement>('export-range').value = choices.range;
+    check('export-range', choices.range);
     byId<HTMLInputElement>('export-from').value = choices.from;
     byId<HTMLInputElement>('export-to').value = choices.to;
     byId('export-period').hidden = choices.range !== 'custom';
@@ -241,23 +383,44 @@ export class ExportPanel {
       input.disabled = forced !== undefined;
     }
     byId('export-content-note').hidden = Object.keys(fixed).length === 0;
+    const preset = presetInUse(choices);
+    for (const name of PRESETS) byId<HTMLInputElement>(`preset-${name}`).checked = name === preset;
     this.update();
   }
 
   private update(): void {
-    const count = this.selectedKeys().length;
-    byId('export-selected-count').textContent = `${count} of ${this.records.length} selected`;
+    const keys = this.selectedKeys();
+    const count = keys.length;
+    const notShown = this.inputs().filter((input) => input.checked && input.closest('label')?.hidden).length;
+    byId('export-selected-count').textContent = `${count} of ${this.records.length} selected${notShown > 0 ? ` (${notShown} not shown)` : ''}`;
     const explained = explainChoices(this.choices, count);
     byId('export-explain').textContent = explained.text;
     byId('export-inside-text').textContent = explained.inside;
     byId('export-inside').hidden = explained.inside === '';
     const button = byId<HTMLButtonElement>('btn-export-run');
-    button.textContent = exportButtonLabel(this.choices, count);
+    button.textContent = this.running ? 'Exporting…' : exportButtonLabel(this.choices, count);
     button.disabled = this.running || count === 0;
     // A disabled Export says why.
     const hint = byId('export-run-hint');
     hint.textContent = this.running ? '' : this.records.length === 0 ? 'Nothing to export yet.' : count === 0 ? 'Select at least one conversation.' : '';
     hint.hidden = hint.textContent === '';
+    if (!this.running) this.showFileName(keys);
+  }
+
+  /**
+   * The bar's line before an export: the file it will save, or for PDF what opens. A result or an
+   * error in the bar takes its place until a choice changes.
+   */
+  private showFileName(keys: readonly string[]): void {
+    const chosen = new Set(keys);
+    const records = this.records.filter((record) => chosen.has(record.conversationKey));
+    const name = records.length === 0 ? null : plannedFileName(this.choices, records, new Date());
+    const said = !byId('export-message').hidden;
+    const line = said || records.length === 0 ? '' : name === null ? 'Opens the print dialog in a new tab' : `Will save ${name}`;
+    const element = byId('export-will-save');
+    element.textContent = line;
+    element.hidden = line === '';
+    byId('export-progress').hidden = true;
   }
 
   private message(text: string, kind: 'notice' | 'error' | 'success' = 'notice'): void {
@@ -283,19 +446,37 @@ export class ExportPanel {
     };
   }
 
+  /** The bar's line during an export, and a bar for which conversation of several is being written. */
   private progress = (progress: ExportProgress): void => {
-    this.message(`Writing ${formatNumber(progress.messages)} messages (conversation ${progress.conversation} of ${progress.conversations})…`);
+    const several = progress.conversations > 1;
+    const line = byId('export-will-save');
+    line.textContent = `Writing ${formatNumber(progress.messages)} messages${several ? `, conversation ${progress.conversation} of ${progress.conversations}` : ''}`;
+    line.hidden = false;
+    const bar = byId('export-progress');
+    bar.hidden = !several;
+    if (several) {
+      const percent = Math.round(((progress.conversation - 1) / progress.conversations) * 100);
+      byId('export-progress-fill').style.width = `${percent}%`;
+      bar.setAttribute('aria-valuenow', String(percent));
+      bar.setAttribute('aria-valuetext', `Conversation ${progress.conversation} of ${progress.conversations}`);
+    }
   };
 
   private run(): void {
     const keys = this.selectedKeys();
     if (this.running || keys.length === 0) return;
     const request = this.request(keys);
-    if (!request) return;
+    if (!request) {
+      this.update();
+      return;
+    }
     const win = request.format === 'pdf' ? window.open('', '_blank') : null;
     this.running = true;
+    this.message('');
     this.update();
-    this.message('Preparing the export…');
+    const line = byId('export-will-save');
+    line.textContent = 'Preparing the export…';
+    line.hidden = false;
     void chrome.storage.local.set({ [EXPORT_CHOICES_KEY]: this.choices }).catch(() => undefined);
     const work = request.format === 'pdf' ? this.print(request, win) : this.download(request);
     void work
