@@ -1,7 +1,7 @@
 /**
  * What the screens show, worked out from archive records without touching the page: routes of
- * the app page, the conversation list's search and filters, summary lines, overview totals and
- * the message view. The screens draw these; the tests check them.
+ * the archive page, the conversation list's search and filters, summary lines, the archive's
+ * totals and the message view. The screens draw these; the tests check them.
  */
 import { attachmentPrefix, replyTargetOf, senderLabel, timeLabel, webLink, type ReplyTarget, type TimeFormat } from '../export/render';
 import { reactionsText } from '../shared/reactions';
@@ -12,22 +12,16 @@ import { countOf, formatAgo, formatDate, formatDateTime, formatNumber } from './
 
 // ------------------------------------------------------------------ routes
 
-export type SettingsSection = 'general' | 'advanced' | 'storage' | 'troubleshooting';
+/** The parts of the archive page, one under the other. */
+export type PageSection = 'conversations' | 'backup' | 'settings' | 'advanced';
 
-export type Route =
-  | { view: 'overview' }
-  | { view: 'conversations' }
-  | { view: 'conversation'; key: string }
-  | { view: 'export'; key?: string }
-  | { view: 'settings'; section: SettingsSection | null; tabId: number | null };
-
-const SETTINGS_SECTIONS: readonly SettingsSection[] = ['general', 'advanced', 'storage', 'troubleshooting'];
+export type Route = { view: 'home'; section: PageSection | null } | { view: 'conversation'; key: string };
 
 /**
- * The app page's routes: `#overview`, `#conversations`, `#conversation/<key>`, `#export`,
- * `#export/<key>` (Export with that conversation selected), `#settings`, `#settings/<section>`
- * and `#settings/troubleshooting/<tab id>` (diagnostics of that Teams tab). Anything else is the
- * overview.
+ * The archive page's routes: `#conversations`, `#backup`, `#settings` and `#settings/advanced`
+ * (the page, at that part), and `#conversation/<key>` (one chat's messages). The addresses of
+ * the earlier sections still lead somewhere: `#overview` and `#export` to Backup and import,
+ * `#export/<key>` to that chat, any part of Settings to Settings. Anything else is the page.
  */
 export function parseRoute(hash: string): Route {
   const [view = '', ...rest] = hash.replace(/^#\/?/, '').split('/');
@@ -40,41 +34,29 @@ export function parseRoute(hash: string): Route {
   };
   switch (view) {
     case 'conversations':
-      return { view: 'conversations' };
+      return { view: 'home', section: 'conversations' };
     case 'conversation': {
       const conversation = key();
-      return conversation ? { view: 'conversation', key: conversation } : { view: 'conversations' };
+      return conversation ? { view: 'conversation', key: conversation } : { view: 'home', section: 'conversations' };
     }
+    case 'backup':
+    case 'overview':
+      return { view: 'home', section: 'backup' };
     case 'export': {
       const conversation = key();
-      return conversation ? { view: 'export', key: conversation } : { view: 'export' };
+      return conversation ? { view: 'conversation', key: conversation } : { view: 'home', section: 'backup' };
     }
-    case 'settings': {
-      const section = SETTINGS_SECTIONS.includes(rest[0] as SettingsSection) ? (rest[0] as SettingsSection) : null;
-      const tab = section === 'troubleshooting' && rest[1] && /^\d+$/.test(rest[1]) ? Number(rest[1]) : null;
-      return { view: 'settings', section, tabId: tab };
-    }
+    case 'settings':
+      return { view: 'home', section: rest[0] === 'advanced' ? 'advanced' : 'settings' };
     default:
-      return { view: 'overview' };
+      return { view: 'home', section: null };
   }
 }
 
 export function routeHash(route: Route): string {
-  switch (route.view) {
-    case 'conversation':
-      return `#conversation/${encodeURIComponent(route.key)}`;
-    case 'export':
-      return route.key ? `#export/${encodeURIComponent(route.key)}` : '#export';
-    case 'settings':
-      return `#settings${route.section ? `/${route.section}` : ''}${route.section === 'troubleshooting' && route.tabId !== null ? `/${route.tabId}` : ''}`;
-    default:
-      return `#${route.view}`;
-  }
-}
-
-/** The navigation entry a route belongs to. */
-export function navOf(route: Route): 'overview' | 'conversations' | 'export' | 'settings' {
-  return route.view === 'conversation' ? 'conversations' : route.view;
+  if (route.view === 'conversation') return `#conversation/${encodeURIComponent(route.key)}`;
+  if (route.section === 'advanced') return '#settings/advanced';
+  return `#${route.section ?? 'conversations'}`;
 }
 
 // ------------------------------------------------------------ run progress
@@ -203,9 +185,9 @@ export function historyLine(record: ConversationRecord | null | undefined, nowMs
   return parts.join(' · ');
 }
 
-// ---------------------------------------------------------------- overview
+// ------------------------------------------------------------ archive totals
 
-export interface OverviewTotals {
+export interface ArchiveTotals {
   conversations: number;
   messages: number;
   images: number;
@@ -213,8 +195,8 @@ export interface OverviewTotals {
   partial: number;
 }
 
-export function overviewTotals(records: readonly ConversationRecord[], imageCounts: readonly number[]): OverviewTotals {
-  const totals: OverviewTotals = { conversations: records.length, messages: 0, images: 0, complete: 0, partial: 0 };
+export function archiveTotals(records: readonly ConversationRecord[], imageCounts: readonly number[]): ArchiveTotals {
+  const totals: ArchiveTotals = { conversations: records.length, messages: 0, images: 0, complete: 0, partial: 0 };
   records.forEach((record, i) => {
     totals.messages += record.messageCount;
     totals.images += imageCounts[i] ?? 0;
@@ -223,11 +205,6 @@ export function overviewTotals(records: readonly ConversationRecord[], imageCoun
     else if (status === 'partial') totals.partial++;
   });
   return totals;
-}
-
-/** The chats archived most recently. */
-export function latestActivity(records: readonly ConversationRecord[], limit = 5): ConversationRecord[] {
-  return filterConversations(records, { sort: 'recent' }).slice(0, limit);
 }
 
 // ------------------------------------------------------------ message view
@@ -382,7 +359,7 @@ export interface LastBackup {
   messages: number;
 }
 
-/** Overview's line about the last full backup. */
+/** Backup and import's line about the last full backup. */
 export function backupLine(last: LastBackup | null, archived: number, nowMs: number = Date.now()): string {
   if (archived === 0) return 'Nothing to back up yet.';
   if (!last) return 'No full backup has been made from this browser profile yet.';

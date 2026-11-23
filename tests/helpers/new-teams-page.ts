@@ -1,7 +1,6 @@
 /**
- * A page shaped like new Teams (`/v2/`) for the identifier probe: no chat id in the URL, a chat
- * list, a header and a message list whose parts can be replaced per test. The identifiers below
- * are made up; tests check that none of them (or any name or text) reaches a report.
+ * A page shaped like new Teams (`/v2/`): no chat id in the URL, a chat list, a header and a
+ * message list whose parts can be replaced per test. The identifiers below are made up.
  */
 export const OTHER_PERSON = '1a2b3c4d-0000-4e5f-8a9b-abcdefabcdef';
 export const SELF_PERSON = '9f8e7d6c-1111-4b2a-9c3d-fedcbafedcba';
@@ -9,7 +8,7 @@ export const ONE_ON_ONE_THREAD = `19:${SELF_PERSON}_${OTHER_PERSON}@unq.gbl.spac
 export const GROUP_THREAD = '19:5555aaaa6666bbbb7777cccc8888dddd@thread.v2';
 export const NEW_TEAMS_URL = 'https://teams.microsoft.com/v2/';
 
-/** Names, text and identifiers used by the page; none may appear in a diagnostics report. */
+/** Names, text and identifiers used by the page. */
 export const PAGE_SECRETS = [OTHER_PERSON, SELF_PERSON, '5555aaaa', 'Alice', 'alice', 'contoso', 'Budget', 'Lunch', 'Original words', '1705314600000', '%3A'];
 
 export interface NewTeamsPageOptions {

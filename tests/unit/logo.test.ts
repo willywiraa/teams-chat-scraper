@@ -153,9 +153,9 @@ describe('interface colours', () => {
         expect(contrast(theme['control-border'] as string, theme[back] as string), `${name}: --control-border on --${back}`).toBeGreaterThanOrEqual(3);
       }
     }
-    // Buttons, selects, fields, the search box, tiles and segments use it; --border stays for structure.
+    // Buttons, selects, fields, the search box and segments use it; --border stays for structure.
     const css = CSS.replace(/\r\n/g, '\n');
-    for (const rule of ['button,\nselect {', "input[type='search'],\ntextarea {", '.search-field {', '.tile {', '.segment {']) {
+    for (const rule of ['button,\nselect {', "input[type='search'],\ntextarea {", '.search-field {', '.segment {']) {
       const start = css.indexOf(rule);
       expect(start, rule).toBeGreaterThanOrEqual(0);
       expect(css.slice(start, css.indexOf('}', start)), rule).toContain('border: 1px solid var(--control-border)');

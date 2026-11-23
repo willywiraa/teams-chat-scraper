@@ -1,47 +1,33 @@
-/** The export model: periods, packagings, presets and remembered choices. */
+/** The export model: periods, packagings, remembered choices, full backups and the save page's address. */
 import { describe, expect, it } from 'vitest';
 import { DAY_MS } from '../../src/shared/capture';
 import {
   clipCoverage,
-  DEFAULT_EXPORT_CHOICES,
+  DEFAULT_SAVE_CHOICES,
   effectiveContent,
   FULL_CONTENT,
   inRange,
   isFullBackup,
-  normalizeChoices,
+  normalizeSaveChoices,
+  packagingOf,
   packagingsFor,
-  parseLocalDateTime,
-  presetChoices,
-  rangeFor,
+  parseSaveTarget,
+  saveTargetHash,
+  sessionSaveRange,
+  type SaveTarget,
 } from '../../src/export/options';
+import { emptyCounters } from '../../src/shared/types';
 
 const NOW = Date.UTC(2026, 10, 21, 12, 0);
 
 describe('export periods', () => {
-  it('maps the period choices to message-time ranges', () => {
-    expect(rangeFor({ range: 'all', from: '', to: '' }, NOW)).toEqual({ range: { from: null, to: null } });
-    expect(rangeFor({ range: 'last-24h', from: '', to: '' }, NOW)).toEqual({ range: { from: NOW - DAY_MS, to: null } });
-    expect(rangeFor({ range: 'last-7d', from: '', to: '' }, NOW)).toEqual({ range: { from: NOW - 7 * DAY_MS, to: null } });
-    expect(rangeFor({ range: 'last-30d', from: '', to: '' }, NOW)).toEqual({ range: { from: NOW - 30 * DAY_MS, to: null } });
-  });
-
-  it('reads a custom period in local time, From included and Before not', () => {
+  it('keeps messages from the start (included) to the end (not included)', () => {
     const from = new Date(2026, 10, 1, 0, 0).getTime();
     const to = new Date(2026, 10, 8, 0, 0).getTime();
-    expect(rangeFor({ range: 'custom', from: '2026-11-01T00:00', to: '2026-11-08T00:00' }, NOW)).toEqual({ range: { from, to } });
-    expect(rangeFor({ range: 'custom', from: '', to: '2026-11-08T00:00' }, NOW)).toEqual({ range: { from: null, to } });
     expect(inRange({ sortKey: from }, { from, to })).toBe(true);
     expect(inRange({ sortKey: to - 1 }, { from, to })).toBe(true);
     expect(inRange({ sortKey: to }, { from, to })).toBe(false);
     expect(inRange({ sortKey: from - 1 }, { from, to })).toBe(false);
-  });
-
-  it('explains a custom period it can not use', () => {
-    expect(rangeFor({ range: 'custom', from: '', to: '' }, NOW)).toEqual({ error: expect.stringMatching(/Choose/) });
-    expect(rangeFor({ range: 'custom', from: '2026-11-08T00:00', to: '2026-11-01T00:00' }, NOW)).toEqual({ error: expect.stringMatching(/earlier/) });
-    expect(rangeFor({ range: 'custom', from: 'soon', to: '' }, NOW)).toEqual({ error: expect.stringMatching(/From/) });
-    expect(parseLocalDateTime('2026-11-01')).toBe(new Date(2026, 10, 1).getTime());
-    expect(parseLocalDateTime('11/01/2026')).toBeNull();
   });
 
   it('limits coverage to the period, keeping the beginning only when the period starts there', () => {
@@ -60,44 +46,57 @@ describe('export periods', () => {
     ]);
     expect(clipCoverage(coverage, { from: 210, to: 290 })).toEqual([]);
   });
+
+  it('saves the period a capture covered, the messages it found on screen, or everything archived', () => {
+    const counters = { ...emptyCounters(), oldestSortKey: 1_000, newestSortKey: 2_000 };
+    expect(sessionSaveRange({ mode: 'full', captureFrom: NOW - 7 * DAY_MS, counters })).toEqual({ from: NOW - 7 * DAY_MS, to: null });
+    expect(sessionSaveRange({ mode: 'full', captureFrom: null, counters })).toEqual({ from: null, to: null });
+    expect(sessionSaveRange({ mode: 'incremental', captureFrom: NOW - DAY_MS, counters })).toEqual({ from: null, to: null });
+    expect(sessionSaveRange({ mode: 'visible', captureFrom: null, counters })).toEqual({ from: 1_000, to: 2_001 });
+  });
 });
 
 describe('formats and packaging', () => {
   it('puts pictures in a ZIP for formats that can not hold them', () => {
     expect(packagingsFor('html', { images: true })).toEqual(['file', 'zip']);
     expect(packagingsFor('html', { images: false })).toEqual(['file']);
-    for (const format of ['markdown', 'text', 'csv'] as const) {
+    for (const format of ['markdown', 'text'] as const) {
       expect(packagingsFor(format, { images: true })).toEqual(['zip']);
       expect(packagingsFor(format, { images: false })).toEqual(['file']);
     }
     expect(packagingsFor('json', { images: true })).toEqual(['file']);
     expect(packagingsFor('package', { images: false })).toEqual(['zip']);
+    expect(packagingOf({ format: 'text', content: FULL_CONTENT })).toBe('zip');
+    expect(packagingOf({ format: 'text', content: { ...FULL_CONTENT, images: false } })).toBe('file');
+    expect(packagingOf({ format: 'pdf', content: FULL_CONTENT })).toBe('file');
   });
 
   it('always keeps attachments and replies in records', () => {
     const none = { images: false, attachments: false, replies: false, reactions: false, systemMessages: false, editHistory: false };
     expect(effectiveContent('json', none)).toEqual({ ...none, attachments: true, replies: true });
     expect(effectiveContent('package', none)).toEqual({ ...none, attachments: true, replies: true });
-    expect(effectiveContent('csv', none)).toEqual(none);
+    expect(effectiveContent('text', none)).toEqual(none);
   });
 
-  it('offers the knowledge system and backup presets', () => {
-    expect(presetChoices('knowledge')).toMatchObject({ format: 'package', packaging: 'zip', range: 'all', content: { ...FULL_CONTENT, systemMessages: false } });
-    expect(presetChoices('backup')).toMatchObject({ format: 'package', content: FULL_CONTENT });
-  });
-
-  it('starts with an HTML page, and repairs remembered choices', () => {
-    expect(normalizeChoices(undefined)).toEqual(DEFAULT_EXPORT_CHOICES);
-    expect(DEFAULT_EXPORT_CHOICES.format).toBe('html');
-    expect(normalizeChoices({ format: 'markdown', packaging: 'file', content: { images: true } })).toMatchObject({ format: 'markdown', packaging: 'zip' });
-    expect(normalizeChoices({ format: 'nope', range: 'forever', from: 'x', content: { replies: 'yes', editHistory: false } })).toEqual({
-      ...DEFAULT_EXPORT_CHOICES,
+  it('starts with a PDF, and repairs remembered choices', () => {
+    expect(normalizeSaveChoices(undefined)).toEqual(DEFAULT_SAVE_CHOICES);
+    expect(DEFAULT_SAVE_CHOICES.format).toBe('pdf');
+    expect(normalizeSaveChoices({ format: 'json', content: { images: false } })).toEqual({ format: 'json', content: { ...FULL_CONTENT, images: false } });
+    expect(normalizeSaveChoices({ format: 'nope', range: 'forever', from: 'x', content: { replies: 'yes', editHistory: false } })).toEqual({
+      ...DEFAULT_SAVE_CHOICES,
       content: { ...FULL_CONTENT, editHistory: false },
     });
-    // Choices remembered before reactions could be chosen export them.
-    const older = { format: 'html', packaging: 'file', range: 'all', from: '', to: '', content: { images: true, attachments: true, replies: true, systemMessages: true, editHistory: true } };
-    expect(normalizeChoices(older).content.reactions).toBe(true);
-    expect(normalizeChoices({ ...older, content: { ...older.content, reactions: false } }).content.reactions).toBe(false);
+    // Formats no longer offered become PDF; the content chosen with them is kept.
+    for (const format of ['html', 'markdown', 'csv']) {
+      expect(normalizeSaveChoices({ format, packaging: 'zip', range: 'all', content: { systemMessages: false } })).toEqual({
+        format: 'pdf',
+        content: { ...FULL_CONTENT, systemMessages: false },
+      });
+    }
+    // Choices remembered before reactions could be chosen include them.
+    const older = { format: 'text', packaging: 'file', range: 'all', from: '', to: '', content: { images: true, attachments: true, replies: true, systemMessages: true, editHistory: true } };
+    expect(normalizeSaveChoices(older).content.reactions).toBe(true);
+    expect(normalizeSaveChoices({ ...older, content: { ...older.content, reactions: false } }).content.reactions).toBe(false);
   });
 });
 
@@ -118,7 +117,33 @@ describe('full backups', () => {
     expect(isFullBackup({ ...backup, range: { from: NOW - DAY_MS, to: null } }, archived)).toBe(false);
     expect(isFullBackup({ ...backup, content: { ...FULL_CONTENT, systemMessages: false } }, archived)).toBe(false);
     expect(isFullBackup({ ...backup, content: { ...FULL_CONTENT, images: false } }, archived)).toBe(false);
-    expect(isFullBackup({ ...backup, format: 'html' }, archived)).toBe(false);
+    expect(isFullBackup({ ...backup, format: 'pdf' }, archived)).toBe(false);
     expect(isFullBackup({ ...backup, conversations: [] }, [])).toBe(false);
+  });
+});
+
+describe('the save page’s address', () => {
+  const choices = { format: 'text' as const, content: { ...FULL_CONTENT, reactions: false } };
+
+  it('names a capture, a chat with its period, or every chat, and reads back what it names', () => {
+    const targets: SaveTarget[] = [
+      { kind: 'session', sessionId: 'abc-123' },
+      { kind: 'conversation', conversationKey: 'teams:19:abc@thread.v2', choices, range: { from: NOW - DAY_MS, to: null } },
+      { kind: 'conversation', conversationKey: 'title:design review', choices, range: { from: null, to: null } },
+      { kind: 'all', choices: { format: 'package', content: FULL_CONTENT } },
+    ];
+    for (const target of targets) expect(parseSaveTarget(saveTargetHash(target))).toEqual(target);
+    expect(saveTargetHash(targets[1]!)).toContain('chat=teams%3A19%3Aabc%40thread.v2');
+  });
+
+  it('names nothing without a capture, a chat or every chat, and repairs the rest', () => {
+    expect(parseSaveTarget('')).toBeNull();
+    expect(parseSaveTarget('#format=pdf')).toBeNull();
+    expect(parseSaveTarget('#chat=x&format=csv&include=images,nope&from=soon')).toEqual({
+      kind: 'conversation',
+      conversationKey: 'x',
+      choices: { format: 'pdf', content: { images: true, attachments: false, replies: false, reactions: false, systemMessages: false, editHistory: false } },
+      range: { from: null, to: null },
+    });
   });
 });

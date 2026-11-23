@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Saving a file · Teams Chat Scraper</title>
+    <link rel="stylesheet" href="ui.css" />
+    <script src="theme.js"></script>
+  </head>
+  <body data-mode="save">
+    <header class="app-header">
+      <img src="icons/logo.svg" alt="" width="24" height="24" />
+      <h1>Teams Chat Scraper</h1>
+    </header>
+
+    <main class="save-main">
+      <section class="card save-card" aria-labelledby="save-title">
+        <h2 id="save-title" class="view-title">Saving a file</h2>
+        <p id="save-what" class="muted small" hidden></p>
+        <p id="save-status" class="small" role="status" aria-live="polite">Reading the archive…</p>
+        <div class="progress" id="save-progress" role="progressbar" aria-label="Chats written" aria-valuemin="0" aria-valuemax="100" hidden>
+          <div class="progress-fill" id="save-progress-fill"></div>
+        </div>
+        <div class="button-row" id="save-actions" hidden>
+          <button type="button" class="primary" id="btn-print-again" hidden>Print again</button>
+          <a href="archive.html" id="link-archive" class="result-link">Open the archive</a>
+        </div>
+      </section>
+      <iframe id="save-preview" class="save-preview" title="The page to print" hidden></iframe>
+    </main>
+    <script src="save.js"></script>
+  </body>
+</html>

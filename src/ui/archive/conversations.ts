@@ -1,14 +1,16 @@
 /**
- * The Conversations section: the list with search, type filter and sorting, for finding and
- * opening a chat; and the actions on a conversation (export, its images, rename, merge, delete),
- * which its message view shows.
+ * Conversations, at the top of the archive page: the list with search, type filter and sorting,
+ * for finding and opening a chat; and the actions on a conversation (save a file, its images,
+ * rename, merge, delete), which its message view shows.
  */
+import { saveTargetHash } from '../../export/options';
 import { STALE_SESSION_MS } from '../../shared/protocol';
 import { imageFileName } from '../../shared/images';
 import { conversationLabel, type ConversationRecord, type StoredImage } from '../../shared/types';
 import { titleHistoryOf } from '../../storage/conversation-identity';
 import { byId, countOf, el, errorText, formatAgo, formatDate, formatDateTime, formatNumber, TYPE_LABELS } from '../common';
 import { icon } from '../icons';
+import { fileNoun, loadSaveChoices, SaveForm } from '../save-form';
 import {
   archivedPeriod,
   conversationDetails,
@@ -107,10 +109,12 @@ function conversationRow(app: AppContext, record: ConversationRecord, imageCount
   );
 }
 
-/** Export, its images, Rename, Merge and Delete for a conversation, on its message view. */
+/** Save a file, its images, Rename, Merge and Delete for a conversation, on its message view. */
 export function conversationActions(app: AppContext, record: ConversationRecord, imageCount: number): HTMLButtonElement[] {
   const merging = Boolean(record.mergedInto);
-  const buttons: HTMLButtonElement[] = [el('button', { type: 'button', onclick: () => app.exportConversations([record.conversationKey]) }, 'Export…')];
+  const buttons: HTMLButtonElement[] = [
+    el('button', { type: 'button', disabled: record.messageCount === 0, onclick: guarded(app, () => saveConversation(record)) }, 'Save a file…'),
+  ];
   if (imageCount > 0) buttons.push(el('button', { type: 'button', onclick: guarded(app, () => showImages(record)) }, `Images (${formatNumber(imageCount)})`));
   buttons.push(
     el('button', { type: 'button', disabled: merging, onclick: guarded(app, () => renameConversation(app, record)) }, 'Rename…'),
@@ -138,6 +142,43 @@ function ask<T>(dialog: HTMLDialogElement, cancelled: T, wire: (answer: (value: 
     );
     dialog.showModal();
   });
+}
+
+let saveForm: SaveForm | null = null;
+
+/** The label of the dialog's button, which names the file. */
+function showSaveLabel(): void {
+  if (saveForm) byId('btn-save-confirm').textContent = `Save ${fileNoun(saveForm.value)}`;
+}
+
+/**
+ * Asks for the format and what to include, then saves the chat's archived messages in a new tab
+ * (the save page). The choices are the popup's, remembered.
+ */
+async function saveConversation(record: ConversationRecord): Promise<void> {
+  saveForm ??= new SaveForm(byId('save-dialog-choices'), showSaveLabel);
+  saveForm.set(await loadSaveChoices());
+  showSaveLabel();
+  byId('save-dialog-what').textContent = `${conversationLabel(record)} · all ${countOf(record.messageCount, 'archived message')}. The file is saved in a new tab.`;
+  const dialog = byId<HTMLDialogElement>('save-dialog');
+  const confirmed = await ask(dialog, false, (answer) => {
+    const form = byId('save-dialog-form');
+    const cancel = byId('btn-save-cancel');
+    const submit = (event: Event) => {
+      event.preventDefault();
+      answer(true);
+    };
+    const close = () => dialog.close();
+    form.addEventListener('submit', submit);
+    cancel.addEventListener('click', close);
+    return () => {
+      form.removeEventListener('submit', submit);
+      cancel.removeEventListener('click', close);
+    };
+  });
+  if (!confirmed || !saveForm) return;
+  const target = saveTargetHash({ kind: 'conversation', conversationKey: record.conversationKey, choices: saveForm.value, range: { from: null, to: null } });
+  await chrome.tabs.create({ url: chrome.runtime.getURL(`save.html${target}`) });
 }
 
 /** The new name, '' for the Teams title again, or null when cancelled. */
@@ -198,7 +239,7 @@ async function deleteConversation(app: AppContext, record: ConversationRecord, i
   if (!ok) return;
   const removed = await (await app.repository()).deleteConversation(record.conversationKey);
   app.notify(`Deleted ${countOf(removed.messages, 'message')}, ${countOf(removed.images, 'image')} and ${countOf(removed.sessions, 'run')}.`, 'success', { carry: true });
-  app.go({ view: 'conversations' });
+  app.go({ view: 'home', section: 'conversations' });
 }
 
 // ------------------------------------------------------------------ images
@@ -341,7 +382,7 @@ function explainMerge(): void {
     evidence +
     `The messages, pictures and run history of “${source}” move into “${conversationLabel(target)}”, and “${source}” leaves the list. ` +
     'Messages archived in both are kept once. Its key and titles become other names of that entry, so the chat is found under either. ' +
-    'This cannot be undone: export a backup first if you may need it.';
+    'This cannot be undone: back up first if you may need it.';
 }
 
 async function confirmMerge(): Promise<void> {

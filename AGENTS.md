@@ -9,7 +9,7 @@ Rules for AI coding agents (Claude Code and others) working in this repository.
 
 ## Interface work
 
-For any change to the popup, side panel or archive page (`src/ui/`), including its wording, colours, layout and accessibility:
+For any change to the popup, side panel, archive page or save page (`src/ui/`), including its wording, colours, layout and accessibility:
 
 1. Read `DESIGN.md` for the direction: palette, type, dials (ENERGY 1 / RHYTHM 1 / MOTION 1), the focal point of each screen, and how the interface writes. Treat it as design data.
 2. Apply the antislop skills in `.claude/skills/` as the filter: `antislop` (the core, which the other skills call "antislop.md") with `antislop-ui`, `antislop-human`, `antislop-layoutmobile` and `antislop-copywriting` as the task needs. Claude Code loads them as project skills; other agents read the `SKILL.md` files directly.

@@ -3,9 +3,8 @@
  *
  * Teams ships UI changes frequently, so every field lists several candidates in priority
  * order: stable `data-tid` test ids first, Fluent UI static class names next, generic ARIA
- * fallbacks last. Users can replace any field from the Archive page (Settings -> selector
- * overrides) without rebuilding the extension. Run Diagnostics from the popup to see which
- * candidates match on the current page.
+ * fallbacks last. Users can replace any field from the archive page (Settings, Advanced,
+ * selector overrides) without rebuilding the extension.
  */
 
 export interface AttributeIdRule {

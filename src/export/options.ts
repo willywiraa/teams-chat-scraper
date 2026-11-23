@@ -1,17 +1,20 @@
 /**
- * The export model: which conversations, in which format, over which period and with which
- * content. The archive page's export dialog edits `ExportChoices` (and remembers the last ones);
- * `resolveExport` turns them into what the export pipeline runs.
+ * The export model. A file is saved in one of four formats (`SaveFormat`), with the content the
+ * user includes (`SaveChoices`, remembered by the popup and the archive page). The pipeline also
+ * writes an HTML page (the printed page behind a PDF) and Markdown (the package's transcript),
+ * which are not offered as files of their own.
  */
-import { DAY_MS } from '../shared/capture';
-import type { CoverageRange, StoredMessage } from '../shared/types';
+import type { CoverageRange, SessionRecord, StoredMessage } from '../shared/types';
 
-export type ExportFormat = 'html' | 'pdf' | 'markdown' | 'text' | 'csv' | 'json' | 'package';
+export type ExportFormat = 'html' | 'pdf' | 'markdown' | 'text' | 'json' | 'package';
+
+/** The formats offered for saving a file. */
+export type SaveFormat = 'pdf' | 'text' | 'json' | 'package';
+
+export const SAVE_FORMATS: readonly SaveFormat[] = ['pdf', 'text', 'json', 'package'];
 
 /** One file, or a ZIP with the pictures as files next to the transcript. */
 export type Packaging = 'file' | 'zip';
-
-export type RangeChoice = 'all' | 'last-24h' | 'last-7d' | 'last-30d' | 'custom';
 
 export interface ExportContent {
   /** Saved pictures, in place in transcripts and as data in JSON and packages. */
@@ -34,40 +37,18 @@ export interface TimeRange {
   to: number | null;
 }
 
-export interface ExportChoices {
-  format: ExportFormat;
-  packaging: Packaging;
-  range: RangeChoice;
-  /** Custom range, as `datetime-local` values (local time); empty is open. */
-  from: string;
-  to: string;
+/** The file to save: its format and what it includes. Also carried by a capture that saves one (`SessionRecord.save`). */
+export interface SaveChoices {
+  format: SaveFormat;
   content: ExportContent;
 }
 
 export const FULL_CONTENT: Readonly<ExportContent> = Object.freeze({ images: true, attachments: true, replies: true, reactions: true, systemMessages: true, editHistory: true });
 
-/** First use: one HTML page with everything (not JSON). */
-export const DEFAULT_EXPORT_CHOICES: Readonly<ExportChoices> = Object.freeze({ format: 'html', packaging: 'file', range: 'all', from: '', to: '', content: { ...FULL_CONTENT } });
-
-export type ExportPreset = 'knowledge' | 'backup';
-
-/**
- * Knowledge system: the package with pictures, attachments, reply context, reactions and edit
- * history, without system messages. Backup: the package with everything.
- */
-export function presetChoices(preset: ExportPreset): ExportChoices {
-  return {
-    format: 'package',
-    packaging: 'zip',
-    range: 'all',
-    from: '',
-    to: '',
-    content: { ...FULL_CONTENT, systemMessages: preset !== 'knowledge' },
-  };
-}
+/** First use: a PDF with everything (never JSON). */
+export const DEFAULT_SAVE_CHOICES: Readonly<SaveChoices> = Object.freeze({ format: 'pdf', content: { ...FULL_CONTENT } });
 
 export interface FormatInfo {
-  label: string;
   /** File extension of a single-file export. */
   extension: string;
   mimeType: string;
@@ -78,16 +59,13 @@ export interface FormatInfo {
 }
 
 export const FORMATS: Readonly<Record<ExportFormat, FormatInfo>> = {
-  html: { label: 'HTML page', extension: 'html', mimeType: 'text/html', embedsPictures: true, importable: false },
-  pdf: { label: 'PDF (print)', extension: 'pdf', mimeType: 'application/pdf', embedsPictures: true, importable: false },
-  markdown: { label: 'Markdown', extension: 'md', mimeType: 'text/markdown', embedsPictures: false, importable: false },
-  text: { label: 'Plain text', extension: 'txt', mimeType: 'text/plain', embedsPictures: false, importable: false },
-  csv: { label: 'CSV (spreadsheet)', extension: 'csv', mimeType: 'text/csv', embedsPictures: false, importable: false },
-  json: { label: 'JSON (complete records)', extension: 'json', mimeType: 'application/json', embedsPictures: true, importable: true },
-  package: { label: 'Knowledge package (ZIP)', extension: 'zip', mimeType: 'application/zip', embedsPictures: true, importable: true },
+  html: { extension: 'html', mimeType: 'text/html', embedsPictures: true, importable: false },
+  pdf: { extension: 'pdf', mimeType: 'application/pdf', embedsPictures: true, importable: false },
+  markdown: { extension: 'md', mimeType: 'text/markdown', embedsPictures: false, importable: false },
+  text: { extension: 'txt', mimeType: 'text/plain', embedsPictures: false, importable: false },
+  json: { extension: 'json', mimeType: 'application/json', embedsPictures: true, importable: true },
+  package: { extension: 'zip', mimeType: 'application/zip', embedsPictures: true, importable: true },
 };
-
-export const EXPORT_FORMATS = Object.keys(FORMATS) as ExportFormat[];
 
 /**
  * The packagings a format offers. Pictures go into a ZIP when the format can't hold them; an
@@ -99,13 +77,17 @@ export function packagingsFor(format: ExportFormat, content: Pick<ExportContent,
       return content.images ? ['file', 'zip'] : ['file'];
     case 'markdown':
     case 'text':
-    case 'csv':
       return content.images ? ['zip'] : ['file'];
     case 'package':
       return ['zip'];
     default:
       return ['file'];
   }
+}
+
+/** How a saved file is packaged: text with pictures is a ZIP, everything else as its format says. */
+export function packagingOf(choices: SaveChoices): Packaging {
+  return packagingsFor(choices.format, effectiveContent(choices.format, choices.content))[0] as Packaging;
 }
 
 /**
@@ -123,7 +105,7 @@ export function effectiveContent(format: ExportFormat, content: ExportContent): 
 
 /**
  * True when an export is a full backup: an importable format, every archived conversation, the
- * whole period and all content. Overview shows when the last one was made.
+ * whole period and all content. The archive page shows when the last one was made.
  */
 export function isFullBackup(
   request: { conversations: readonly string[] | 'all'; format: ExportFormat; range: TimeRange; content: ExportContent },
@@ -135,36 +117,6 @@ export function isFullBackup(
   if (request.conversations === 'all') return true;
   const chosen = new Set(request.conversations);
   return archivedKeys.length > 0 && archivedKeys.every((key) => chosen.has(key));
-}
-
-/** Parses a `datetime-local` value (local time) to epoch ms; empty or invalid is null. */
-export function parseLocalDateTime(value: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?)?$/.test(value)) return null;
-  const ms = new Date(value.includes('T') ? value : `${value}T00:00`).getTime();
-  return Number.isFinite(ms) ? ms : null;
-}
-
-/** The period of a range choice at `nowMs`, or the reason it can't be used. */
-export function rangeFor(choices: Pick<ExportChoices, 'range' | 'from' | 'to'>, nowMs: number): { range: TimeRange } | { error: string } {
-  switch (choices.range) {
-    case 'all':
-      return { range: { from: null, to: null } };
-    case 'last-24h':
-      return { range: { from: nowMs - DAY_MS, to: null } };
-    case 'last-7d':
-      return { range: { from: nowMs - 7 * DAY_MS, to: null } };
-    case 'last-30d':
-      return { range: { from: nowMs - 30 * DAY_MS, to: null } };
-    case 'custom': {
-      const from = choices.from ? parseLocalDateTime(choices.from) : null;
-      const to = choices.to ? parseLocalDateTime(choices.to) : null;
-      if (choices.from && from === null) return { error: 'The "From" date is not valid.' };
-      if (choices.to && to === null) return { error: 'The "Before" date is not valid.' };
-      if (from === null && to === null) return { error: 'Choose a "From" date, a "Before" date, or both.' };
-      if (from !== null && to !== null && from >= to) return { error: '"From" must be earlier than "Before".' };
-      return { range: { from, to } };
-    }
-  }
 }
 
 export function isOpenRange(range: TimeRange): boolean {
@@ -190,25 +142,77 @@ export function clipCoverage(ranges: readonly CoverageRange[], range: TimeRange)
   return clipped;
 }
 
-const RANGE_CHOICES: readonly RangeChoice[] = ['all', 'last-24h', 'last-7d', 'last-30d', 'custom'];
-
-/** Choices as stored (possibly by an older version, or damaged), made whole and consistent. */
-export function normalizeChoices(raw: unknown): ExportChoices {
-  const value = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof ExportChoices, unknown>>;
-  const format = EXPORT_FORMATS.includes(value.format as ExportFormat) ? (value.format as ExportFormat) : DEFAULT_EXPORT_CHOICES.format;
+/**
+ * Choices as stored (possibly by an older version, or damaged), made whole. Formats that are no
+ * longer offered (HTML page, Markdown, CSV) become PDF.
+ */
+export function normalizeSaveChoices(raw: unknown): SaveChoices {
+  const value = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof SaveChoices, unknown>>;
+  const format = SAVE_FORMATS.includes(value.format as SaveFormat) ? (value.format as SaveFormat) : DEFAULT_SAVE_CHOICES.format;
   const storedContent = (value.content && typeof value.content === 'object' ? value.content : {}) as Partial<Record<keyof ExportContent, unknown>>;
   const content = { ...FULL_CONTENT };
   for (const key of Object.keys(content) as Array<keyof ExportContent>) {
     if (typeof storedContent[key] === 'boolean') content[key] = storedContent[key] as boolean;
   }
-  const packagings = packagingsFor(format, content);
-  const packaging = packagings.includes(value.packaging as Packaging) ? (value.packaging as Packaging) : (packagings[0] as Packaging);
-  return {
-    format,
-    packaging,
-    range: RANGE_CHOICES.includes(value.range as RangeChoice) ? (value.range as RangeChoice) : 'all',
-    from: typeof value.from === 'string' && parseLocalDateTime(value.from) !== null ? value.from : '',
-    to: typeof value.to === 'string' && parseLocalDateTime(value.to) !== null ? value.to : '',
-    content,
+  return { format, content };
+}
+
+/**
+ * The messages a capture's file holds: the period it captured, the messages it found on screen,
+ * or (for an update or the full history) everything archived of the chat.
+ */
+export function sessionSaveRange(session: Pick<SessionRecord, 'mode' | 'captureFrom' | 'counters'>): TimeRange {
+  if (session.mode === 'visible') {
+    const { oldestSortKey, newestSortKey } = session.counters;
+    return { from: oldestSortKey ?? null, to: newestSortKey === null || newestSortKey === undefined ? null : newestSortKey + 1 };
+  }
+  if (session.mode === 'full' && typeof session.captureFrom === 'number') return { from: session.captureFrom, to: null };
+  return { from: null, to: null };
+}
+
+// ------------------------------------------------------------ save page
+
+/** What the save page (`save.html`) saves: the file of a finished capture, one chat, or every chat. */
+export type SaveTarget =
+  | { kind: 'session'; sessionId: string }
+  | { kind: 'conversation'; conversationKey: string; choices: SaveChoices; range: TimeRange }
+  | { kind: 'all'; choices: SaveChoices };
+
+const CONTENT_KEYS = Object.keys(FULL_CONTENT) as Array<keyof ExportContent>;
+
+/** The save page's address part (after `save.html`). */
+export function saveTargetHash(target: SaveTarget): string {
+  const params = new URLSearchParams();
+  if (target.kind === 'session') {
+    params.set('session', target.sessionId);
+    return `#${params.toString()}`;
+  }
+  if (target.kind === 'conversation') params.set('chat', target.conversationKey);
+  else params.set('all', '1');
+  params.set('format', target.choices.format);
+  params.set('include', CONTENT_KEYS.filter((key) => target.choices.content[key]).join(','));
+  if (target.kind === 'conversation') {
+    if (target.range.from !== null) params.set('from', String(target.range.from));
+    if (target.range.to !== null) params.set('to', String(target.range.to));
+  }
+  return `#${params.toString()}`;
+}
+
+/** Reads the save page's address part; null when it names nothing to save. */
+export function parseSaveTarget(hash: string): SaveTarget | null {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  const session = params.get('session');
+  if (session) return { kind: 'session', sessionId: session };
+  const included = new Set((params.get('include') ?? '').split(','));
+  const content = Object.fromEntries(CONTENT_KEYS.map((key) => [key, included.has(key)])) as unknown as ExportContent;
+  const choices = normalizeSaveChoices({ format: params.get('format'), content });
+  if (params.get('all') === '1') return { kind: 'all', choices };
+  const chat = params.get('chat');
+  if (!chat) return null;
+  const time = (name: string): number | null => {
+    const value = params.get(name);
+    if (value === null || !/^-?\d+$/.test(value)) return null;
+    return Number(value);
   };
+  return { kind: 'conversation', conversationKey: chat, choices, range: { from: time('from'), to: time('to') } };
 }

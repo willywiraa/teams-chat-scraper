@@ -1,35 +1,29 @@
 # Export format v1
 
-This is the contract for moving archived Teams chats into other systems, such as a knowledge management system. Exports are written by `src/export/pipeline.ts` (records in `src/export/format.ts`, transcripts in `src/export/render.ts`), and read back by the archive page's **Import archive…** (`src/export/import.ts`).
+This is the contract for moving archived Teams chats into other systems, such as a knowledge management system. Files are written by `src/export/pipeline.ts` (records in `src/export/format.ts`, transcripts in `src/export/render.ts`), and read back by the archive page's **Import archive…** (`src/export/import.ts`).
 
-The archive page's **Export…** dialog chooses the conversations (one, several or all), the format, the packaging, a period and what to include. It remembers the last choices; the first time it suggests an HTML page.
+A file is saved from the popup, when a capture ends or with **Save a file from the archive only**; from a chat's page on the archive page, with **Save a file…**; and by **Back up now**, which saves a ZIP package of every chat with everything in it. The popup and the archive page share the choices, a format and what to include, and remember them; the first time the format is PDF.
 
-| Format | Packaging | Importable | Use |
+| Format | File | Importable | Use |
 | --- | --- | --- | --- |
-| HTML page | one `.html` file (pictures embedded) or a ZIP with the pictures as files | no | Reading in a browser. See [Transcripts](#transcripts). |
-| PDF (print) | a printable page in a new tab | no | Choose **Save as PDF** as the printer. It prints the HTML page. |
-| Markdown | `.md` file, or a ZIP when pictures are included | no | Reading, wikis, notes. |
-| Plain text | `.txt` file, or a ZIP when pictures are included | no | Anything that reads text. |
-| CSV | `.csv` file, or a ZIP when pictures are included | no | Spreadsheets. See [CSV](#csv). |
+| PDF | a printable page in a new tab | no | Choose **Save as PDF** as the printer. See [Transcripts](#transcripts). |
+| Text | `.txt` file, or a ZIP when pictures are included | no | Anything that reads text. |
 | JSON | one `.json` file | **yes** | Canonical records. See [JSON structure](#json-structure). |
-| Knowledge package | ZIP | **yes** | Records as JSON Lines, a Markdown transcript and the pictures as files. See [Knowledge package](#knowledge-package). |
+| ZIP package | ZIP | **yes** | Records as JSON Lines, a Markdown transcript and the pictures as files. See [ZIP package](#zip-package). |
 
-Two presets set the dialog in one click:
-
-- **Knowledge system**: the knowledge package with pictures, attachments, replies and edit history, without system messages ("X added Y to the chat").
-- **Full backup**: the knowledge package with everything. A JSON file with images holds the same records; the package is easier on memory for large archives.
+Versions before 1.9 also offered an HTML page, Markdown and CSV; a choice remembered from them becomes PDF. Files saved in those formats are not affected; Import archive… never read them.
 
 **Stability promise:** within `formatVersion: 1`, fields are only ever *added*. Renaming, removing or changing the meaning of a field requires `formatVersion: 2`. Ignore fields you don't know. The same holds for the package's own `formatVersion`.
 
-## What an export holds
+## What a file holds
 
-**Period.** All archived messages, the last 24 hours, the last 7 days, the last 30 days, or a custom period. A custom period is read in the exporting computer's time zone: **From** is included and **Before** is not, so 1 November 00:00 to 8 November 00:00 is exactly the first seven days of November. Either end may be left empty. A message is in the period when its `sortKey` is.
+**Period.** A file saved when a capture ends holds the period captured: for **Last 24 hours**, **Last 7 days** or **Last 30 days** the messages from that moment on, for **From a date…** those from midnight of that day (in the computer's time zone), and for **On screen** the messages captured, from the oldest to the newest. After **New messages** or **Full history**, and from the archive page, it holds every archived message of the chat. **Save a file from the archive only** takes the period chosen in the popup, or every archived message. A message is in the period when its `sortKey` is; a period always reaches up to the newest message, except for **On screen**.
 
 **Content.**
 
 | Choice | Off means |
 | --- | --- |
-| Pictures | No saved pictures. Formats that can't embed pictures (Markdown, text, CSV) are written as one file without them; with them they become a ZIP. |
+| Pictures | No saved pictures. Text is then one file; with pictures it is a ZIP. |
 | File attachments | Transcripts don't list attachments. Records always keep them, because they are part of the message (its `contentHash`). |
 | Reply context | Transcripts don't show what a reply quotes. Records always keep `replyTo`. |
 | Reactions | Transcripts don't show reactions, and records have no `reactions`. Importing such a file keeps the reactions already archived. |
@@ -101,7 +95,7 @@ An export without `selection` (made before 1.4) holds the whole archive.
 | `keySource` | `dom` \| `url` \| `title` | Where the identity came from. `title` is the weakest. |
 | `typeSource` | `thread-id` \| `unknown` | How `type` was determined. |
 | `participants` | string[] | Display names of everyone who posted a captured message, sorted. |
-| `messageCount` | number | Number of message records (in the export, for a [part of a conversation](#what-an-export-holds)). |
+| `messageCount` | number | Number of message records (in the export, for a [part of a conversation](#what-a-file-holds)). |
 | `oldestSortKey`, `newestSortKey` | number \| null | Range of reliably dated messages. |
 | `coverage` | `{ oldest, newest, reachedBeginning }[]` | Stretches of the timeline captured without gaps (see below). |
 | `firstExtractedAt`, `lastExtractedAt` | string | First and most recent extraction. |
@@ -162,7 +156,7 @@ Images are content-addressed: `imageId` is the SHA-256 of the bytes, so an image
 | `firstSavedAt` | string | When the image was first saved. |
 | `sessionId` | string \| null | Session that saved it. |
 | `schemaVersion` | number | Archive schema version of the record. |
-| `dataBase64` | string | The image bytes, standard base64 with padding. (In the knowledge package the bytes are a file instead.) |
+| `dataBase64` | string | The image bytes, standard base64 with padding. (In the ZIP package the bytes are a file instead.) |
 
 The saved copy is the picture as Teams displayed it, which may be a preview size rather than the original upload. An import checks that the bytes are `byteLength` long and that their SHA-256 is `imageId`, and rejects the whole file otherwise.
 
@@ -174,7 +168,9 @@ Messages that Teams rendered *without* an id are rare and are keyed by fingerpri
 
 **Import.** An imported conversation joins the archive entry of the same chat, found the way a run finds it: by key, by `aliases`, or by holding messages with the same Teams ids. It then takes that entry's key, and its own key becomes an alias. A conversation whose title key belongs to an archived chat with other messages is imported under a new `local:` key instead, so two chats are never mixed.
 
-## Knowledge package
+## ZIP package
+
+Called the knowledge package before 1.9.
 
 A ZIP (files stored uncompressed, UTF-8 names) with the same records as the JSON export, one file per kind, so a system can read it line by line and pick up the pictures as files. Added in 1.4.
 
@@ -220,40 +216,21 @@ A package can be zipped again, for example inside a folder and compressed by Win
 
 ## Transcripts
 
-HTML, PDF, Markdown, plain text and CSV are for reading. They show each conversation's name, type, participants, message count, how much history the archive holds, the period and the time zone, then the messages day by day: sender, time, text, reply context, attachments, pictures, reactions (`Reactions: 👍 2 · ❤️ 1 (yours: 👍)`), *(edited)* and *(deleted)* marks and, when chosen, earlier versions. Text is escaped for each format; only `http` and `https` links are kept.
+PDF, text and the ZIP package's Markdown transcript are for reading. They show each conversation's name, type, participants, message count, how much history the archive holds, the period and the time zone, then the messages day by day: sender, time, text, reply context, attachments, pictures, reactions (`Reactions: 👍 2 · ❤️ 1 (yours: 👍)`), *(edited)* and *(deleted)* marks and, when chosen, earlier versions. Text is escaped for each format; only `http` and `https` links are kept.
 
-| Packaging | Files |
+| Text | File |
 | --- | --- |
-| One file | All selected conversations one after another in one file. Its name is the conversation's (or `teams-archive`) and the export time: `Project-Alpha-2024-02-01T10-20-30.html`. |
-| ZIP | With one conversation the files are at the top of the ZIP; with several, each conversation has its own folder (named after it), and an HTML export adds `index.html` linking them. A folder holds `chat.html`, `chat.md`, `chat.txt` or `messages.csv`, and `images/`. |
+| One file | Without pictures. Its name is the conversation's (or `teams-archive`) and the time it was saved: `Project-Alpha-2024-02-01T10-20-30.txt`. |
+| ZIP | With pictures: `chat.txt` and `images/` at the top of the ZIP, or, with several conversations, in a folder for each (named after it). |
 
-- **HTML**: self-contained: styles inline, no scripts, no remote content. As one file the pictures are embedded (`data:` addresses), so the file can be large. **PDF (print)** prints this page.
-- **Markdown**: pictures as `![name](images/<file>)`. Markdown characters in messages are escaped, so a message's text reads as it did in Teams.
+- **PDF**: the printed page is HTML, self-contained: styles inline, no scripts, no remote content, the pictures in their messages. The save page writes it into a frame and opens the print dialog; **Print again** opens it once more.
+- **Markdown** (the ZIP package's `transcript.md`): pictures as `![name](images/<file>)`. Markdown characters in messages are escaped, so a message's text reads as it did in Teams.
 - **Plain text**: each message as a `time sender` line followed by its text, indented.
-- **Pictures in a ZIP**: `images/<n>_<date>_<time>.<ext>`, numbered in the order the messages show them; date and time are those of the first message showing the picture, in the export's time zone (`001_2026-11-02_1001.png`). A picture shown in several messages is one file. Saved pictures no message shows any more are left out; the records formats keep them.
-
-### CSV
-
-One row per message, for spreadsheets: UTF-8 with a byte order mark (so Excel reads it as UTF-8), comma-separated, cells quoted when they hold `"`, `,` or a line break, rows ending with CRLF. A cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return (or their full-width forms) gets a leading `'`, so a spreadsheet shows it as text instead of running it as a formula.
-
-| Column | Meaning |
-| --- | --- |
-| `conversation`, `conversation_key` | The conversation's name and key. |
-| `message_key`, `message_id` | The message's `key` and Teams id. |
-| `time` | When it was sent, `YYYY-MM-DD hh:mm:ss` in the export's time zone. |
-| `time_utc` | The same as ISO-8601 UTC. |
-| `sender`, `sender_id`, `from_me` | Display name, Teams user id, and `yes` when sent by the archiving user. |
-| `kind`, `text` | `message` or `system`, and the plain text. |
-| `reply_to_sender`, `reply_to_text`, `reply_to_key` | What a reply quotes (with **Reply context**). |
-| `attachments` | One line per attachment: `File: name <url>` (with **File attachments**). |
-| `pictures` | The picture files, one per line, from the conversation folder (with **Pictures**, in a ZIP). |
-| `edited`, `deleted` | `yes` or `no`. |
-| `earlier_versions` | Earlier versions, `[replaced <time>] text`, separated by `---` lines (with **Edit history**). |
-| `reactions` | The reactions line, `👍 2 · ❤️ 1 (yours: 👍)` (with **Reactions**). Added in 1.7 as the last column, so the columns before it keep their places. |
+- **Pictures in a text file's ZIP**: `images/<n>_<date>_<time>.<ext>`, numbered in the order the messages show them; date and time are those of the first message showing the picture, in the file's time zone (`001_2026-11-02_1001.png`). A picture shown in several messages is one file. Saved pictures no message shows any more are left out; the records formats keep them.
 
 ## Import
 
-**Import archive…** reads a JSON export (any version 1 file) or a knowledge package (`.zip`); it tells them apart by their first bytes. Both are read in parts, so large files don't have to fit in memory as text.
+**Import archive…** reads a JSON file (any version 1 file) or a ZIP package; it tells them apart by their first bytes. Both are read in parts, so large files don't have to fit in memory as text.
 
 1. **Checking**: the whole file is read and every conversation, message and image checked (an image's bytes against its `byteLength` and SHA-256). A damaged or cut-off file is refused before anything is written.
 2. **Importing**: conversation by conversation, its messages in batches of 500 and its pictures. Messages are merged by `key` (an import never removes anything), and records are joined to the archive entry of the same chat (see [Identity changes](#identity-changes)).
@@ -266,6 +243,6 @@ Re-importing a file changes nothing. If an import is interrupted, for example be
 2. Treat a changed `contentHash` for a known `key` as an edit. `previousVersions` holds what was replaced.
 3. Remove message records whose key appears in another record's `aliases`, and conversations whose key appears in another conversation's `mergedFrom`.
 4. Store images by `key` (or by `imageId` per conversation). An image never changes, so one already ingested can be skipped. Resolve an attachment's `imageId` within its conversation's images.
-5. To fetch only new data, export the last days (for example **Last 7 days**) and upsert them: the period's records say which stretch they cover. An export of all archived messages can always be re-ingested with the same upsert logic.
+5. To fetch only new data, capture the last days (for example **Last 7 days**) with JSON or the ZIP package chosen, and upsert its records: the period's records say which stretch they cover. A file of all archived messages can always be re-ingested with the same upsert logic.
 6. Use `coverage` and `lastUpdate` to show how complete and how current each chat is.
-7. Systems that index documents rather than records can take each conversation's `transcript.md` from the knowledge package.
+7. Systems that index documents rather than records can take each conversation's `transcript.md` from the ZIP package.

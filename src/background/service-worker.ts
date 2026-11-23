@@ -3,6 +3,7 @@
  * Content scripts cannot use the extension's IndexedDB directly (they run in the page origin),
  * so every captured batch is sent here.
  */
+import { saveTargetHash } from '../export/options';
 import { newId } from '../shared/ids';
 import { isBackgroundRequest, STALE_SESSION_MS, TEAMS_URL_PATTERN, type Response } from '../shared/protocol';
 import { ArchiveRepository } from '../storage/repository';
@@ -25,6 +26,12 @@ const deps: RouterDeps = {
   now: () => new Date(),
   newId,
   staleSessionMs: STALE_SESSION_MS,
+  openSaveTab: async (sessionId, openerTabId) => {
+    await chrome.tabs.create({
+      url: chrome.runtime.getURL(`save.html${saveTargetHash({ kind: 'session', sessionId })}`),
+      ...(openerTabId === null ? {} : { openerTabId }),
+    });
+  },
 };
 
 function isTrustedSender(sender: chrome.runtime.MessageSender): boolean {

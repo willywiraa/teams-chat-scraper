@@ -12,12 +12,6 @@
     <header class="app-header">
       <img src="icons/logo.svg" alt="" width="24" height="24" />
       <h1>Teams Chat Scraper</h1>
-      <nav class="app-nav" aria-label="Archive sections">
-        <a href="#overview" data-nav="overview">Overview</a>
-        <a href="#conversations" data-nav="conversations">Conversations</a>
-        <a href="#export" data-nav="export">Export</a>
-        <a href="#settings" data-nav="settings">Settings</a>
-      </nav>
       <label class="header-theme" for="header-theme"><span>Theme</span><select id="header-theme"></select></label>
     </header>
 
@@ -25,83 +19,92 @@
       <p id="archive-message" class="notice small" role="status" aria-live="polite" hidden></p>
       <p id="archive-loading" class="muted small">Reading the archive…</p>
 
-      <!-- Overview -->
-      <section id="view-overview" class="view" aria-labelledby="overview-title" hidden>
-        <h2 id="overview-title" class="view-title" tabindex="-1">Overview</h2>
-        <section class="card" aria-labelledby="backup-title">
-          <h3 id="backup-title">Backup</h3>
-          <div class="backup-row">
-            <p id="backup-status"></p>
-            <button type="button" class="primary" id="btn-backup-now" aria-describedby="backup-status">Back up now…</button>
-          </div>
-          <dl class="stats" id="overview-stats"></dl>
-          <p class="muted small">
-            The archive is kept only in this browser profile. Removing the extension deletes it, so back it up regularly. Importing a
-            backup restores everything without creating duplicates.
-          </p>
-        </section>
-        <section class="card" aria-labelledby="activity-title">
-          <h3 id="activity-title">Latest activity</h3>
-          <ul id="activity" class="activity"></ul>
-          <p id="no-activity" class="muted" hidden>Nothing archived yet. Open a chat in Teams Web and click the toolbar button.</p>
-        </section>
-        <section class="card" aria-labelledby="sessions-title">
-          <h3 id="sessions-title">Recent runs</h3>
-          <div class="table-wrap">
-            <table id="sessions" class="cards">
-              <thead>
-                <tr>
-                  <th scope="col">Started</th>
-                  <th scope="col">Conversation</th>
-                  <th scope="col">Capture</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Result</th>
-                  <th scope="col">Duration</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <button type="button" class="link" id="btn-all-runs" hidden></button>
-          <p id="no-sessions" class="muted" hidden>No runs yet. Open a chat in Teams Web and click the toolbar button to start one.</p>
-        </section>
-      </section>
-
-      <!-- Conversations -->
-      <section id="view-conversations" class="view" aria-labelledby="conversations-title" hidden>
-        <h2 id="conversations-title" class="view-title" tabindex="-1">Conversations</h2>
-        <div class="card">
-          <div class="toolbar" role="search">
-            <div class="field toolbar-search">
-              <label for="conv-search">Search</label>
-              <label class="search-field" for="conv-search">
-                <span id="conv-search-icon"></span>
-                <input type="search" id="conv-search" placeholder="Name, earlier title or key" autocomplete="off" />
-              </label>
+      <!-- The archive: its chats, backing it up, the settings -->
+      <div id="view-home" class="view" hidden>
+        <section id="section-conversations" class="page-section" aria-labelledby="conversations-title">
+          <h2 id="conversations-title" class="view-title" tabindex="-1">Conversations</h2>
+          <div class="card">
+            <div class="toolbar" role="search">
+              <div class="field toolbar-search">
+                <label for="conv-search">Search</label>
+                <label class="search-field" for="conv-search">
+                  <span id="conv-search-icon"></span>
+                  <input type="search" id="conv-search" placeholder="Name, earlier title or key" autocomplete="off" />
+                </label>
+              </div>
+              <label class="field" for="conv-type"><span>Type</span><select id="conv-type"></select></label>
+              <label class="field" for="conv-sort"><span>Sort by</span><select id="conv-sort"></select></label>
+              <span id="conv-count" class="muted small" aria-live="polite"></span>
             </div>
-            <label class="field" for="conv-type"><span>Type</span><select id="conv-type"></select></label>
-            <label class="field" for="conv-sort"><span>Sort by</span><select id="conv-sort"></select></label>
-            <span id="conv-count" class="muted small" aria-live="polite"></span>
+            <div class="table-wrap">
+              <table id="conversations" class="cards">
+                <thead>
+                  <tr>
+                    <th scope="col">Conversation</th>
+                    <th scope="col">Type</th>
+                    <th scope="col" class="num">Messages</th>
+                    <th scope="col" class="num">Images</th>
+                    <th scope="col">History</th>
+                    <th scope="col">Last update</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <p id="no-conversations" class="muted" hidden>Nothing archived yet. Open a chat in Teams Web and click the toolbar button.</p>
+            <p id="no-matches" class="muted" hidden>No conversation matches the search and type chosen. <button type="button" class="link" id="btn-clear-search">Show all conversations</button></p>
           </div>
-          <div class="table-wrap">
-            <table id="conversations" class="cards">
-              <thead>
-                <tr>
-                  <th scope="col">Conversation</th>
-                  <th scope="col">Type</th>
-                  <th scope="col" class="num">Messages</th>
-                  <th scope="col" class="num">Images</th>
-                  <th scope="col">History</th>
-                  <th scope="col">Last update</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+        </section>
+
+        <section id="section-backup" class="page-section" aria-labelledby="backup-title">
+          <h2 id="backup-title" tabindex="-1">Backup and import</h2>
+          <div class="card">
+            <div class="backup-row">
+              <p id="backup-status"></p>
+              <div class="button-row">
+                <button type="button" id="btn-backup-now" aria-describedby="backup-status">Back up now</button>
+                <button type="button" data-import>Import archive…</button>
+              </div>
+            </div>
+            <dl class="stats" id="archive-stats"></dl>
+            <p class="muted small">
+              The archive is kept only in this browser profile: removing the extension, or clearing its site data, deletes it. Back up now
+              saves a ZIP package of every chat with everything in it, in a new tab. Import archive… reads a package or a JSON file back,
+              for example to restore a backup or to combine the archives of two browser profiles; importing a file twice changes nothing.
+            </p>
           </div>
-          <p id="no-conversations" class="muted" hidden>Nothing archived yet. Open a chat in Teams Web and click the toolbar button.</p>
-          <p id="no-matches" class="muted" hidden>No conversation matches the search and type chosen. <button type="button" class="link" id="btn-clear-search">Show all conversations</button></p>
-        </div>
-      </section>
+        </section>
+
+        <section id="section-settings" class="page-section" aria-labelledby="settings-title">
+          <h2 id="settings-title" tabindex="-1">Settings</h2>
+          <form id="settings-form" class="card" aria-labelledby="general-title" novalidate>
+            <h3 id="general-title">General</h3>
+            <div id="settings-general-fields" class="settings-grid"></div>
+            <details class="advanced" id="settings-advanced">
+              <summary id="advanced-title">Advanced</summary>
+              <div id="settings-fields" class="settings-grid"></div>
+              <label class="field wide" for="selectorOverrides">
+                <span>Selector overrides (JSON): replace individual entries of the built-in Teams selector profile</span>
+                <textarea id="selectorOverrides" rows="8" spellcheck="false" placeholder='{ "messageItem": ["[data-tid=&quot;chat-pane-item&quot;]"] }'></textarea>
+              </label>
+              <div class="button-row">
+                <button type="button" id="btn-defaults">Reset to defaults</button>
+                <button type="button" id="btn-insert-selectors">Insert default selectors</button>
+              </div>
+            </details>
+            <div class="button-row">
+              <button type="submit" class="primary">Save settings</button>
+            </div>
+            <p id="settings-message" class="small" role="status" aria-live="polite" hidden></p>
+          </form>
+        </section>
+
+        <footer class="muted small about-line">
+          <span id="about-version">Teams Chat Scraper</span>. An independent extension, not made by or affiliated with Microsoft. Microsoft
+          Teams is a trademark of the Microsoft group of companies. It reads only the chats Teams Web shows you, and keeps them in this
+          browser profile.
+        </footer>
+      </div>
 
       <!-- One conversation -->
       <section id="view-conversation" class="view" aria-labelledby="conv-view-title" hidden>
@@ -133,177 +136,21 @@
           <p id="conv-view-empty" class="muted" hidden>No messages are archived for this chat. Open it in Teams Web and click the toolbar button to archive them.</p>
         </div>
       </section>
-
-      <!-- Export -->
-      <section id="view-export" class="view" aria-labelledby="export-title" hidden>
-        <h2 id="export-title" class="view-title" tabindex="-1">Export</h2>
-        <div class="card export-card">
-          <div class="export-layout">
-            <div class="export-choices">
-              <fieldset class="export-section">
-                <legend>Start from</legend>
-                <div class="tile-grid preset-tiles">
-                  <label class="tile" for="preset-knowledge">
-                    <input type="radio" name="export-preset" id="preset-knowledge" value="knowledge" />
-                    <span class="tile-text">
-                      <span class="tile-name">Knowledge system<span class="tile-state"> · In use</span></span>
-                      <span class="tile-line">The knowledge package with pictures, attachments, reply context, reactions and edit history, without system messages.</span>
-                    </span>
-                  </label>
-                  <label class="tile" for="preset-backup">
-                    <input type="radio" name="export-preset" id="preset-backup" value="backup" />
-                    <span class="tile-text">
-                      <span class="tile-name">Full backup<span class="tile-state"> · In use</span></span>
-                      <span class="tile-line">The knowledge package with everything. Import archive… restores it.</span>
-                    </span>
-                  </label>
-                </div>
-              </fieldset>
-              <fieldset class="export-section">
-                <legend>Format</legend>
-                <div class="tile-grid format-tiles" id="export-formats"></div>
-                <p id="export-explain" class="small export-explain"></p>
-                <details class="more" id="export-inside" hidden>
-                  <summary>What is inside</summary>
-                  <p id="export-inside-text" class="muted small"></p>
-                </details>
-              </fieldset>
-              <fieldset class="export-section" id="export-packaging-field">
-                <legend>Packaging</legend>
-                <div class="segments" id="export-packaging"></div>
-              </fieldset>
-              <fieldset class="export-section">
-                <legend>Messages</legend>
-                <div class="segments" id="export-range"></div>
-                <div id="export-period" class="export-grid" hidden>
-                  <label class="field" for="export-from"><span>From (included)</span><input type="datetime-local" id="export-from" /></label>
-                  <label class="field" for="export-to"><span>Before (not included)</span><input type="datetime-local" id="export-to" /></label>
-                </div>
-              </fieldset>
-              <fieldset class="export-section">
-                <legend>Content</legend>
-                <div id="export-content" class="export-content"></div>
-                <p id="export-content-note" class="muted small" hidden>
-                  File attachments and reply context are always included in JSON and package exports: they are part of each archive record.
-                </p>
-              </fieldset>
-            </div>
-            <fieldset class="export-section export-picker">
-              <legend>Conversations</legend>
-              <div class="picker-tools" id="export-tools">
-                <div class="field toolbar-search">
-                  <label for="export-filter">Filter by name</label>
-                  <label class="search-field" for="export-filter">
-                    <span id="export-filter-icon"></span>
-                    <input type="search" id="export-filter" placeholder="Name, earlier title or key" autocomplete="off" />
-                  </label>
-                </div>
-                <fieldset class="choice-group" id="export-types-field">
-                  <legend class="visually-hidden">Chat type</legend>
-                  <div class="segments" id="export-types"></div>
-                </fieldset>
-              </div>
-              <div class="button-row small" id="export-select-row">
-                <button type="button" class="link" id="btn-export-select-all">Select all</button>
-                <button type="button" class="link" id="btn-export-select-none">Select none</button>
-                <button type="button" class="link" id="btn-export-select-shown" hidden>Select shown</button>
-                <span id="export-selected-count" class="muted"></span>
-              </div>
-              <div id="export-conversations" class="export-list"></div>
-              <p id="export-no-match" class="muted small" hidden>No conversation matches the filter. Clear it to see them all.</p>
-              <p id="export-empty" class="muted small" hidden>Nothing archived yet, so there is nothing to export. Open a chat in Teams Web and click the toolbar button.</p>
-            </fieldset>
-          </div>
-          <div class="export-bar">
-            <div class="export-bar-text">
-              <p id="export-message" class="small" role="status" aria-live="polite" hidden></p>
-              <div id="export-will-save" class="small"></div>
-              <div class="progress" id="export-progress" role="progressbar" aria-label="Export progress" aria-valuemin="0" aria-valuemax="100" hidden>
-                <div class="progress-fill" id="export-progress-fill"></div>
-              </div>
-              <span id="export-run-hint" class="muted small" hidden></span>
-            </div>
-            <button type="button" id="btn-export-run" class="primary" aria-describedby="export-run-hint">Export</button>
-          </div>
-        </div>
-        <section class="card" aria-labelledby="import-title">
-          <h3 id="import-title">Import</h3>
-          <p class="muted small">
-            Reads a JSON export or a knowledge package back into the archive, for example to restore a backup or to combine the archives
-            of two browser profiles. The whole file is checked first, and importing a file twice changes nothing.
-          </p>
-          <button type="button" data-import>Import archive…</button>
-        </section>
-      </section>
-
-      <!-- Settings -->
-      <section id="view-settings" class="view" aria-labelledby="settings-title" hidden>
-        <h2 id="settings-title" class="view-title" tabindex="-1">Settings</h2>
-        <form id="settings-form" class="card" aria-labelledby="general-title" novalidate>
-          <h3 id="general-title" tabindex="-1">General</h3>
-          <div id="settings-general-fields" class="settings-grid"></div>
-          <details class="advanced" id="settings-advanced">
-            <summary id="advanced-title">Advanced</summary>
-            <div id="settings-fields" class="settings-grid"></div>
-            <label class="field wide" for="selectorOverrides">
-              <span>Selector overrides (JSON): replace individual entries of the built-in Teams selector profile</span>
-              <textarea id="selectorOverrides" rows="8" spellcheck="false" placeholder='{ "messageItem": ["[data-tid=&quot;chat-pane-item&quot;]"] }'></textarea>
-            </label>
-            <div class="button-row">
-              <button type="button" id="btn-defaults">Reset to defaults</button>
-              <button type="button" id="btn-insert-selectors">Insert default selectors</button>
-            </div>
-          </details>
-          <div class="button-row">
-            <button type="submit" class="primary">Save settings</button>
-          </div>
-          <p id="settings-message" class="small" role="status" aria-live="polite" hidden></p>
-        </form>
-
-        <section class="card" id="settings-storage" aria-labelledby="storage-title">
-          <h3 id="storage-title" tabindex="-1">Storage</h3>
-          <dl class="stats" id="storage-stats"></dl>
-          <p class="muted small">
-            The archive is kept in this browser profile only. Removing the extension, or clearing the extension's site data, deletes it.
-          </p>
-          <div class="button-row">
-            <button type="button" id="btn-storage-backup">Back up now…</button>
-            <button type="button" data-import>Import archive…</button>
-          </div>
-        </section>
-
-        <section class="card" id="settings-troubleshooting" aria-labelledby="troubleshooting-title">
-          <h3 id="troubleshooting-title" tabindex="-1">Troubleshooting</h3>
-          <p class="muted small">
-            Diagnostics checks which page selectors match in an open Teams chat and where chat and person ids appear. The report holds
-            counts and page structure only: no message text, names or ids.
-          </p>
-          <div class="toolbar">
-            <label class="field" for="diag-tab"><span>Teams tab</span><select id="diag-tab"></select></label>
-            <div class="button-row">
-              <button type="button" id="btn-diag-refresh">Find Teams tabs</button>
-              <button type="button" id="btn-diag">Run diagnostics</button>
-              <button type="button" id="btn-diag-copy" hidden>Copy report</button>
-            </div>
-          </div>
-          <p id="diag-tabs-empty" class="muted small" hidden>No Teams tab is open. Open a chat in Teams Web, then click Find Teams tabs.</p>
-          <div id="diag-status" class="small" role="status" aria-live="polite"></div>
-          <div id="diag-summary" class="small" hidden></div>
-          <pre id="diag-output" hidden></pre>
-        </section>
-
-        <section class="card" id="settings-about" aria-labelledby="about-title">
-          <h3 id="about-title" tabindex="-1">About</h3>
-          <p id="about-version">Teams Chat Scraper</p>
-          <p class="muted small">
-            An independent extension, not made by or affiliated with Microsoft. Microsoft Teams is a trademark of the Microsoft group of
-            companies. It reads only the chats Teams Web shows you, and keeps them in this browser profile.
-          </p>
-        </section>
-      </section>
     </main>
 
     <input type="file" id="import-file" accept=".json,.zip,application/json,application/zip" hidden />
+
+    <dialog id="save-dialog" class="image-dialog save-dialog" aria-labelledby="save-dialog-title" aria-describedby="save-dialog-what">
+      <form id="save-dialog-form" novalidate>
+        <h2 id="save-dialog-title">Save a file</h2>
+        <p class="muted small" id="save-dialog-what"></p>
+        <div id="save-dialog-choices" class="save-choices"></div>
+        <div class="button-row">
+          <button type="submit" class="primary" id="btn-save-confirm">Save</button>
+          <button type="button" id="btn-save-cancel">Cancel</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="image-dialog" class="image-dialog" aria-labelledby="image-dialog-title">
       <div class="section-head">
@@ -317,7 +164,7 @@
       <form id="rename-form" novalidate>
         <h2 id="rename-dialog-title">Rename</h2>
         <label class="field" for="rename-input">
-          <span>Name for this chat in the archive and in exports. Leave it empty to show the Teams title.</span>
+          <span>Name for this chat in the archive and in saved files. Leave it empty to show the Teams title.</span>
           <input type="text" id="rename-input" maxlength="200" autocomplete="off" />
         </label>
         <div class="button-row">
@@ -330,7 +177,7 @@
     <dialog id="delete-dialog" class="image-dialog merge-dialog" aria-labelledby="delete-dialog-title" aria-describedby="delete-text">
       <h2 id="delete-dialog-title">Delete this conversation?</h2>
       <p class="small" id="delete-text"></p>
-      <p class="muted small">This cannot be undone. Export a backup first if you may need it.</p>
+      <p class="muted small">This cannot be undone. Back up first if you may need it.</p>
       <div class="button-row">
         <button type="button" id="btn-delete-confirm" class="danger">Delete</button>
         <button type="button" id="btn-delete-cancel" autofocus>Cancel</button>

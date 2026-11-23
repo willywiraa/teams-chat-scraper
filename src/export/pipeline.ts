@@ -21,8 +21,6 @@ import {
   type TimeRange,
 } from './options';
 import {
-  csvMessage,
-  csvStart,
   htmlConversationEnd,
   htmlConversationStart,
   htmlDay,
@@ -368,7 +366,7 @@ function numberedName(time: TimeFormat, total: number): (image: ImageInfo, messa
 
 // --------------------------------------------------------- transcripts
 
-type TranscriptFormat = 'html' | 'markdown' | 'text' | 'csv';
+type TranscriptFormat = 'html' | 'markdown' | 'text';
 
 interface TranscriptRenderer {
   file: string;
@@ -405,15 +403,6 @@ const RENDERERS: Record<TranscriptFormat, TranscriptRenderer> = {
     conversation: (record, summary, time, first) => `${first ? '' : '\n'}${textConversationStart(record, summary, time)}`,
     day: textDay,
     message: (_record, message, ctx) => textMessage(message, ctx),
-    endConversation: () => '',
-    end: () => '',
-  },
-  csv: {
-    file: 'messages.csv',
-    start: (_title, content) => csvStart(content),
-    conversation: () => '',
-    day: () => '',
-    message: (record, message, ctx) => csvMessage(record, message, ctx),
     endConversation: () => '',
     end: () => '',
   },

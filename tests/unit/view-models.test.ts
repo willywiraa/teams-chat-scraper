@@ -1,13 +1,11 @@
 /**
- * What the app page and the popup show, worked out without a page: routes, the conversation
- * list's search, filter and sorting, summary lines, overview totals, the message view and its
- * pages; the backup line; the scrolling speed presets; the theme choice; the popup's run progress;
- * the export panel's explanation, button, presets, file name and conversation lines; and repeated
- * clicks.
+ * What the archive page and the popup show, worked out without a page: routes, the conversation
+ * list's search, filter and sorting, summary lines, the archive's totals, the message view and
+ * its pages; the backup line; the scrolling speed presets; the theme choice; the popup's run
+ * progress; the save form's formats, lines and fixed content; and repeated clicks.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_EXPORT_CHOICES, EXPORT_FORMATS, FULL_CONTENT, normalizeChoices, packagingsFor, presetChoices } from '../../src/export/options';
-import { runExport } from '../../src/export/pipeline';
+import { FULL_CONTENT, SAVE_FORMATS, type SaveChoices } from '../../src/export/options';
 import { timeFormat } from '../../src/export/render';
 import {
   DEFAULT_SETTINGS,
@@ -23,10 +21,12 @@ import {
 import type { ConversationRecord } from '../../src/shared/types';
 import { guarded, type AppContext } from '../../src/ui/archive/context';
 import { countOf, formatDate, formatDateTime, formatNumber } from '../../src/ui/common';
-import { conversationFacts, explainChoices, exportButtonLabel, FORMAT_TILES, plannedFileName, presetInUse } from '../../src/ui/export-panel';
 import { parseLastBackup } from '../../src/ui/last-backup';
+import { parseLastSave } from '../../src/ui/last-save';
+import { CONTENT_FIELDS, fileNoun, FORMAT_NAMES, formatLine, SAVE_CHOICES_KEY, SaveForm } from '../../src/ui/save-form';
 import { applyTheme, nextTheme, normalizeTheme, readTheme, saveTheme, THEME_STORAGE_KEY, themeLabel } from '../../src/ui/theme';
 import {
+  archiveTotals,
   archivedPeriod,
   backupLine,
   conversationDetails,
@@ -34,10 +34,7 @@ import {
   filterConversations,
   historyLabel,
   historyLine,
-  latestActivity,
   messageView,
-  navOf,
-  overviewTotals,
   parseRoute,
   pictureBox,
   reachShare,
@@ -79,52 +76,40 @@ function record(overrides: Partial<ConversationRecord> = {}): ConversationRecord
 
 // ------------------------------------------------------------------ routes
 
-describe('routes of the app page', () => {
+describe('routes of the archive page', () => {
   it('round-trip through the address', () => {
     const routes: Route[] = [
-      { view: 'overview' },
-      { view: 'conversations' },
+      { view: 'home', section: 'conversations' },
+      { view: 'home', section: 'backup' },
+      { view: 'home', section: 'settings' },
+      { view: 'home', section: 'advanced' },
       { view: 'conversation', key: 'teams:19:abc@thread.v2' },
       { view: 'conversation', key: 'title:design review/2 #1' },
-      { view: 'export' },
-      { view: 'export', key: 'title:design review' },
-      { view: 'settings', section: null, tabId: null },
-      { view: 'settings', section: 'advanced', tabId: null },
-      { view: 'settings', section: 'storage', tabId: null },
-      { view: 'settings', section: 'troubleshooting', tabId: null },
-      { view: 'settings', section: 'troubleshooting', tabId: 42 },
     ];
     for (const route of routes) expect(parseRoute(routeHash(route))).toEqual(route);
-    expect(routeHash({ view: 'settings', section: 'troubleshooting', tabId: 42 })).toBe('#settings/troubleshooting/42');
     expect(routeHash({ view: 'conversation', key: 'title:a/b' })).toBe('#conversation/title%3Aa%2Fb');
-    // The popup's Export this chat… names the chat; Export without one is the plain address.
-    expect(routeHash({ view: 'export', key: 'title:a/b' })).toBe('#export/title%3Aa%2Fb');
-    expect(parseRoute('#export/')).toEqual({ view: 'export' });
-    expect(parseRoute('#export/%E0%A4%A')).toEqual({ view: 'export' });
-    expect(navOf({ view: 'export', key: 'k' })).toBe('export');
+    expect(routeHash({ view: 'home', section: null })).toBe('#conversations');
+    expect(routeHash({ view: 'home', section: 'advanced' })).toBe('#settings/advanced');
   });
 
-  it('show the overview for an empty or unknown address, and the list for a conversation without key', () => {
-    expect(parseRoute('')).toEqual({ view: 'overview' });
-    expect(parseRoute('#')).toEqual({ view: 'overview' });
-    expect(parseRoute('#nonsense')).toEqual({ view: 'overview' });
-    expect(parseRoute('#conversation/')).toEqual({ view: 'conversations' });
-    expect(parseRoute('#conversation/%E0%A4%A')).toEqual({ view: 'conversations' });
+  it('show the page for an empty or unknown address, and the list for a conversation without key', () => {
+    expect(parseRoute('')).toEqual({ view: 'home', section: null });
+    expect(parseRoute('#')).toEqual({ view: 'home', section: null });
+    expect(parseRoute('#nonsense')).toEqual({ view: 'home', section: null });
+    expect(parseRoute('#conversation/')).toEqual({ view: 'home', section: 'conversations' });
+    expect(parseRoute('#conversation/%E0%A4%A')).toEqual({ view: 'home', section: 'conversations' });
   });
 
-  it('ignore unknown settings sections and tab ids outside Troubleshooting', () => {
-    expect(parseRoute('#settings/colours')).toEqual({ view: 'settings', section: null, tabId: null });
-    expect(parseRoute('#settings/storage/7')).toEqual({ view: 'settings', section: 'storage', tabId: null });
-    expect(parseRoute('#settings/troubleshooting/x7')).toEqual({ view: 'settings', section: 'troubleshooting', tabId: null });
-  });
-
-  it('mark Conversations in the navigation for a single conversation', () => {
-    expect(navOf({ view: 'conversation', key: 'k' })).toBe('conversations');
-    expect(navOf({ view: 'settings', section: 'storage', tabId: null })).toBe('settings');
+  it('lead the addresses of the earlier sections to their place on the page', () => {
+    expect(parseRoute('#overview')).toEqual({ view: 'home', section: 'backup' });
+    expect(parseRoute('#export')).toEqual({ view: 'home', section: 'backup' });
+    expect(parseRoute('#export/title%3Aa%2Fb')).toEqual({ view: 'conversation', key: 'title:a/b' });
+    expect(parseRoute('#export/%E0%A4%A')).toEqual({ view: 'home', section: 'backup' });
+    expect(parseRoute('#settings/storage')).toEqual({ view: 'home', section: 'settings' });
+    expect(parseRoute('#settings/troubleshooting/42')).toEqual({ view: 'home', section: 'settings' });
+    expect(parseRoute('#settings/advanced')).toEqual({ view: 'home', section: 'advanced' });
   });
 });
-
-// ------------------------------------------------------- conversation list
 
 describe('conversation list', () => {
   const alpha = record({ conversationKey: 'teams:19:alpha', title: 'Project Alpha', messageCount: 50, lastExtractedAt: '2024-01-10T00:00:00.000Z' });
@@ -161,7 +146,6 @@ describe('conversation list', () => {
     expect(filterConversations(all, { sort: 'recent' })).toEqual([design, alpha, bob]);
     expect(filterConversations(all, { sort: 'name' })).toEqual([bob, design, alpha]);
     expect(filterConversations(all, { sort: 'messages' })).toEqual([bob, alpha, design]);
-    expect(latestActivity(all, 2)).toEqual([design, alpha]);
   });
 
   it('does not reorder the records it was given', () => {
@@ -210,11 +194,11 @@ describe('summary lines', () => {
     expect(historyLine(record({ messageCount: 0, oldestSortKey: null, newestSortKey: null, coverage: [] }), now)).toBe('Not archived yet');
   });
 
-  it('add up the overview totals', () => {
+  it('add up the archive’s totals', () => {
     const partial = record({ coverage: [{ oldest: at(10, 9, 0), newest: at(20, 9, 0), reachedBeginning: false }] });
     const empty = record({ messageCount: 0, oldestSortKey: null, newestSortKey: null, coverage: [] });
-    expect(overviewTotals([record(), partial, empty], [3, 0])).toEqual({ conversations: 3, messages: 20, images: 3, complete: 1, partial: 1 });
-    expect(overviewTotals([], [])).toEqual({ conversations: 0, messages: 0, images: 0, complete: 0, partial: 0 });
+    expect(archiveTotals([record(), partial, empty], [3, 0])).toEqual({ conversations: 3, messages: 20, images: 3, complete: 1, partial: 1 });
+    expect(archiveTotals([], [])).toEqual({ conversations: 0, messages: 0, images: 0, complete: 0, partial: 0 });
   });
 });
 
@@ -498,72 +482,72 @@ describe('run progress in the popup', () => {
   });
 });
 
-describe('export panel', () => {
-  it('shows a preset as in use only while the choices are its own', () => {
-    const backup = normalizeChoices(presetChoices('backup'));
-    expect(presetInUse(normalizeChoices(presetChoices('knowledge')))).toBe('knowledge');
-    expect(presetInUse(backup)).toBe('backup');
-    expect(presetInUse(normalizeChoices(DEFAULT_EXPORT_CHOICES))).toBeNull();
-    expect(presetInUse({ ...backup, range: 'last-7d' })).toBeNull();
-    expect(presetInUse({ ...backup, content: { ...backup.content, editHistory: false } })).toBeNull();
-    // The package always keeps attachments and reply context, as its ticked, disabled boxes show.
-    expect(presetInUse({ ...backup, content: { ...backup.content, attachments: false } })).toBe('backup');
+describe('saving a file', () => {
+  it('offers four formats, PDF first, each with a short name and a line saying what it makes', () => {
+    expect(SAVE_FORMATS).toEqual(['pdf', 'text', 'json', 'package']);
+    expect(SAVE_FORMATS.map((format) => FORMAT_NAMES[format])).toEqual(['PDF', 'Text', 'JSON', 'ZIP package']);
+    for (const format of SAVE_FORMATS) expect(formatLine({ format, content: FULL_CONTENT }).length, format).toBeLessThanOrEqual(90);
+    expect(formatLine({ format: 'pdf', content: FULL_CONTENT })).toBe('Opens the print dialog to save a PDF.');
+    expect(formatLine({ format: 'text', content: FULL_CONTENT })).toMatch(/ZIP/);
+    expect(formatLine({ format: 'text', content: { ...FULL_CONTENT, images: false } })).toBe('One plain-text file.');
   });
 
-  it('names the file as the export names it, for every format and packaging', async () => {
-    const alpha = await exportFixture();
-    const beta = await exportFixture('teams:19:beta', 'Design review', 2);
-    const reader = memoryReader([alpha, beta]);
-    expect(plannedFileName({ format: 'pdf', packaging: 'file' }, [alpha.record], FIXTURE_NOW)).toBeNull();
-    let compared = 0;
-    for (const format of EXPORT_FORMATS.filter((value) => value !== 'pdf')) {
-      for (const images of [true, false]) {
-        for (const packaging of packagingsFor(format, { images })) {
-          for (const records of [[alpha.record], [alpha.record, beta.record]]) {
-            const outcome = await runExport(reader, {
-              conversations: records.map((one) => one.conversationKey),
-              format,
-              packaging,
-              range: { from: null, to: null },
-              content: { ...FULL_CONTENT, images },
-              now: FIXTURE_NOW,
-            });
-            expect(plannedFileName({ format, packaging }, records, FIXTURE_NOW), `${format} ${packaging}`).toBe(outcome.fileName);
-            compared++;
-          }
-        }
-      }
+  it('names the file in the buttons that save it', () => {
+    expect(fileNoun({ format: 'pdf', content: FULL_CONTENT })).toBe('a PDF');
+    expect(fileNoun({ format: 'text', content: FULL_CONTENT })).toBe('the text and pictures (ZIP)');
+    expect(fileNoun({ format: 'text', content: { ...FULL_CONTENT, images: false } })).toBe('a text file');
+    expect(fileNoun({ format: 'json', content: FULL_CONTENT })).toBe('a JSON file');
+    expect(fileNoun({ format: 'package', content: FULL_CONTENT })).toBe('a ZIP package');
+  });
+
+  it('keeps the content a format fixes ticked and disabled, with the note, and remembers the rest', () => {
+    const stored: unknown[] = [];
+    vi.stubGlobal('chrome', { storage: { local: { set: async (value: unknown) => void stored.push(value) } } });
+    try {
+      const root = document.createElement('div');
+      document.body.append(root);
+      const changes: SaveChoices[] = [];
+      const form = new SaveForm(root, (choices) => changes.push(choices));
+      form.set({ format: 'pdf', content: { ...FULL_CONTENT, attachments: false } });
+      const box = (key: string) => root.querySelector<HTMLInputElement>(`#save-include-${key}`)!;
+      const note = root.querySelector<HTMLElement>('[data-part="note"]')!;
+      expect(CONTENT_FIELDS.map(({ label }) => label)).toEqual(['Pictures', 'File attachments', 'Reply context', 'Reactions', 'System messages', 'Edit history']);
+      expect([box('attachments').checked, box('attachments').disabled, note.hidden]).toEqual([false, false, true]);
+
+      root.querySelector<HTMLInputElement>('#save-format-json')!.click();
+      expect([box('attachments').checked, box('attachments').disabled, note.hidden]).toEqual([true, true, false]);
+      expect(root.querySelector('[data-part="line"]')!.textContent).toMatch(/Import archive/);
+      // The fixed box does not change what was chosen for the other formats.
+      expect(changes.at(-1)).toEqual({ format: 'json', content: { ...FULL_CONTENT, attachments: false } });
+      expect(stored.at(-1)).toEqual({ [SAVE_CHOICES_KEY]: { format: 'json', content: { ...FULL_CONTENT, attachments: false } } });
+
+      box('reactions').click();
+      expect(form.value).toEqual({ format: 'json', content: { ...FULL_CONTENT, attachments: false, reactions: false } });
+
+      // The popup redraws on "input", which comes before "change": the click still counts.
+      const page = document.createElement('div');
+      document.body.append(page);
+      page.append(root);
+      page.addEventListener('input', () => {
+        form.setDisabled(true);
+        form.setDisabled(false);
+      });
+      root.querySelector<HTMLLabelElement>('label[for="save-format-text"]')!.click();
+      expect(form.value.format).toBe('text');
+      expect(root.querySelector<HTMLInputElement>('#save-format-text')!.checked).toBe(true);
+      page.remove();
+      form.setDisabled(true);
+      expect(root.querySelectorAll('input:not(:disabled)')).toHaveLength(0);
+      root.remove();
+    } finally {
+      vi.unstubAllGlobals();
     }
-    expect(compared).toBeGreaterThanOrEqual(20);
   });
 
-  it('sums a conversation up after its name in the list', () => {
-    const now = Date.parse('2024-01-20T13:00:00.000Z');
-    expect(conversationFacts(record({ messageCount: 451 }), now)).toBe('Group chat · 451 messages · updated 3 hours ago');
-    expect(conversationFacts(record({ type: 'one-on-one', messageCount: 1 }), now)).toMatch(/^1:1 chat · 1 message · updated /);
-  });
-
-  it('gives every format a tile with a short name and a line', () => {
-    for (const format of EXPORT_FORMATS) {
-      expect(FORMAT_TILES[format].name.length, format).toBeGreaterThan(0);
-      expect(FORMAT_TILES[format].line.length, format).toBeLessThanOrEqual(45);
-    }
-  });
-
-  it('names what the Export button writes', () => {
-    expect(exportButtonLabel({ format: 'package', packaging: 'zip' }, 2)).toBe('Export 2 conversations (ZIP)');
-    expect(exportButtonLabel({ format: 'html', packaging: 'file' }, 1)).toBe('Export 1 conversation (HTML)');
-    expect(exportButtonLabel({ format: 'csv', packaging: 'zip' }, 3)).toBe('Export 3 conversations (ZIP)');
-    expect(exportButtonLabel({ format: 'json', packaging: 'file' }, 1)).toBe('Export 1 conversation (JSON)');
-    expect(exportButtonLabel({ format: 'pdf', packaging: 'file' }, 2)).toBe('Open the print dialog');
-    expect(exportButtonLabel({ format: 'markdown', packaging: 'file' }, 0)).toBe('Export');
-  });
-
-  it('explains the package in plain words, and lists the files inside apart', () => {
-    const backup = explainChoices(normalizeChoices(presetChoices('backup')), 2);
-    expect(backup.text).not.toMatch(/jsonl|SHA-256|manifest/);
-    expect(backup.text).toMatch(/Import archive/);
-    expect(backup.inside).toMatch(/messages\.jsonl/);
-    expect(explainChoices(normalizeChoices(DEFAULT_EXPORT_CHOICES), 1)).toEqual({ text: expect.stringMatching(/^One HTML page/), inside: '' });
+  it('reads back what the save page did for a capture', () => {
+    expect(parseLastSave({ sessionId: 's1', fileName: 'Design-review.txt', problem: null })).toEqual({ sessionId: 's1', fileName: 'Design-review.txt', problem: null });
+    expect(parseLastSave({ sessionId: 's1' })).toEqual({ sessionId: 's1', fileName: null, problem: null });
+    expect(parseLastSave({ fileName: 'x' })).toBeNull();
+    expect(parseLastSave(null)).toBeNull();
   });
 });

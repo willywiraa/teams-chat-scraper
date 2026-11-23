@@ -273,7 +273,7 @@ Each phase works test-first, ends with `npm run check` and a short manual checkl
   - Everything is written in parts: messages are read 500 at a time, text goes into Blobs every 4 MB, ZIP files are written in parts.
   - Import reads JSON with a streaming scanner and the package (stored or deflated, also re-zipped inside a folder) file by file. It checks the whole file before writing anything.
   - G4 is fixed: an import writes the conversation entry first and counts messages per batch, so an interrupted import leaves a visible, partial entry that importing again completes.
-  - Decision 2 is covered without a choice: the package has JSON Lines records and a Markdown transcript per chat, with the pictures named by their SHA-256. It is documented in [EXPORT_FORMAT.md](EXPORT_FORMAT.md#knowledge-package).
+  - Decision 2 is covered without a choice: the package has JSON Lines records and a Markdown transcript per chat, with the pictures named by their SHA-256. It is documented in [EXPORT_FORMAT.md](EXPORT_FORMAT.md#zip-package).
 - **Phase 4 (extension 1.5.0):**
   - The logo is an archive box shaped like a speech bubble (overhanging lid, handle slot, speech tail), white on a blue tile (`#1f5fbf`). Nothing in it, or in the colours, is taken from Teams.
   - One description (`scripts/logo.ts`) gives the SVG master, the 16, 32, 48 and 128 px icons, and the store logo (300 × 300) and small tile (440 × 280). The master's edges lie on whole pixels at 32 and 48 px; 16 px has its own pixel-aligned variant. A test fails when a committed file no longer matches the description.

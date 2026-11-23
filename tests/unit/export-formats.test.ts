@@ -1,6 +1,8 @@
 /**
  * The export formats, written by the pipeline from an in-memory archive: golden files per
- * format, pictures, content options, date ranges, CSV safety and the knowledge package layout.
+ * format, pictures, content options, date ranges and the knowledge package layout. HTML and
+ * Markdown are not offered as files any more, but the pipeline still writes them: HTML is the
+ * page printed to PDF, Markdown the package's transcript.
  * Set UPDATE_GOLDEN=1 to rewrite the golden files after an intended change.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -9,7 +11,6 @@ import { describe, expect, it } from 'vitest';
 import { parseArchiveExport } from '../../src/export/format';
 import { FULL_CONTENT, type ExportContent, type ExportFormat, type Packaging, type TimeRange } from '../../src/export/options';
 import { exportFileNameFor, runExport, writePrintable, type ExportReader, type PackageImageV1, type PackageManifestV1 } from '../../src/export/pipeline';
-import { csvCell } from '../../src/export/render';
 import { CK } from '../helpers/messages';
 import { at, exportFixture, FIXTURE_NOW, type ExportFixture } from '../helpers/export-fixture';
 import { blobText, icuNeutral, memoryReader, unzip, utf8 } from '../helpers/export';
@@ -59,9 +60,9 @@ describe('golden files', () => {
     golden('chat.html', await blobText(outcome.blob));
   });
 
-  it('Markdown, plain text and CSV with their images folders', async () => {
+  it('Markdown and plain text with their images folders', async () => {
     const reader = await readerOf(await exportFixture());
-    for (const [format, file] of [['markdown', 'chat.md'], ['text', 'chat.txt'], ['csv', 'messages.csv']] as const) {
+    for (const [format, file] of [['markdown', 'chat.md'], ['text', 'chat.txt']] as const) {
       const files = await unzip((await exportWith(reader, { format, packaging: 'zip' })).blob);
       golden(file, utf8(files.get(file)));
     }
@@ -185,9 +186,6 @@ describe('content options', () => {
     expect(markdown).toContain(`_Reactions:_ ${line}`);
     const text = await blobText((await exportWith(reader, { format: 'text', content: { images: false } })).blob);
     expect(text).toContain(`  Reactions: ${line}`);
-    const csv = await blobText((await exportWith(reader, { format: 'csv', content: { images: false } })).blob);
-    expect(csv.split('\r\n')[0]).toMatch(/,earlier_versions,reactions$/);
-    expect(csv).toContain(`,${line}\r\n`);
     const json = JSON.parse(await blobText((await exportWith(reader, { format: 'json' })).blob));
     expect(json.conversations[0].messages[2].reactions).toEqual([
       { emoji: '👍', count: 2, mine: true },
@@ -195,7 +193,7 @@ describe('content options', () => {
     ]);
 
     const off = { reactions: false, images: false };
-    for (const format of ['html', 'markdown', 'text', 'csv'] as const) {
+    for (const format of ['html', 'markdown', 'text'] as const) {
       expect(await blobText((await exportWith(reader, { format, content: off })).blob)).not.toContain('👍');
     }
     const without = JSON.parse(await blobText((await exportWith(reader, { format: 'json', content: off })).blob));
@@ -236,40 +234,6 @@ describe('date ranges', () => {
     expect(json.conversations[0]).toMatchObject({ ...fixture.record });
     expect(json.conversations[0]!.messages).toEqual(fixture.messages);
     expect(json.conversations[0]!.images?.map((image) => image.imageId)).toEqual([fixture.oldId, fixture.photoId, fixture.chartId]);
-  });
-});
-
-describe('CSV', () => {
-  it('keeps formula-like values as text and quotes what needs quoting', () => {
-    expect(csvCell('=1+1')).toBe("'=1+1");
-    expect(csvCell('+49 30 1234')).toBe("'+49 30 1234");
-    expect(csvCell('-5')).toBe("'-5");
-    expect(csvCell('@SUM(A1)')).toBe("'@SUM(A1)");
-    expect(csvCell('\tcmd')).toBe("'\tcmd");
-    expect(csvCell('\rcmd')).toBe(`"'\rcmd"`);
-    expect(csvCell('＝1+1')).toBe("'＝1+1");
-    expect(csvCell('=HYPERLINK("https://example.invalid","x")')).toBe(`"'=HYPERLINK(""https://example.invalid"",""x"")"`);
-    expect(csvCell('a, b')).toBe('"a, b"');
-    expect(csvCell('line\nbreak')).toBe('"line\nbreak"');
-    expect(csvCell('plain')).toBe('plain');
-    expect(csvCell(-5)).toBe('-5');
-    expect(csvCell(true)).toBe('yes');
-    expect(csvCell(null)).toBe('');
-  });
-
-  it('writes one row per message, UTF-8 with a byte order mark and CRLF rows', async () => {
-    const outcome = await exportWith(await readerOf(await exportFixture()), { format: 'csv', content: { images: false } });
-    expect(outcome.fileName).toBe('Project-Alpha-2024-02-01T10-20-30.csv');
-    const bytes = new Uint8Array(await outcome.blob.arrayBuffer());
-    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
-    const text = new TextDecoder().decode(bytes);
-    expect(text.split('\r\n')[0]).toBe(
-      'conversation,conversation_key,message_key,message_id,time,time_utc,sender,sender_id,from_me,kind,text,reply_to_sender,reply_to_text,reply_to_key,attachments,edited,deleted,earlier_versions,reactions',
-    );
-    expect(text).toContain(`,"'=1+1, ""quoted""",`);
-    expect(text).toContain('2024-01-15 09:10:00,2024-01-15T09:10:00.000Z,Bob Brown,8:orgid:bob,no,message,Looks good *to me*,Alice Andersen,# Agenda,');
-    // Rows end with CRLF; line breaks inside a quoted cell are kept as they are.
-    expect(text.trimEnd().split('\r\n')).toHaveLength(6);
   });
 });
 

@@ -1,5 +1,4 @@
-/** What the sections of the app page share: the archive, the status line and navigation. */
-import type { ExportPreset } from '../../export/options';
+/** What the parts of the archive page share: the archive, the status line and navigation. */
 import type { ArchiveRepository } from '../../storage/repository';
 import type { Route } from '../view-models';
 
@@ -14,10 +13,8 @@ export interface AppContext {
   notify(text: string, kind?: MessageKind, options?: { carry?: boolean }): void;
   /** Goes to a route (through the address, so Back works). */
   go(route: Route): void;
-  /** Draws the current section again, after the archive changed. */
+  /** Draws the current view again, after the archive changed. */
   refresh(): Promise<void>;
-  /** Opens the Export section with these conversations selected (or the last selection), optionally with a preset. */
-  exportConversations(keys?: readonly string[], preset?: ExportPreset): void;
 }
 
 /**

@@ -1,29 +1,29 @@
 /**
- * The app page: Overview, Conversations (with the messages of one), Export and Settings. The
- * address chooses the section (#overview, #conversation/<key>, #settings/troubleshooting, …), so
- * Back and Forward work and the popup can link straight to a part of it.
+ * The archive page: Conversations, Backup and import, and Settings one under the other, with
+ * About at the end; and the messages of one chat. The address chooses what is shown
+ * (#conversations, #backup, #settings, #conversation/<key>, …), so Back and Forward work and the
+ * popup can link straight to a chat.
  */
 import { importArchiveFile } from '../export/import';
-import type { ExportPreset } from '../export/options';
 import { ArchiveRepository } from '../storage/repository';
-import { byId, countOf, el, errorText, formatNumber } from './common';
-import { ExportPanel } from './export-panel';
+import { renderBackup, wireBackup } from './archive/backup';
 import type { AppContext, MessageKind } from './archive/context';
 import { closeConversation, showConversation, wireConversationView } from './archive/conversation-view';
 import { buildConversationList, renderConversations, resumeMerges, wireConversationDialogs } from './archive/conversations';
-import { renderOverview, renderSessions, wireOverview } from './archive/overview';
-import { buildSettings, settingsHeading, showSettings } from './archive/settings-view';
+import { buildSettings, showSettings } from './archive/settings-view';
+import { byId, countOf, el, errorText, formatNumber } from './common';
 import { normalizeTheme, readTheme, saveTheme, THEME_CHOICES, THEME_STORAGE_KEY } from './theme';
-import { navOf, parseRoute, routeHash, type Route } from './view-models';
+import { parseRoute, routeHash, type PageSection, type Route } from './view-models';
 
 const APP_NAME = 'Teams Chat Scraper';
-const VIEWS = ['overview', 'conversations', 'conversation', 'export', 'settings'] as const;
-const TITLES: Record<Route['view'], string> = {
-  overview: 'Overview',
-  conversations: 'Conversations',
-  conversation: 'Conversation',
-  export: 'Export',
-  settings: 'Settings',
+const VIEWS = ['home', 'conversation'] as const;
+
+/** Each part of the page: the element to scroll to, and the heading that takes the focus. */
+const SECTIONS: Record<PageSection, { element: string; heading: string }> = {
+  conversations: { element: 'section-conversations', heading: 'conversations-title' },
+  backup: { element: 'section-backup', heading: 'backup-title' },
+  settings: { element: 'section-settings', heading: 'settings-title' },
+  advanced: { element: 'settings-advanced', heading: 'advanced-title' },
 };
 
 let repositoryPromise: Promise<ArchiveRepository> | null = null;
@@ -48,12 +48,9 @@ function notify(text: string, kind: MessageKind = 'notice', options: { carry?: b
 // ----------------------------------------------------------------- routing
 
 let current: Route = parseRoute(location.hash);
-/** Increases with every section shown, so a slow section drawn for an earlier address does not take the focus. */
+/** Increases with every view shown, so a slow view drawn for an earlier address does not take the focus. */
 let shownCount = 0;
-let exportPanel: ExportPanel | null = null;
-/** What Export should select and set when it is shown next. */
-let pendingExport: { keys?: readonly string[]; preset?: ExportPreset } | null = null;
-/** Shows "Reading the archive…" when a section takes a moment to draw; the page opens with it shown. */
+/** Shows "Reading the archive…" when a view takes a moment to draw; the page opens with it shown. */
 let loadingTimer: ReturnType<typeof setTimeout> | undefined;
 
 const app: AppContext = {
@@ -65,10 +62,6 @@ const app: AppContext = {
     else location.hash = hash;
   },
   refresh: () => show(current, { navigated: false }),
-  exportConversations(keys, preset) {
-    pendingExport = { keys, preset };
-    app.go({ view: 'export' });
-  },
 };
 
 async function show(route: Route, { navigated }: { navigated: boolean }): Promise<void> {
@@ -78,7 +71,6 @@ async function show(route: Route, { navigated }: { navigated: boolean }): Promis
   if (navigated) {
     if (!carryMessage) notify('');
     carryMessage = false;
-    window.scrollTo(0, 0);
   }
   if (previous.view === 'conversation' && route.view !== 'conversation') closeConversation();
   for (const view of VIEWS) byId(`view-${view}`).hidden = view !== route.view;
@@ -87,35 +79,10 @@ async function show(route: Route, { navigated }: { navigated: boolean }): Promis
     clearTimeout(loadingTimer);
     loadingTimer = setTimeout(() => (byId('archive-loading').hidden = false), 200);
   }
-  for (const link of document.querySelectorAll<HTMLAnchorElement>('a[data-nav]')) {
-    if (link.dataset.nav === navOf(route)) link.setAttribute('aria-current', 'page');
-    else link.removeAttribute('aria-current');
-  }
-  let title = TITLES[route.view];
+  let title = APP_NAME;
   try {
-    switch (route.view) {
-      case 'overview':
-        await renderOverview(app);
-        break;
-      case 'conversations':
-        await renderConversations(app);
-        break;
-      case 'conversation':
-        title = (await showConversation(app, route.key)) || title;
-        break;
-      case 'export': {
-        const wanted = pendingExport;
-        pendingExport = null;
-        exportPanel ??= new ExportPanel({ repository });
-        // The popup's Export this chat… names the chat in the address.
-        await exportPanel.show(await (await repository()).listConversations(), wanted?.keys ?? (route.key ? [route.key] : undefined));
-        if (wanted?.preset) exportPanel.usePreset(wanted.preset);
-        break;
-      }
-      case 'settings':
-        await showSettings(app, route.section, route.tabId);
-        break;
-    }
+    if (route.view === 'home') await Promise.all([renderConversations(app), renderBackup(app), showSettings(route.section === 'advanced')]);
+    else title = `${(await showConversation(app, route.key)) || 'Conversation'} · ${APP_NAME}`;
   } catch (error) {
     notify(errorText(error), 'error');
   }
@@ -123,14 +90,25 @@ async function show(route: Route, { navigated }: { navigated: boolean }): Promis
   clearTimeout(loadingTimer);
   byId('archive-loading').hidden = true;
   for (const view of VIEWS) byId(`view-${view}`).removeAttribute('aria-busy');
-  document.title = `${title} · ${APP_NAME}`;
-  // Move the focus to the section's heading, so keyboard and screen reader users start there.
-  if (navigated) {
-    const heading = (route.view === 'settings' ? settingsHeading(route.section) : null) ?? byId(`view-${route.view}`).querySelector<HTMLElement>('.view-title');
-    heading?.focus({ preventScroll: true });
-    // A conversation opens at its newest message, which is the last one in the list.
-    if (route.view === 'conversation') byId('conv-view-messages').lastElementChild?.scrollIntoView({ block: 'end' });
+  document.title = title;
+  if (navigated) place(route);
+}
+
+/**
+ * Brings what the address names into view, and moves the focus to its heading, so keyboard and
+ * screen reader users start there. A conversation opens at its newest message, the last one.
+ */
+function place(route: Route): void {
+  if (route.view === 'conversation') {
+    window.scrollTo(0, 0);
+    byId('conv-view-title').focus({ preventScroll: true });
+    byId('conv-view-messages').lastElementChild?.scrollIntoView({ block: 'end' });
+    return;
   }
+  const part = SECTIONS[route.section ?? 'conversations'];
+  if (route.section && route.section !== 'conversations') byId(part.element).scrollIntoView({ block: 'start' });
+  else window.scrollTo(0, 0);
+  byId(part.heading).focus({ preventScroll: true });
 }
 
 /** The theme select in the header; it follows a choice made in another page of the extension. */
@@ -187,9 +165,8 @@ function wire(): void {
     input.value = '';
     if (file) void importFile(file);
   });
-  byId('btn-backup-now').addEventListener('click', () => app.exportConversations(undefined, 'backup'));
   wireTheme();
-  wireOverview(app);
+  wireBackup(app);
   byId('about-version').textContent = `Teams Chat Scraper, version ${chrome.runtime.getManifest().version}`;
   window.addEventListener('hashchange', () => void show(parseRoute(location.hash), { navigated: true }));
 }
@@ -198,17 +175,13 @@ async function main(): Promise<void> {
   buildConversationList(app);
   wireConversationDialogs(app);
   wireConversationView(app);
-  buildSettings(app);
+  buildSettings();
   wire();
   await resumeMerges(app);
   await show(parseRoute(location.hash), { navigated: true });
-  // Keep the run log fresh while a run is in progress; draw the section again when the tab is shown.
-  setInterval(() => {
-    if (document.visibilityState !== 'visible') return;
-    if (current.view === 'overview') void renderSessions(app).catch(() => undefined);
-  }, 10_000);
   document.addEventListener('visibilitychange', () => {
-    // The message view keeps its place: it is drawn again only when opened again.
+    // The message view keeps its place: it is drawn again only when opened again. The page is
+    // drawn again, for a backup or a capture made in another tab.
     if (document.visibilityState === 'visible' && current.view !== 'conversation') void app.refresh();
   });
 }

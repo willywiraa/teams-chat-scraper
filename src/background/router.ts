@@ -2,6 +2,7 @@
  * Handles requests from content scripts. Kept free of Chrome APIs so it can be tested
  * end-to-end against a real (fake-indexeddb backed) repository.
  */
+import { normalizeSaveChoices } from '../export/options';
 import { updateAnchor, updateStart } from '../shared/capture';
 import { imageMetadataError, MAX_IMAGE_BYTES } from '../shared/images';
 import {
@@ -16,7 +17,7 @@ import {
   type SessionImagesResponse,
 } from '../shared/protocol';
 import { DEFAULT_SETTINGS } from '../shared/settings';
-import { EXTRACTOR_VERSION, emptyCounters, type SessionRecord } from '../shared/types';
+import { EXTRACTOR_VERSION, emptyCounters, type SessionRecord, type SessionStatus, type StopReason } from '../shared/types';
 import { saveCapturedImages } from '../storage/images';
 import type { ArchiveRepository } from '../storage/repository';
 
@@ -29,6 +30,8 @@ export interface RouterDeps {
   imageUploads?: ImageUploads;
   /** Largest image accepted (bytes); defaults to and is capped at MAX_IMAGE_BYTES. */
   maxImageBytes?: number;
+  /** Opens the save page for a finished run's file, next to the tab it ran in. */
+  openSaveTab?: (sessionId: string, openerTabId: number | null) => Promise<void>;
 }
 
 export interface RequestContext {
@@ -109,6 +112,14 @@ function requireArray<T>(value: unknown, name: string): T[] {
   return value as T[];
 }
 
+/**
+ * Whether a run that ended so saves its file: when it completed, or stopped on its own (a time
+ * limit, no progress, the chat closed). Not after Stop, and not when it failed.
+ */
+export function savesFileAfter(status: SessionStatus, stopReason: StopReason | null): boolean {
+  return status === 'completed' || (status === 'stopped' && stopReason !== 'user-stop');
+}
+
 /** A message time (epoch ms) from a request, or null. */
 function optionalTime(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -165,6 +176,7 @@ export async function handleBackgroundRequest(
         resumeOf: request.resumeOf ?? null,
         captureFrom,
         continuesFrom,
+        save: request.save ? normalizeSaveChoices(request.save) : null,
         tabId: context.tabId,
         startedAt: nowIso,
         updatedAt: nowIso,
@@ -300,7 +312,17 @@ export async function handleBackgroundRequest(
         updatedAt: nowIso,
         endedAt: nowIso,
       });
-      return { replies };
+      // Once per run: an end reported again (a retry) does not open a second page.
+      let savingFile = false;
+      if (session?.save && session.endedAt === null && deps.openSaveTab && savesFileAfter(request.status, request.stopReason)) {
+        try {
+          await deps.openSaveTab(sessionId, context.tabId);
+          savingFile = true;
+        } catch {
+          savingFile = false;
+        }
+      }
+      return { replies, savingFile } satisfies SessionEndResponse;
     }
 
     default:

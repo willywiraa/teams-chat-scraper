@@ -4,6 +4,7 @@
  * Everything here is plain JSON-serialisable data so it can cross the
  * content-script/background boundary and be written to IndexedDB unchanged.
  */
+import type { SaveChoices } from '../export/options';
 
 /** Bumped whenever the stored record shape changes (see storage/schema.ts for migrations). */
 export const ARCHIVE_SCHEMA_VERSION = 3;
@@ -386,6 +387,12 @@ export interface SessionRecord {
    * the last update if the archive is gap-free from here to the newest message it reached. Since 1.3.
    */
   continuesFrom?: number | null;
+  /**
+   * The file to save when the run ends, chosen in the popup; null or absent for none. The
+   * background opens the save page for it when the run completes, or stops for a reason other
+   * than Stop. Since 1.9.
+   */
+  save?: SaveChoices | null;
   tabId: number | null;
   startedAt: string;
   updatedAt: string;

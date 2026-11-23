@@ -248,7 +248,7 @@ class ScrapeEngine {
     try {
       let list = findMessageList(o.doc, o.profile);
       if (!list) {
-        return this.finish('failed', 'container-lost', 'Message list not found. Open a chat in Teams Web, then run Diagnostics from the popup.');
+        return this.finish('failed', 'container-lost', 'Message list not found. Open a chat in Teams Web and wait until its messages are shown.');
       }
       let driver = this.driverFor(list);
       if (o.mode !== 'visible') await this.scrollToBottom(driver);

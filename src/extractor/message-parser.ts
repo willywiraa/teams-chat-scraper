@@ -130,7 +130,7 @@ function countIn(text: string): number | null {
 /** Attributes that mark a reaction pill as chosen by you. */
 const PRESSED_ATTRIBUTES = ['aria-pressed', 'aria-checked', 'aria-selected'] as const;
 
-/** One pill as read, with where each part came from: Diagnostics reports the sources, never the values. */
+/** One pill as read, with where each part came from (the tests check the sources). */
 export interface ReactionRead {
   /** Null when the pill is another button (Add reaction) or shows no emoji. */
   reaction: Reaction | null;

@@ -2,6 +2,7 @@
  * Content script entry point (Teams Web tabs). It is passive until the popup sends a
  * command: it never modifies Teams' DOM, only reads it and scrolls the message list.
  */
+import { normalizeSaveChoices } from '../export/options';
 import { isContentCommand, type ContentCommand, type ContentCommandResult, type Response } from '../shared/protocol';
 import { normalizeSettings, SETTINGS_STORAGE_KEY, type ScrapeSettings } from '../shared/settings';
 import { ContentController } from './controller';
@@ -35,6 +36,7 @@ async function handle(controller: ContentController, command: ContentCommand): P
         rescan: Boolean(command.rescan),
         resumeOf: command.resumeOf ?? null,
         rangeStart: typeof command.rangeStart === 'number' && Number.isFinite(command.rangeStart) ? command.rangeStart : null,
+        save: command.save ? normalizeSaveChoices(command.save) : null,
       });
     case 'content/pause':
       return { accepted: controller.pause() };
@@ -42,8 +44,6 @@ async function handle(controller: ContentController, command: ContentCommand): P
       return { accepted: controller.resume() };
     case 'content/stop':
       return { accepted: controller.stop() };
-    case 'content/diagnostics':
-      return controller.diagnostics();
     default:
       throw new Error('Unknown command');
   }

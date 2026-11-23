@@ -1,7 +1,7 @@
 /**
- * Renders conversations and messages for the readable export formats: HTML (also printed to
- * PDF), Markdown, plain text and CSV. Each piece is rendered on its own, so the export pipeline
- * can write a conversation message by message.
+ * Renders conversations and messages for the readable formats: HTML (printed to PDF), Markdown
+ * (the knowledge package's transcript) and plain text. Each piece is rendered on its own, so the
+ * export pipeline can write a conversation message by message.
  *
  * Message text is rendered from the plain-text field and escaped for the format; the captured
  * HTML is not reused, so nothing in an archive (which may come from an import) can run code or
@@ -436,98 +436,6 @@ export function textMessage(message: StoredMessage, ctx: RenderContext): string 
     lines.push(`  Earlier version, replaced ${ctx.time.dateTime(version.replacedAt)}:`, ...indent(version.text || '(empty)', '    '));
   }
   return `${lines.join('\n')}\n\n`;
-}
-
-// --------------------------------------------------------------------- CSV
-
-/**
- * One CSV cell. A value a spreadsheet would run as a formula (starting with `=`, `+`, `-`, `@`,
- * a tab or a carriage return, or their full-width forms) is prefixed with `'` so it stays text.
- * Cells with a comma, quote or line break are quoted, with quotes doubled.
- */
-export function csvCell(value: string | number | boolean | null | undefined): string {
-  if (value === null || value === undefined) return '';
-  let text = typeof value === 'boolean' ? (value ? 'yes' : 'no') : String(value);
-  if (typeof value === 'string' && /^[=+\-@\t\r＝＋－＠]/.test(text)) text = `'${text}`;
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-export function csvRow(values: ReadonlyArray<string | number | boolean | null | undefined>): string {
-  return `${values.map(csvCell).join(',')}\r\n`;
-}
-
-export function csvColumns(content: ExportContent): string[] {
-  return [
-    'conversation',
-    'conversation_key',
-    'message_key',
-    'message_id',
-    'time',
-    'time_utc',
-    'sender',
-    'sender_id',
-    'from_me',
-    'kind',
-    'text',
-    ...(content.replies ? ['reply_to_sender', 'reply_to_text', 'reply_to_key'] : []),
-    ...(content.attachments ? ['attachments'] : []),
-    ...(content.images ? ['pictures'] : []),
-    'edited',
-    'deleted',
-    ...(content.editHistory ? ['earlier_versions'] : []),
-    // Added in 1.7, last, so the columns before it keep their places.
-    ...(content.reactions ? ['reactions'] : []),
-  ];
-}
-
-/** The UTF-8 byte order mark and header row; Excel needs the mark to read UTF-8. */
-export function csvStart(content: ExportContent): string {
-  return `﻿${csvRow(csvColumns(content))}`;
-}
-
-export function csvMessage(record: ConversationRecord, message: StoredMessage, ctx: RenderContext): string {
-  const { content } = ctx;
-  const values: Array<string | number | boolean | null> = [
-    conversationLabel(record),
-    record.conversationKey,
-    message.key,
-    message.messageId,
-    message.timestamp ? ctx.time.stamp(message.timestamp) : '',
-    message.timestamp ?? '',
-    message.kind === 'system' ? '' : senderLabel(message),
-    message.sender.id,
-    message.sender.isSelf,
-    message.kind,
-    message.text,
-  ];
-  if (content.replies) {
-    const reply = replyOf(message, ctx);
-    values.push(reply?.who ?? '', reply?.preview ?? '', message.replyTo?.resolvedKey ?? '');
-  }
-  const pictures: string[] = [];
-  if (content.attachments) {
-    const lines: string[] = [];
-    for (const att of message.attachments) {
-      if (att.kind === 'image' && content.images && att.imageId && ctx.picture(att.imageId)?.src) continue;
-      const name = att.name ?? att.kind;
-      const link = webLink(att.url);
-      lines.push(`${att.kind === 'image' ? 'Picture' : attachmentPrefix(att.kind)}: ${name}${link ? ` <${link}>` : ''}`);
-    }
-    values.push(lines.join('\n'));
-  }
-  if (content.images) {
-    for (const att of message.attachments) {
-      const picture = att.kind === 'image' && att.imageId ? ctx.picture(att.imageId) : undefined;
-      if (picture?.src) pictures.push(picture.src);
-    }
-    values.push(pictures.join('\n'));
-  }
-  values.push(message.isEdited, message.isDeleted);
-  if (content.editHistory) {
-    values.push(historyOf(message, ctx).map((version) => `[replaced ${ctx.time.stamp(version.replacedAt)}] ${version.text}`).join('\n---\n'));
-  }
-  if (content.reactions) values.push(reactionsOf(message, ctx));
-  return csvRow(values);
 }
 
 /** A context for rendering without pictures or reply lookups (all content shown). */

@@ -1,6 +1,6 @@
 # Teams Chat Scraper
 
-Teams Chat Scraper is a Microsoft Edge extension that archives your Microsoft Teams chats on your own computer. It reads the conversations you open in **Teams Web** (teams.microsoft.com) and stores them in a local database you can export as a readable chat (HTML, PDF, Markdown, text or CSV), as JSON, or as a knowledge package for other systems.
+Teams Chat Scraper is a Microsoft Edge extension that archives your Microsoft Teams chats on your own computer. It reads the conversations you open in **Teams Web** (teams.microsoft.com) and stores them in a local database. From there it saves a chat as a PDF or plain text to read, or as JSON or a ZIP package that it can import again and that other systems can read.
 
 - **Uses your existing sign-in.** There's no Microsoft Graph API, no Entra ID app registration and no admin consent.
 - **Reads only what Teams shows you.** The extension reads the messages Teams renders in the open chat and scrolls that chat upwards like you would, so Teams loads older messages. It never reads tokens, cookies or network traffic, never calls Teams or Microsoft APIs and never changes anything in Teams. If your account can't see a message, the extension can't either. Images are copied from what the open chat displays (see [Images](#images)).
@@ -29,24 +29,39 @@ After rebuilding, click **Reload** on the extension card in `edge://extensions` 
 
 1. In Teams Web, open the chat (1:1, group or meeting chat).
 2. Click the extension icon. The popup shows the chat it found and one line about its archive, for example *1,234 messages · complete back to 3 Jan 2023 · updated 3 days ago*. A warning appears only when you can act on it, such as a chat archived in two entries (with a link to merge them).
-3. Under **Capture**, choose one of the four tiles, then click the button under them, which names your choice (for example **Capture new messages**). **A period** shows a row with **24 hours**, **7 days**, **30 days** and **From a date…** under the tiles:
+3. Under **Messages**, choose what to capture, then click the button at the bottom of the popup. It names your choice and the file it saves, for example **Capture new messages and save a PDF**.
 
 | Choice | What it does | Ends when |
 | --- | --- | --- |
 | **New messages** | Archives the messages that arrived since the last update, and reads the 2 days before it again (setting) to pick up edits, deletions and late replies. Preselected once the chat has something archived. | It has re-read back to the last update minus those days, and seen at least 8 archived messages again. |
-| **A period**: **24 hours**, **7 days**, **30 days** | Archives the messages of that period. | The start of the period is reached, or it joins archived messages that already reach back that far. |
-| **A period**: **From a date…** | The same, from midnight of the chosen day. | As above. |
+| **Last 24 hours**, **Last 7 days**, **Last 30 days** | Archives the messages of that period. | The start of the period is reached, or it joins archived messages that already reach back that far. |
 | **Full history** | Scrolls back to the beginning of the chat and archives everything. Preselected for a chat with nothing archived. | The beginning of the chat is reached, or it has caught up with a complete archive. |
+| **From a date…** | Shows a date field, **From**, and archives the messages from midnight of that day. | As for a period. |
 | **On screen** | Archives the messages Teams shows on screen, without scrolling. | At once. |
 
 Every choice keeps the newer messages it passes on the way, so there is no "to" date: the archive never gets a hole between the period and now.
 
-The popup also shows how many messages are on screen. Under **Options**:
+### Saving a file
 
-- **Re-read archived parts at normal speed** reads archived stretches again, with their images, instead of passing them quickly. Use it to pick up edits and deletions in older messages. The setting *Re-read archived parts by default* presets it.
-- A link to **Troubleshooting**. When the popup finds no chat or no messages, it shows that link on its own.
+With **Save a file** ticked (it is the first time; the popup remembers your choice), the capture ends by saving a file. Choose its **Format**; the line under the formats says what it makes:
 
-During a run, the progress and **Stop** take the place of the capture controls. For a period, a bar shows how far back the run has reached; for the full history, whose beginning is unknown until it is reached, the popup says how far back it has got. Afterwards the result links to the chat in the archive, and **Export this chat…** opens Export with only that chat selected.
+- **PDF**, the default: opens the print dialog in a new tab. Choose **Save as PDF** as the printer.
+- **Text**: one plain-text file, or a ZIP with the text and the pictures as files when **Pictures** is ticked.
+- **JSON**: the complete records in one file, which **Import archive…** reads back.
+- **ZIP package**: a ZIP with a Markdown transcript, the records and the pictures as files, for knowledge management systems. **Import archive…** reads it back too.
+
+Under **Include in the file**, tick what it holds: pictures, file attachments, reply context, reactions, system messages and edit history. JSON and the ZIP package always include file attachments and reply context, because they are part of each record. The popup remembers these choices too. [docs/EXPORT_FORMAT.md](docs/EXPORT_FORMAT.md) describes every format.
+
+- The file holds the period captured (the last days, or from a date), the messages captured (**On screen**), or everything archived of the chat (**New messages**, **Full history**).
+- A page of the extension saves it, in a new tab next to Teams, when the capture completes or stops on its own (for example at the maximum run duration). Closing the popup doesn't stop it. After **Stop** or a failure no file is saved.
+- Files go to the browser's downloads. The popup's result names the file once it is saved.
+- **Save a file from the archive only**, under the button, saves what the archive already holds of the chat (of the period chosen, or all of it) without capturing.
+
+### Options and progress
+
+The popup also shows how many messages are on screen. Under **Options**, **Re-read archived parts at normal speed** reads archived stretches again, with their images, instead of passing them quickly. Use it to pick up edits and deletions in older messages. The setting *Re-read archived parts by default* presets it. When the popup finds no chat or no messages, it says what to try.
+
+During a run, the progress and **Stop** take the place of the capture controls. For a period, a bar shows how far back the run has reached; for the full history, whose beginning is unknown until it is reached, the popup says how far back it has got. The popup also says which file the run will save. Afterwards the result says what was captured and saved, and links to the chat in the archive.
 
 **The last update** is the most recent run after which the archive held every message, without a gap, from the previous update up to the newest message. Any capture can be one: an update, a period or the full history, also one that was stopped once it got that far. A run that leaves a gap (for example a period of *24 hours* a week after the last update) is not, so the next **New messages** still goes back to the last update and closes the gap. The archive page shows the time of each chat's last update.
 
@@ -68,35 +83,19 @@ Running any capture again is always safe: messages are never stored twice.
 
 ## The archive page
 
-Open it with the archive button at the top right of the popup, or via the extension's *Extension options*. It has four sections; each has its own address (for example `archive.html#conversations`), so Back and Forward work and you can bookmark one.
+Open it with the archive button at the top right of the popup, or via the extension's *Extension options*. It is one page: **Conversations**, then **Backup and import**, then **Settings**, with the version at the end. Each part has its own address (`archive.html#conversations`, `#backup`, `#settings`, `#settings/advanced`), so you can bookmark one; the addresses of earlier versions (`#overview`, `#export`) lead to the part that took their place.
 
-- **Overview**: when the last full backup was made, with **Back up now…**; totals (conversations, messages, saved images, complete histories); the chats archived most recently; and **Recent runs**: the latest 5 runs (**Show all runs** for the rest), each with what it captured (*Update*, *Since 14 Nov 2026*, *Full history*, *On screen*), its status (*Running*, *Paused*, *Completed*, *Stopped*, *Interrupted*, *Failed*), result, counters (including images saved and not saved) and duration. **Back up now…** opens Export with the full backup; once that export is downloaded, Overview shows its date.
-- **Conversations**: each archived chat with its message count, number of saved images (click it to see them), completeness (*Complete*, *Not back to the start*, *Not checked*), archived period and last update. **Search** finds a chat by any word of its name, an earlier title or its key; filter by type and sort by recent activity, name or size. Click a chat's name to read it:
+- **Conversations**: each archived chat with its message count, number of saved images (click it to see them), completeness (*Complete*, *Not back to the start*, *Not checked*), archived period and last update. **Search** finds a chat by any word of its name, an earlier title or its key; filter by type and sort by recent activity, name or size. Click a chat's name to open its page:
   - the **message view** opens at the newest of the latest 200 messages (**Back to the top** below them), with a heading for each day, the sender's name once for messages less than five minutes apart, replies with the message they quote, pictures where they were sent (click one for full size), attachments with their links, and the earlier versions of edited messages. **Show earlier messages** loads the 200 before, keeping your place;
-  - its actions, above the messages: **Export…**, **Images** (each saved picture with who sent it and when, to view or download), **Rename…**, **Merge…** and **Delete…**.
-- **Export**: one place for every export. Start from a preset or choose, in this order:
-  - the **format**, from a tile for each:
-    - **HTML page**: read the chat message by message in the browser, each picture where it was sent;
-    - **PDF (print)**: opens the same page in a new tab with the print dialog; choose **Save as PDF** as the printer. Allow pop-ups for the archive page if Edge blocks the tab;
-    - **Markdown** and **Plain text**;
-    - **CSV**: one row per message, for Excel and other spreadsheets;
-    - **JSON**: the complete records, which **Import archive…** reads back;
-    - **Knowledge package**: a ZIP with the records as JSON Lines, a Markdown transcript per chat and the pictures as files, for knowledge management systems. **Import archive…** reads it back too;
-  - the **packaging**: one file, or a ZIP with the pictures as files, named by number and message time (`001_2026-11-02_1001.png`). Markdown, text and CSV are always a ZIP when they include pictures; HTML can embed them in the one file;
-  - the **messages**: all archived messages, the last 24 hours, the last 7 days, the last 30 days, or a custom period (From included, Before not);
-  - what to **include**: pictures, file attachments, reply context, reactions, system messages and edit history;
-  - the **conversations**: one, several or all. **Filter by name** narrows the list (a name, an earlier title or a key), and when the archive holds more than one kind of chat, a row of chips narrows it by type (*All*, *1:1 chats*, *Group chats*…, each with its count). **Select shown** selects only the chats the filter shows; the count says how many selected chats it hides.
-
-  A bar at the bottom of the card stays in view as you scroll. It names the file the export will save (*Will save teams-archive-2026-11-23T09-30-00.zip*; the time is when you click) and holds the button. During an export it shows how many messages have been written, with a bar when there are several conversations; afterwards, the result. From 1200 px the conversations sit beside the other choices.
-
-  **Knowledge system** sets the knowledge package with pictures, attachments, replies, reactions and edit history, without system messages; **Full backup** sets it with everything. The preset whose choices the form holds says *In use*. The section remembers your last choices; the first time it suggests an HTML page. **Export…** on a chat, and **Export this chat…** in the popup after a run, open it with that chat selected. [docs/EXPORT_FORMAT.md](docs/EXPORT_FORMAT.md) describes every format.
-- **Settings**: General, Advanced, Storage and Troubleshooting (see below).
+  - its actions, above the messages: **Save a file…** (the format and what to include, as in the popup, for every archived message of the chat), **Images** (each saved picture with who sent it and when, to view or download), **Rename…**, **Merge…** and **Delete…**.
+- **Backup and import**: when the last full backup was made, with **Back up now** and **Import archive…**, then the totals: conversations, messages, saved images, complete histories and the space used. **Back up now** saves a ZIP package of every chat with everything in it, in a new tab; once it is saved, this part shows its date.
+- **Settings**: General, and Advanced, which opens on request (see below).
 
 What you can do with a chat:
 
-- **Rename…** gives a chat its own name in the archive and in exports. The title Teams shows stays visible below it, with earlier titles. Leave the name empty to show the Teams title again.
-- **Merge…** combines two archive entries of the same chat, for example a chat archived under its old and its new title. The dialog lists first the entries that hold some of the same messages or have a similar name, and you choose the one to merge into. Every message is kept once, with its pictures and runs. A merge can't be undone, so export a backup first if in doubt. If the page closes during a merge, the merge finishes the next time the archive page opens.
-- **Import archive…** (Export and Settings › Storage) merges a JSON export or a knowledge package (`.zip`) back in. Use it to restore a backup or combine archives from two browser profiles. The whole file is checked before anything is written, so a damaged file changes nothing, and importing the same file twice changes nothing. An imported chat joins the entry of the same chat, also when that entry has another title. If the page closes during an import, the chat being imported is left incomplete; import the file again to complete it.
+- **Rename…** gives a chat its own name in the archive and in saved files. The title Teams shows stays visible below it, with earlier titles. Leave the name empty to show the Teams title again.
+- **Merge…** combines two archive entries of the same chat, for example a chat archived under its old and its new title. The dialog lists first the entries that hold some of the same messages or have a similar name, and you choose the one to merge into. Every message is kept once, with its pictures and runs. A merge can't be undone, so back up first if in doubt. If the page closes during a merge, the merge finishes the next time the archive page opens.
+- **Import archive…** (under Backup and import) merges a JSON file or a ZIP package back in. Use it to restore a backup or combine archives from two browser profiles. The whole file is checked before anything is written, so a damaged file changes nothing, and importing the same file twice changes nothing. An imported chat joins the entry of the same chat, also when that entry has another title. If the page closes during an import, the chat being imported is left incomplete; import the file again to complete it.
 
 The pages follow the Windows light or dark theme (*Same as Windows*), or *Light* or *Dark* as you choose with **Theme** at the top right of the archive page, or the theme button in the popup and side panel. The choice applies at once, to every open page of the extension. They work with the keyboard alone (a **Skip to content** link, visible focus, headings to navigate by), and narrow windows show each table row as a short card.
 
@@ -109,7 +108,9 @@ The pages follow the Windows light or dark theme (*Same as Windows*), or *Light*
 | Scrolling speed | Normal | **Gentle**, **Normal** or **Fast** set the scrolling and waiting values below together (see the table after this one). **Custom** shows when the values under Advanced match no preset. |
 | Maximum run duration | 360 min | Hard limit, so a run can never loop forever. |
 | Update: days before the last update to check again | 2 | **New messages** (in the popup) reads this many days before the last update again, for edits, deletions and late replies. 0 to 30; 0 stops at the first archived messages. |
-| Save the images shown in messages | on | Saves the pictures displayed in messages into the archive. See [Images](#images). |
+| Your display name | (empty) | Teams doesn't show your own name next to your messages. Enter it to record it as their sender. Your messages are marked as yours either way. |
+| Date order used by Teams | auto | Order of numeric dates shown by Teams (for example 1/2/2024). It is used only when no exact timestamp is available. |
+| Keep the pictures shown in messages | on | Keeps the pictures displayed in messages in the archive while capturing. See [Images](#images). Without them, no saved file can include pictures, whatever **Pictures** says. |
 | Pause while the Teams tab is hidden | on | See above. |
 
 **Advanced** (collapsed)
@@ -128,9 +129,7 @@ The pages follow the Windows light or dark theme (*Same as Windows*), or *Light*
 | Maximum scroll steps per run | 50,000 | Hard limit, like the maximum duration. |
 | Update: archived messages to see again before stopping | 8 | The update also sees at least this many archived messages again. |
 | Largest image to save | 10 MB | Larger images aren't saved; their name and link still are. 1 to 50 MB. |
-| Your display name | (empty) | Teams doesn't show your own name next to your messages. Enter it to record it as their sender. Your messages are marked as yours either way. |
-| Date order used by Teams | auto | Order of numeric dates shown by Teams (for example 1/2/2024). It is used only when no exact timestamp is available. |
-| Re-read archived parts by default | off | Presets the popup's **Re-read archived parts at normal speed** (under **More**). |
+| Re-read archived parts by default | off | Presets the popup's **Re-read archived parts at normal speed** (under **Options**). |
 | Selector overrides | (empty) | See [When nothing is found](#when-nothing-is-found). **Reset to defaults** and **Insert default selectors** are here too. |
 
 The scrolling speed presets:
@@ -143,21 +142,12 @@ The scrolling speed presets:
 
 Settings saved by earlier versions are kept as they are: a speed is shown as a preset only when all six values match it.
 
-**Storage** shows the space used and available, and whether the browser keeps the data when space runs low, with **Back up now…** and **Import archive…**.
-
-**Troubleshooting** runs Diagnostics in an open Teams tab (see below).
-
 ## When nothing is found
 
 The extension recognises Teams' page structure through a list of CSS selectors. Microsoft changes Teams Web from time to time, so a selector can stop matching.
 
-1. Open the chat in Teams. In the popup, open **Options → Troubleshooting** (or go to **Settings → Troubleshooting** on the archive page), choose the Teams tab and click **Run diagnostics**. The report contains counts and the page's structure only, never message text, names or ids. **Copy report** puts it on the clipboard. If the extension isn't connected to the tab yet, it says so: reload the Teams tab.
-   - The report also shows where chat and person ids appear on the page, for example in the chat header or the chat list.
-   - Each id is replaced by its kind (such as `thread:v2` or `person:orgid`) and a label (`T1`, `P1`, …). The same label in two places means the same id.
-   - This shows whether Teams puts the chat id on the page when the popup says the chat is "identified by title".
-   - Under `parts`, it outlines the first of each message part on screen (your own message, a system message, a date heading, the sender, the time, *Edited*, a mention, a reaction, a picture, a file, a card, a link preview): tags, test ids and roles, with the text replaced by its length. `reactionReads` says, for each reaction on screen, where its emoji and count were found, without either.
-   - Under `parse`, `fromYou` counts your own messages and `replyWithSender` the quoted replies whose sender was read.
-2. Look at which selectors match nothing (for example `author` or `timestamp`).
+1. Open the chat in Teams, wait until its messages are shown, and reload the Teams tab. If the popup still finds no messages, or a part of them is missing (for example the sender or the time), a selector no longer matches.
+2. With the browser's developer tools (F12) on the Teams tab, find the element that holds the missing part, and a CSS selector that matches it, such as its `data-tid` attribute.
 3. Under **Settings → Advanced → Selector overrides**, enter a JSON object that replaces just those lists, for example:
 
 ```json
@@ -185,7 +175,7 @@ Per chat, the extension also records the participants, the title (and earlier ti
 
 ### Images
 
-When **Save the images shown in messages** is on (the default), every picture that a run sees in a message is saved once into the archive and linked from the message's attachment.
+When **Keep the pictures shown in messages** is on (the default), every picture that a run sees in a message is saved once into the archive and linked from the message's attachment.
 
 - The extension copies the picture Teams already displays. It first reads the page's own copy (Teams usually shows images from a `blob:` address) or the browser cache. Only if neither is available does it request the same image address again, as the page did. If that isn't possible either, it copies the displayed picture through a canvas, which is saved as PNG.
 - An image is named by the SHA-256 hash of its bytes. The same picture shown twice is stored once.
@@ -193,21 +183,21 @@ When **Save the images shown in messages** is on (the default), every picture th
 - Images the browser doesn't allow the extension to read (shown from another site without permission), images that never finish loading, and images above **Largest image to save** aren't saved. Their name and link are kept, the run counts them as *not saved*, and a warning explains why.
 - Emoji are kept as text, not as images.
 - A picture is read once per run. Pictures of archived messages that are shown unchanged are taken from the archive instead of being read again; **Re-read archived parts** reads them again.
-- Saved images are included in JSON exports (as base64) and knowledge packages (as files), and restored by **Import archive…**. HTML, PDF, Markdown and text exports show each picture in its message.
+- Saved images are included in JSON files (as base64) and ZIP packages (as files), and restored by **Import archive…**. A PDF shows each picture in its message; a text file with pictures is a ZIP with the pictures as files.
 - Profile pictures (for example of the original sender in a forwarded message) aren't message content and aren't saved.
 
 ## Data and privacy
 
-- The archive lives in the extension's IndexedDB in your Edge profile, which the extension's own pages read directly. Content scripts run only on the Teams domains listed in the manifest. The extension sends nothing anywhere. Its only requests re-read images the open chat is displaying, normally from the page's own copy or the browser cache (see [Images](#images)); turn off **Save the images shown in messages** to avoid them.
-- **Removing the extension deletes its archive.** Export a backup first (archive page → **Overview → Back up now…**, or **Export → Full backup**). Back up regularly anyway.
-- Exports contain your messages in plain text, and your saved images unless **Pictures** is off. Store them accordingly.
+- The archive lives in the extension's IndexedDB in your Edge profile, which the extension's own pages read directly. Content scripts run only on the Teams domains listed in the manifest. The extension sends nothing anywhere. Its only requests re-read images the open chat is displaying, normally from the page's own copy or the browser cache (see [Images](#images)); turn off **Keep the pictures shown in messages** to avoid them.
+- **Removing the extension deletes its archive.** Back up first (archive page → **Backup and import → Back up now**). Back up regularly anyway.
+- Saved files contain your messages in plain text, and your saved images unless **Pictures** is off. Store them accordingly.
 
 ## Limitations
 
 - It works through Teams Web's page structure, not an official API. Teams updates can require selector overrides, or an extractor update, before extraction works again.
 - It's designed for chats. Channel posts may be read partially, but reply threads under channel posts aren't expanded.
 - Read receipts and the contents of attached files aren't captured. Reactions are captured (each emoji, its count and whether you chose it, not who else did). A reaction removed in Teams after it was archived stays until another reaction on that message is seen. Images are saved as displayed (often a preview size). Images the browser won't let the extension read are kept as name and link only.
-- Exports are written, and imports read, in parts, so a large archive doesn't have to fit in memory. An export of several gigabytes can still be more than the browser allows for one download; export fewer chats, a period, or without pictures.
+- Files are written, and imports read, in parts, so a large archive doesn't have to fit in memory. A file of several gigabytes can still be more than the browser allows for one download; save one chat, a period, or without pictures.
 - When a reply quotes more than one message, only the first quote is kept with it. The words of the other quotes are left out of the message, not mixed into it.
 - A chat is identified by its Teams thread id, which Teams Web shows in the chat header. A chat that an earlier version archived under its title continues in that entry once the id is read, unless the entry's messages show it is a different chat. If the id can't be found on the page, the extension goes by the chat title and by the archived messages the chat shows:
   - A renamed chat continues its archive entry when some of the messages on screen are archived already. Otherwise it gets a new entry, which you can merge with the old one on the archive page.
@@ -240,27 +230,27 @@ npm run check
 src/
   manifest.json
   shared/      types, settings, messaging protocol, hashing, time parsing
-  extractor/   reads the Teams DOM: selectors, conversation detection, message parsing, diagnostics
+  extractor/   reads the Teams DOM: selectors, conversation detection, message parsing
   scraper/     the scroll-and-capture engine: pause/resume/stop, render detection, ordering
   storage/     IndexedDB archive: schema, merge rules, coverage, reply resolution, chat identity and merging
-  export/      export format v1, the export pipeline (HTML, print, Markdown, text, CSV, JSON, knowledge package), ZIP writing and reading, streaming import
+  export/      export format v1, the pipeline that writes the files (a printable page for PDF, text, JSON, the ZIP package with its Markdown transcript), ZIP writing and reading, streaming import
   background/  service worker: routes captured batches into the archive
   content/     content script: runs the engine in the Teams tab
-  ui/          popup / side panel, the archive page (archive.ts routes between the sections in ui/archive/), the export panel, themes, and the view models the screens draw
+  ui/          popup / side panel, the save page and its form, the archive page (archive.ts, with its parts in ui/archive/), themes, and the view models the screens draw
 icons/         the logo: SVG masters (logo.svg, and logo-16.svg for 16 px) and the extension's PNG icons
 store/         store listing images (300 × 300 logo, 440 × 280 tile); not part of the extension
 scripts/       build, and the logo description and generator
 DESIGN.md      the design direction of the pages (palette, type, focal points, writing)
 .claude/skills/ antislop rules that AI coding agents apply to interface work (see AGENTS.md)
 tests/
-  unit/         parsing, dates, ordering, coverage, merge rules, controls, exports, diagnostics, view models, colours
-  integration/  engine on a simulated virtualised Teams chat, archive repository, end-to-end pipeline
+  unit/         parsing, dates, ordering, coverage, merge rules, controls, saved files, view models, colours
+  integration/  engine on a simulated virtualised Teams chat, archive repository, end-to-end pipeline, saving a file after a capture
   helpers/      Teams-like DOM fixtures and the chat simulator
 ```
 
 The integration tests run the real engine against a simulated Teams message list. The simulator renders only the messages near the viewport, loads older history with a delay when you scroll to the top, groups consecutive messages from one sender, and can drop ids, timestamps or authors. The tests cover 1:1 and group chats, multi-paragraph messages, attachments, replies, missing metadata, a 2,000-message history, interrupted and resumed sessions, pause/resume/stop, incremental updates, edits and duplicate prevention.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it works, and [docs/EXPORT_FORMAT.md](docs/EXPORT_FORMAT.md) for the export format you can build an import into another system on.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it works, and [docs/EXPORT_FORMAT.md](docs/EXPORT_FORMAT.md) for the file format you can build an import into another system on.
 
 ## Trademarks
 

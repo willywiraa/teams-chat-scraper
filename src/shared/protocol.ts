@@ -4,7 +4,7 @@
  *   content script      --BackgroundRequest-->  background service worker (owns writes to IndexedDB)
  * Every handler answers with a Response envelope.
  */
-import type { DiagnosticsReport } from '../extractor/diagnostics';
+import type { SaveChoices } from '../export/options';
 import type { EngineProgress, EngineResult } from '../scraper/engine';
 import type {
   ArchivedImages,
@@ -50,6 +50,8 @@ export type BackgroundRequest =
       rangeStart?: number | null;
       /** Incremental mode: days before the last update to read again (the overlap window). */
       updateOverlapDays?: number;
+      /** The file to save when the run ends (see SessionRecord.save). */
+      save?: SaveChoices | null;
     }
   | {
       type: 'session/batch';
@@ -143,6 +145,8 @@ export interface SessionImagePartResponse {
 
 export interface SessionEndResponse {
   replies: { resolved: number; unresolved: number };
+  /** True when the save page was opened for the file the run was to save. */
+  savingFile?: boolean;
 }
 
 const BACKGROUND_TYPES = new Set(['session/begin', 'session/batch', 'session/images', 'session/image-part', 'session/archived-images', 'session/heartbeat', 'session/end']);
@@ -155,13 +159,12 @@ export function isBackgroundRequest(value: unknown): value is BackgroundRequest 
 
 export type ContentCommand =
   | { type: 'content/status' }
-  | { type: 'content/start'; mode: ScrapeMode; rescan: boolean; resumeOf: string | null; rangeStart?: number | null }
+  | { type: 'content/start'; mode: ScrapeMode; rescan: boolean; resumeOf: string | null; rangeStart?: number | null; save?: SaveChoices | null }
   | { type: 'content/pause' }
   | { type: 'content/resume' }
-  | { type: 'content/stop' }
-  | { type: 'content/diagnostics' };
+  | { type: 'content/stop' };
 
-const CONTENT_TYPES = new Set(['content/status', 'content/start', 'content/pause', 'content/resume', 'content/stop', 'content/diagnostics']);
+const CONTENT_TYPES = new Set(['content/status', 'content/start', 'content/pause', 'content/resume', 'content/stop']);
 
 export function isContentCommand(value: unknown): value is ContentCommand {
   return !!value && typeof value === 'object' && CONTENT_TYPES.has((value as { type?: unknown }).type as string);
@@ -173,6 +176,8 @@ export interface ActiveSessionInfo {
   rescan: boolean;
   /** Oldest message time the run has to reach, or null (see SessionRecord.captureFrom). */
   captureFrom?: number | null;
+  /** The file to save when the run ends, or null. */
+  save?: SaveChoices | null;
   startedAt: string;
   conversation: ConversationIdentity;
 }
@@ -182,6 +187,9 @@ export interface FinishedSessionInfo extends EngineResult {
   mode: ScrapeMode;
   captureFrom?: number | null;
   rescan?: boolean;
+  /** The file the run was to save, and whether the save page was opened for it. */
+  save?: SaveChoices | null;
+  savingFile?: boolean;
   conversationKey: string;
   endedAt: string;
 }
@@ -200,4 +208,4 @@ export interface ContentStatus {
   lastResult: FinishedSessionInfo | null;
 }
 
-export type ContentCommandResult = ContentStatus | { sessionId: string } | { accepted: boolean } | DiagnosticsReport;
+export type ContentCommandResult = ContentStatus | { sessionId: string } | { accepted: boolean };

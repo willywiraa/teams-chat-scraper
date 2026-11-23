@@ -428,15 +428,4 @@ describe('content controller + background router + archive', () => {
       newestSortKey: Date.parse(expected[expected.length - 1]!.time),
     });
   });
-
-  it('produces diagnostics that contain no message content or names', async () => {
-    const { repository, expected } = await setup(40, 26);
-    const controller = createController(transport(repository).send);
-    const report = await controller.diagnostics();
-    const json = JSON.stringify(report);
-
-    expect(report.parse.messages).toBeGreaterThan(0);
-    for (const name of [...PEOPLE, 'Project Alpha']) expect(json).not.toContain(name);
-    for (const message of expected) expect(json).not.toContain(message.text.split('\n')[0]!);
-  });
 });

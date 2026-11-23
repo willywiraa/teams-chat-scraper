@@ -1,7 +1,9 @@
 /**
- * Popup / side panel: remote control for the content script in the active Teams tab,
- * plus a summary of what is already archived for the open conversation.
+ * Popup / side panel: remote control for the content script in the active Teams tab, plus a
+ * summary of what is already archived for the open conversation. One flow: which messages to
+ * capture, whether to save a file (its format and what it includes), and one button.
  */
+import { saveTargetHash, type SaveChoices, type TimeRange } from '../export/options';
 import { capturePlan, updateAnchor, type CaptureChoice } from '../shared/capture';
 import {
   STALE_SESSION_MS,
@@ -36,11 +38,16 @@ import {
   TYPE_LABELS,
 } from './common';
 import { icon } from './icons';
+import { LAST_SAVE_KEY, parseLastSave, readLastSave, type LastSave } from './last-save';
+import { fileNoun, loadSaveChoices, SaveForm } from './save-form';
 import { nextTheme, readTheme, saveTheme, THEME_STORAGE_KEY, themeLabel } from './theme';
 import { historyLine, reachShare, routeHash, type Route } from './view-models';
 
 /** The capture choices of the popup: the capture ranges, and the messages on screen only. */
 type PopupChoice = CaptureChoice | 'visible';
+
+/** Whether a capture also saves a file (the **Save a file** checkbox), remembered. */
+const SAVE_AFTER_KEY = 'saveAfterCapture.v1';
 
 const isPanel = document.body.dataset.mode === 'panel';
 let tab: chrome.tabs.Tab | null = null;
@@ -54,6 +61,9 @@ let settings: ScrapeSettings = { ...DEFAULT_SETTINGS };
 let rescanPreset = false;
 /** Set by **Start another capture instead**: the capture choices replace Resume for this chat. */
 let otherCapture = false;
+let saveForm: SaveForm | null = null;
+/** What the save page did for the last capture that saved a file. */
+let lastSave: LastSave | null = null;
 /** What the capture controls were last drawn for; the choice is preset once per chat. */
 const captureState: { record: ConversationRecord | null; conversationKey: string | null; idle: boolean; presetFor: string | null } = {
   record: null,
@@ -113,6 +123,7 @@ async function init(): Promise<void> {
   if (!rescanPreset) {
     byId<HTMLInputElement>('opt-rescan').checked = settings.rescanByDefault;
     rescanPreset = true;
+    await loadSaveState();
   }
   await refresh();
   pollTimer = setInterval(() => void refresh(), 1000);
@@ -157,11 +168,11 @@ function renderStatus(status: ContentStatus): void {
   setHidden('visible-count', status.visibleMessages === null || !conversation);
 
   const idle = status.state === 'idle';
-  // Troubleshooting is offered up front only when the extension finds nothing to archive.
+  // What to try is said up front only when the extension finds nothing to archive.
   const result = status.lastResult?.counters;
   const runFoundNothing = result !== undefined && result.uniqueSeen + result.inserted + result.updated + result.unchanged === 0;
   const foundNothing = !conversation || (idle && (status.visibleMessages === 0 || runFoundNothing));
-  setHidden('troubleshoot-hint', !foundNothing);
+  setHidden('nothing-hint', !foundNothing);
   byId<HTMLButtonElement>('btn-resume-session').disabled = !idle || !conversation || busy;
 
   // During a run its progress and Stop take the place of the capture controls.
@@ -214,6 +225,9 @@ function renderProgress(status: ContentStatus): void {
     counters?.imagesFailed ? `${countOf(counters.imagesFailed, 'image')} not saved` : '',
   ].filter(Boolean);
   setText('run-detail', detail.join(' · '));
+  const save = status.session?.save ?? null;
+  setText('run-save', save ? `Saves ${fileNoun(save)} when the capture ends.` : '');
+  setHidden('run-save', !save);
   const warnings = byId('run-warnings');
   warnings.replaceChildren(...(progress?.warnings ?? []).slice(0, 3).map((w) => el('li', {}, w)));
   warnings.hidden = (progress?.warnings.length ?? 0) === 0;
@@ -255,14 +269,20 @@ function renderResult(result: FinishedSessionInfo): void {
       ? el('div', { className: 'muted small' }, 'Start it again to continue; parts already archived are passed quickly.')
       : null,
     ...result.warnings.slice(0, 3).map((warning) => el('div', { className: 'warning small' }, warning)),
-    el(
-      'div',
-      { className: 'small result-link' },
-      archiveLink({ view: 'conversation', key: result.conversationKey }, 'Open this chat in the archive'),
-      archiveLink({ view: 'export', key: result.conversationKey }, 'Export this chat…'),
-    ),
+    saveLine(result),
+    el('div', { className: 'small result-link' }, archiveLink({ view: 'conversation', key: result.conversationKey }, 'Open this chat in the archive')),
   ];
   panel.replaceChildren(...children.filter((child): child is HTMLElement => child !== null));
+}
+
+/** What became of the file the run was to save, or null when it was to save none. */
+function saveLine(result: FinishedSessionInfo): HTMLElement | null {
+  if (!result.save) return null;
+  const saved = lastSave?.sessionId === result.sessionId ? lastSave : null;
+  if (saved?.problem) return el('div', { className: 'warning small' }, saved.problem);
+  if (saved) return el('div', { className: 'small' }, saved.fileName ? `Saved ${saved.fileName}.` : 'Opened the print dialog to save a PDF.');
+  if (result.savingFile) return el('div', { className: 'small' }, `Saving ${fileNoun(result.save)} in a new tab…`);
+  return el('div', { className: 'muted small' }, 'No file was saved, because the capture did not finish. Save a file from the archive only saves what it captured.');
 }
 
 async function renderArchive(status: ContentStatus): Promise<void> {
@@ -320,7 +340,7 @@ function renderArchiveNote(resolution: ConversationResolution, teamsTitle: strin
     parts.push(
       record
         ? archiveLink({ view: 'conversation', key: record.conversationKey }, 'Merge them in the archive')
-        : archiveLink({ view: 'conversations' }, 'Merge them in the archive'),
+        : archiveLink({ view: 'home', section: 'conversations' }, 'Merge them in the archive'),
     );
   }
   const note = byId('arch-note');
@@ -350,10 +370,6 @@ function archiveLink(route: Route, text: string): HTMLAnchorElement {
   }, text);
 }
 
-function troubleshootingRoute(): Route {
-  return { view: 'settings', section: 'troubleshooting', tabId: tab?.id ?? null };
-}
-
 /** Today in the local time zone, as a date field value. */
 function todayValue(): string {
   const now = new Date();
@@ -369,15 +385,17 @@ function check(name: string, value: string): void {
   if (input) input.checked = true;
 }
 
-/** The tile chosen, and for **A period** the period chosen under it. */
 function selectedChoice(): PopupChoice {
-  const tile = checkedValue('capture') ?? 'everything';
-  if (tile === 'period') return (checkedValue('capture-period') ?? 'last-7d') as PopupChoice;
-  return tile as PopupChoice;
+  return (checkedValue('capture') ?? 'everything') as PopupChoice;
 }
 
-/** The capture button says what it captures. */
-function startLabel(choice: PopupChoice, rangeStart: number | null): string {
+/** The capture button says what it captures, and the file it saves. */
+function startLabel(choice: PopupChoice, rangeStart: number | null, save: SaveChoices | null): string {
+  const capture = captureText(choice, rangeStart);
+  return save ? `${capture} and save ${fileNoun(save)}` : capture;
+}
+
+function captureText(choice: PopupChoice, rangeStart: number | null): string {
   switch (choice) {
     case 'update':
       return 'Capture new messages';
@@ -396,13 +414,14 @@ function startLabel(choice: PopupChoice, rangeStart: number | null): string {
   }
 }
 
-/** One sentence under the tiles: what the tile's own line does not say. */
-function captureHint(choice: PopupChoice): string {
-  if (choice === 'visible') return '';
+/** One sentence under the choices: what the chosen one captures. */
+function captureHint(choice: PopupChoice, record: ConversationRecord | null): string {
+  if (choice === 'visible') return 'Only the messages shown now, without scrolling.';
   const passed = byId<HTMLInputElement>('opt-rescan').checked ? 'parts already archived are read again' : 'parts already archived are passed quickly';
   if (choice === 'update') {
+    const since = record?.lastUpdate ? `Since the last update, ${formatAgo(record.lastUpdate.at)}.` : 'Since the newest archived message.';
     const days = settings.updateOverlapDays;
-    return days > 0 ? `Also checks the ${days === 1 ? 'day' : `${days} days`} before again, for edits and late replies.` : 'Stops when it meets archived messages.';
+    return `${since} ${days > 0 ? `Also checks the ${days === 1 ? 'day' : `${days} days`} before again, for edits and late replies.` : 'Stops when it meets archived messages.'}`;
   }
   if (choice === 'everything') return `Back to the beginning of the chat; ${passed}.`;
   const plan = capturePlan(choice, Date.now(), byId<HTMLInputElement>('capture-from').value);
@@ -411,17 +430,13 @@ function captureHint(choice: PopupChoice): string {
 }
 
 /**
- * The capture tiles, the period under **A period**, the hint and the Start button. The choice is
- * preset once per chat: new messages when something is archived, else the full history.
+ * The messages to capture, the hint, the file to save and the button. The choice is preset once
+ * per chat: new messages when something is archived, else the full history.
  */
 function renderCapture(next?: { record: ConversationRecord | null; conversationKey: string | null; idle: boolean }): void {
   if (next) Object.assign(captureState, next);
   const { record, conversationKey, idle } = captureState;
   const archived = updateAnchor(record) !== null;
-  setText(
-    'capture-update-line',
-    record?.lastUpdate ? `Since the last update, ${formatAgo(record.lastUpdate.at)}` : archived ? 'Since the newest archived message' : 'Nothing archived yet',
-  );
   if (conversationKey !== null && captureState.presetFor !== conversationKey) {
     captureState.presetFor = conversationKey;
     otherCapture = false;
@@ -429,38 +444,78 @@ function renderCapture(next?: { record: ConversationRecord | null; conversationK
   } else if ((checkedValue('capture') === 'update' && !archived) || checkedValue('capture') === null) {
     check('capture', 'everything');
   }
-  for (const input of byId('capture-box').querySelectorAll<HTMLInputElement>('input[type="radio"]')) input.disabled = !idle || (input.value === 'update' && !archived);
-  setHidden('capture-period', checkedValue('capture') !== 'period');
+  for (const input of byId('capture-box').querySelectorAll<HTMLInputElement>('input[name="capture"]')) input.disabled = !idle || (input.value === 'update' && !archived);
   const dateInput = byId<HTMLInputElement>('capture-from');
   const choice = selectedChoice();
   setHidden('capture-from-field', choice !== 'from-date');
   dateInput.disabled = !idle;
   dateInput.max = todayValue();
-  const hint = conversationKey === null ? '' : captureHint(choice);
+  const hint = conversationKey === null ? '' : captureHint(choice, record);
   setText('capture-hint', hint);
   setHidden('capture-hint', hint === '');
   const plan = choice === 'visible' ? null : capturePlan(choice, Date.now(), dateInput.value);
+  const save = savingChoice();
+  byId<HTMLInputElement>('opt-save').disabled = !idle;
+  saveForm?.setDisabled(!idle);
+  setHidden('save-choices', save === null);
   const start = byId<HTMLButtonElement>('btn-start');
-  start.textContent = startLabel(choice, plan?.rangeStart ?? null);
+  start.textContent = startLabel(choice, plan?.rangeStart ?? null, save);
   start.disabled = !idle || busy || conversationKey === null || (choice !== 'visible' && plan === null);
+  // Saving without capturing needs archived messages of this chat.
+  const archivedOnly = byId<HTMLButtonElement>('btn-save-archived');
+  archivedOnly.hidden = save === null || !record || record.messageCount === 0;
+  archivedOnly.disabled = !idle || (choice !== 'visible' && plan === null);
   // Re-reading applies to the capture ranges, not to the messages on screen.
   byId<HTMLInputElement>('opt-rescan').disabled = !idle || choice === 'visible';
 }
 
+/** The file a capture saves, or null when **Save a file** is off. */
+function savingChoice(): SaveChoices | null {
+  return byId<HTMLInputElement>('opt-save').checked && saveForm ? saveForm.value : null;
+}
+
+/** The checkbox and the file choices, as last used. */
+async function loadSaveState(): Promise<void> {
+  saveForm?.set(await loadSaveChoices());
+  try {
+    const stored = await chrome.storage.local.get(SAVE_AFTER_KEY);
+    byId<HTMLInputElement>('opt-save').checked = stored[SAVE_AFTER_KEY] !== false;
+  } catch {
+    byId<HTMLInputElement>('opt-save').checked = true;
+  }
+  lastSave = await readLastSave();
+}
+
+/**
+ * Saves a file of what is archived for this chat, without capturing: the period chosen, or
+ * everything archived for the other choices. The save page does it in a tab of its own.
+ */
+async function saveArchived(): Promise<void> {
+  const record = captureState.record;
+  const save = savingChoice();
+  if (!record || !save) return;
+  const choice = selectedChoice();
+  const plan = choice === 'visible' || choice === 'update' || choice === 'everything' ? null : capturePlan(choice, Date.now(), byId<HTMLInputElement>('capture-from').value);
+  const range: TimeRange = { from: plan?.rangeStart ?? null, to: null };
+  await chrome.tabs.create({ url: chrome.runtime.getURL(`save.html${saveTargetHash({ kind: 'conversation', conversationKey: record.conversationKey, choices: save, range })}`) });
+  if (!isPanel) window.close();
+}
+
 function startCapture(): void {
   const choice = selectedChoice();
+  const save = savingChoice();
   if (choice === 'visible') {
-    void start('visible', false, null);
+    void start('visible', false, null, null, save);
     return;
   }
   const plan = capturePlan(choice, Date.now(), byId<HTMLInputElement>('capture-from').value);
-  if (plan) void start(plan.mode, byId<HTMLInputElement>('opt-rescan').checked, null, plan.rangeStart);
+  if (plan) void start(plan.mode, byId<HTMLInputElement>('opt-rescan').checked, null, plan.rangeStart, save);
 }
 
-async function start(mode: ScrapeMode, rescan: boolean, resumeOf: string | null, rangeStart: number | null = null): Promise<void> {
+async function start(mode: ScrapeMode, rescan: boolean, resumeOf: string | null, rangeStart: number | null, save: SaveChoices | null): Promise<void> {
   busy = true;
   try {
-    await sendToTab({ type: 'content/start', mode, rescan, resumeOf, rangeStart });
+    await sendToTab({ type: 'content/start', mode, rescan, resumeOf, rangeStart, save });
   } catch (error) {
     const panel = byId('result-panel');
     panel.hidden = false;
@@ -491,6 +546,15 @@ function renderThemeButton(): void {
 
 function wire(): void {
   byId('btn-start').addEventListener('click', startCapture);
+  saveForm = new SaveForm(byId('save-choices'), () => renderCapture());
+  byId('opt-save').addEventListener('change', () => {
+    void chrome.storage.local.set({ [SAVE_AFTER_KEY]: byId<HTMLInputElement>('opt-save').checked }).catch(() => undefined);
+  });
+  byId('btn-save-archived').addEventListener('click', () => void saveArchived());
+  // The save page names the file it saved; the result shows it.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes[LAST_SAVE_KEY]) lastSave = parseLastSave(changes[LAST_SAVE_KEY].newValue);
+  });
   renderThemeButton();
   byId('btn-theme').addEventListener('click', () => {
     saveTheme(nextTheme(readTheme()));
@@ -510,10 +574,10 @@ function wire(): void {
     setHidden('capture-box', false);
     byId('capture-box').querySelector<HTMLInputElement>('input[name="capture"]:checked')?.focus();
   });
-  // A resumed run continues what the interrupted one was doing: the same range, the same reading.
+  // A resumed run continues what the interrupted one was doing: the same range, the same reading, the same file.
   byId('btn-resume-session').addEventListener('click', () => {
     if (!resumable) return;
-    void start(resumable.mode, resumable.rescan, resumable.sessionId, resumable.mode === 'full' ? (resumable.captureFrom ?? null) : null);
+    void start(resumable.mode, resumable.rescan, resumable.sessionId, resumable.mode === 'full' ? (resumable.captureFrom ?? null) : null, resumable.save ?? null);
   });
   byId('btn-pause').addEventListener('click', () => void command('content/pause'));
   byId('btn-continue').addEventListener('click', () => void command('content/resume'));
@@ -521,13 +585,6 @@ function wire(): void {
   byId('btn-archive').append(icon('open'));
   byId('btn-panel').append(icon('panel'));
   byId('btn-archive').addEventListener('click', () => void openArchive(null));
-  // Diagnostics lives in the archive's Settings, for the Teams tab this popup was opened on.
-  for (const id of ['link-troubleshoot', 'link-troubleshoot-hint']) {
-    byId(id).addEventListener('click', (event) => {
-      event.preventDefault();
-      void openArchive(troubleshootingRoute());
-    });
-  }
   byId('btn-connect').addEventListener('click', async () => {
     if (!tab?.id) return;
     try {

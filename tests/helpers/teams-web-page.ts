@@ -1,8 +1,9 @@
 /**
- * Teams Web markup as two Diagnostics reports showed it in November 2026, one from a 1:1 chat
- * and one from a group chat, rebuilt from their outlines (tags, test ids, roles, classes and
- * attribute names). Names, ids and text are made up; where a report gave only a text's length,
- * the text here is a guess of that length (the reaction pill's "1 Like reaction.").
+ * Teams Web markup as two reports of the extension's former Diagnostics showed it in November
+ * 2026, one from a 1:1 chat and one from a group chat, rebuilt from their outlines (tags, test
+ * ids, roles, classes and attribute names). Names, ids and text are made up; where a report gave
+ * only a text's length, the text here is a guess of that length (the reaction pill's
+ * "1 Like reaction.").
  */
 import { GROUP_THREAD, ONE_ON_ONE_THREAD, OTHER_PERSON } from './new-teams-page';
 

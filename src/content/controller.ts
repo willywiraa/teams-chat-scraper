@@ -3,14 +3,13 @@
  * forwarding captured batches to the background worker. Chrome APIs are injected,
  * which keeps this class testable end-to-end.
  */
+import type { SaveChoices } from '../export/options';
 import { detectConversation } from '../extractor/conversation';
-import { runDiagnostics, type DiagnosticsReport } from '../extractor/diagnostics';
 import { findMessageList, identityEvidence, parseRenderedConversation } from '../extractor/page-parser';
 import { buildSelectorProfile, type SelectorProfile } from '../extractor/selectors';
 import { ScrapeControl, sleep } from '../scraper/control';
 import { runScrape, type EngineProgress, type EngineResult, type EngineSink } from '../scraper/engine';
 import type { ImageReader, ImageSaveResult } from '../scraper/images';
-import { findScrollContainer } from '../scraper/scroll-driver';
 import {
   HEARTBEAT_INTERVAL_MS,
   IMAGE_REQUEST_CHARS,
@@ -21,6 +20,7 @@ import {
   type SessionArchivedImagesResponse,
   type SessionBatchResponse,
   type SessionBeginResponse,
+  type SessionEndResponse,
   type SessionImagePartResponse,
   type SessionImagesResponse,
 } from '../shared/protocol';
@@ -51,6 +51,8 @@ export interface StartCommand {
   resumeOf: string | null;
   /** Full mode: capture back to this message time (epoch ms); null or absent for the whole history. */
   rangeStart?: number | null;
+  /** The file to save when the run ends (see SessionRecord.save). */
+  save?: SaveChoices | null;
 }
 
 const DEFAULT_RETRY_DELAYS = [250, 750, 2000, 4000];
@@ -126,7 +128,7 @@ export class ContentController {
     const doc = this.deps.doc;
     const detected = detectConversation(doc, this.deps.getHref(), profile);
     if (!detected) throw new Error('No conversation detected. Open a chat in Teams first.');
-    if (!findMessageList(doc, profile)) throw new Error('The message list was not found on this page. Run Diagnostics from the popup.');
+    if (!findMessageList(doc, profile)) throw new Error('The message list was not found on this page. Open a chat, wait until its messages are shown, then try again.');
 
     const control = new ScrapeControl();
     this.control = control;
@@ -142,6 +144,7 @@ export class ContentController {
         resumeOf: command.resumeOf,
         rangeStart: command.mode === 'full' ? (command.rangeStart ?? null) : null,
         updateOverlapDays: settings.updateOverlapDays,
+        save: command.save ?? null,
       });
     } catch (error) {
       this.control = null;
@@ -152,7 +155,7 @@ export class ContentController {
     // the detected key for a renamed chat, or a chat with the title of another archived chat.
     const conversation: ConversationIdentity = { ...detected, conversationKey: begin.conversationKey, mergedKeys: begin.conversation?.mergedFrom ?? [] };
     const captureFrom = typeof begin.captureFrom === 'number' ? begin.captureFrom : null;
-    this.session = { sessionId, mode: command.mode, rescan: command.rescan, captureFrom, startedAt: new Date(this.now()).toISOString(), conversation };
+    this.session = { sessionId, mode: command.mode, rescan: command.rescan, captureFrom, save: command.save ?? null, startedAt: new Date(this.now()).toISOString(), conversation };
 
     const sink: EngineSink = {
       write: async (batch) => {
@@ -212,7 +215,7 @@ export class ContentController {
         segments: [],
         warnings: this.progress?.warnings ?? [],
       }))
-      .then((result) => this.finishSession(sessionId, { mode: command.mode, rescan: command.rescan, captureFrom }, conversation.conversationKey, result))
+      .then((result) => this.finishSession(sessionId, { mode: command.mode, rescan: command.rescan, captureFrom, save: command.save ?? null }, conversation.conversationKey, result))
       .finally(() => {
         this.stopHeartbeat();
         this.control = null;
@@ -241,26 +244,9 @@ export class ContentController {
     return this.lastResult;
   }
 
-  async diagnostics(): Promise<DiagnosticsReport> {
-    const settings = await this.deps.loadSettings();
-    const profile = this.profileFrom(settings);
-    const doc = this.deps.doc;
-    const conversation = detectConversation(doc, this.deps.getHref(), profile);
-    const list = findMessageList(doc, profile);
-    return runDiagnostics(doc, {
-      profile,
-      conversation,
-      href: this.deps.getHref(),
-      selfDisplayName: settings.selfDisplayName || null,
-      dateOrder: resolveDateOrder(settings.dateOrder, this.deps.locale),
-      referenceMs: this.now(),
-      scrollContainer: list ? findScrollContainer(doc, profile, list) : null,
-    });
-  }
-
   private async finishSession(
     sessionId: string,
-    run: { mode: ScrapeMode; rescan: boolean; captureFrom: number | null },
+    run: { mode: ScrapeMode; rescan: boolean; captureFrom: number | null; save: SaveChoices | null },
     conversationKey: string,
     result: EngineResult,
   ): Promise<void> {
@@ -268,7 +254,7 @@ export class ContentController {
     this.stopHeartbeat();
     this.lastResult = { ...result, sessionId, ...run, conversationKey, endedAt: new Date(this.now()).toISOString() };
     try {
-      await this.sendWithRetry({
+      const ended = await this.sendWithRetry<SessionEndResponse>({
         type: 'session/end',
         sessionId,
         conversationKey,
@@ -279,6 +265,7 @@ export class ContentController {
         segments: result.segments,
         warnings: result.warnings,
       });
+      this.lastResult = { ...this.lastResult, savingFile: Boolean(ended?.savingFile) };
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.lastResult = { ...this.lastResult, error: this.lastResult.error ?? `The session end could not be recorded: ${reason}` };

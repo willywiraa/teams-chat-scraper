@@ -1,11 +1,10 @@
 /**
- * Reads Teams Web as two Diagnostics reports showed it in November 2026, a 1:1 chat and a group
- * chat (see tests/helpers/teams-web-page.ts): the chat id in the header, and each part of a
- * message the reports found on screen.
+ * Reads Teams Web as it was in November 2026, a 1:1 chat and a group chat (see
+ * tests/helpers/teams-web-page.ts): the chat id in the header, and each part of a message found
+ * on screen.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { detectConversation } from '../../src/extractor/conversation';
-import { runDiagnostics } from '../../src/extractor/diagnostics';
 import { parseRenderedConversation } from '../../src/extractor/page-parser';
 import { buildSelectorProfile } from '../../src/extractor/selectors';
 import type { ConversationIdentity } from '../../src/shared/types';
@@ -151,39 +150,5 @@ describe('messages', () => {
     expect([first?.isEdited, second?.isEdited]).toEqual([false, false]);
     expect(first?.mentions).toEqual([{ name: SELF_NAME, id: null }]);
     expect(first?.text).toBe(`${SELF_NAME} can you check the draft?`);
-  });
-});
-
-describe('Diagnostics on this markup', () => {
-  function diagnose() {
-    return runDiagnostics(document, {
-      profile,
-      conversation: detect(),
-      href: URL,
-      selfDisplayName: null,
-      dateOrder: 'DMY',
-      referenceMs: REFERENCE,
-      scrollContainer: document.querySelector<HTMLElement>('[data-tid="message-pane-list-viewport"]'),
-    });
-  }
-
-  it('finds the chat id, counts your messages and the quoted senders read, and reveals nothing', () => {
-    renderGroup();
-    const report = diagnose();
-    expect(report.reportVersion).toBe(5);
-    expect(report.conversation).toMatchObject({ hasThreadId: true, keySource: 'dom', type: 'group' });
-    expect(report.parse).toMatchObject({ messages: 3, fromYou: 1, withReply: 1, replyWithSender: 1, edited: 1, withReactions: 1, withAttachments: 1 });
-    expect(report.warnings).toEqual([]);
-
-    const json = JSON.stringify(report);
-    for (const secret of [OTHER_NAME, SELF_NAME, 'Design review', 'draft', 'cover', '1705400000000', GROUP_THREAD, '5555aaaa', '👍']) {
-      expect(json).not.toContain(secret);
-    }
-  });
-
-  it('says when no quoted sender could be read', () => {
-    renderGroup();
-    for (const name of document.querySelectorAll('[data-tid="quoted-reply-card"] span:not([data-tid])')) name.remove();
-    expect(diagnose().warnings).toContain('The sender of no quoted reply could be read: override "reply.author".');
   });
 });

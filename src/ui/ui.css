@@ -187,38 +187,6 @@ body[data-mode='panel'] {
   color: var(--muted);
 }
 
-.app-nav {
-  display: flex;
-  gap: var(--space-1);
-  margin-left: var(--space-5);
-  flex-wrap: wrap;
-}
-
-.app-nav a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  color: var(--text);
-  text-decoration: none;
-  text-underline-offset: 6px;
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-s);
-  font-size: var(--font-s);
-  font-weight: 600;
-}
-
-.app-nav a:hover {
-  background: var(--hover);
-  text-decoration: underline;
-}
-
-.app-nav a[aria-current='page'] {
-  background: var(--selected);
-  color: var(--accent);
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-}
-
 /* ------------------------------------------------------------ layout */
 
 .popup-main,
@@ -259,6 +227,7 @@ h2.conv-title {
 }
 
 .view-title:focus,
+h2[tabindex='-1']:focus,
 h3[tabindex='-1']:focus {
   outline: none;
 }
@@ -585,12 +554,12 @@ a {
   margin-top: var(--space-3);
 }
 
-/* ------------------------------------------- tiles and segmented rows */
+/* ---------------------------------------------------- segmented rows */
 
 /*
- * Choices drawn as controls: a tile is a radio with a name and a line under it, a segment one of
- * a row of buttons. They take the control outline like a button; the chosen one has the selected
- * tint, the accent edge, and a radio dot (tiles) or a heavier bottom edge (segments).
+ * A choice among a few options drawn as controls: a row (or grid) of buttons, each a radio. They
+ * take the control outline like a button; the chosen one has the selected tint, the accent edge
+ * and a heavier bottom edge.
  */
 .choice-group {
   min-width: 0;
@@ -603,80 +572,6 @@ a {
   padding: 0 0 var(--space-2);
   font-size: var(--font-s);
   font-weight: 600;
-}
-
-.tile-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-2);
-}
-
-.tile {
-  display: flex;
-  gap: var(--space-2);
-  align-items: flex-start;
-  min-width: 0;
-  min-height: 32px;
-  padding: var(--space-2);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-s);
-  background: var(--card);
-  font-size: var(--font-s);
-}
-
-.tile:hover:not(:has(input:disabled)) {
-  border-color: var(--accent);
-  background: var(--hover);
-}
-
-.tile:has(input:checked) {
-  border: 2px solid var(--accent);
-  padding: calc(var(--space-2) - 1px);
-  background: var(--selected);
-}
-
-.tile:has(input:disabled) {
-  opacity: 0.5;
-}
-
-.tile:has(input:focus-visible) {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.tile input {
-  flex: none;
-  margin: 2px 0 0;
-  accent-color: var(--accent);
-}
-
-.tile input:focus-visible {
-  outline: none;
-}
-
-.tile-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.tile-name {
-  font-weight: 600;
-}
-
-.tile-line {
-  font-size: var(--font-xs);
-  color: var(--muted);
-}
-
-/* "In use" on a preset tile, shown only on the chosen one. */
-.tile-state {
-  font-weight: 400;
-}
-
-.tile:not(:has(input:checked)) .tile-state {
-  display: none;
 }
 
 .segments {
@@ -733,8 +628,8 @@ a {
   font-weight: 400;
 }
 
-/* A share that is known (how far back a range capture has reached, the conversation an export
-   is writing). It changes in steps, with no transition. */
+/* A share that is known (how far back a range capture has reached, the chat a backup is
+   writing). It changes in steps, with no transition. */
 .progress {
   height: 4px;
   border-radius: 2px;
@@ -766,18 +661,113 @@ a {
   margin-top: 0;
 }
 
-#resume-box button.wide,
-#capture-box button.wide {
+#resume-box button.wide {
   justify-self: stretch;
   margin-top: var(--space-1);
 }
 
-#capture-period .segment {
-  flex: 1 1 auto;
+/* The messages to capture, two per row; the last one, alone, takes the row. */
+.messages-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.messages-grid .segment:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
 }
 
 #capture-from-field {
   max-width: 200px;
+}
+
+/* **Save a file** starts the second group of the popup. */
+.save-toggle {
+  margin-top: var(--space-2);
+  font-size: var(--font-s);
+  font-weight: 600;
+}
+
+/*
+ * The bar at the bottom of the capture choices: the button that names what it captures and
+ * saves. It stays at the window's bottom edge while the choices are on screen.
+ */
+.action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: grid;
+  gap: var(--space-1);
+  justify-items: center;
+  margin: var(--space-2) calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
+  padding: var(--space-3);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-m) var(--radius-m);
+  background: var(--card);
+}
+
+.action-bar button.wide {
+  justify-self: stretch;
+}
+
+/* ------------------------------------------------------- saving a file */
+
+/* The format row and the Include checklist, in the popup and in the archive's Save a file dialog. */
+.save-choices {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.format-row .segment {
+  flex: 1 1 auto;
+}
+
+.save-line {
+  margin: var(--space-2) 0 0;
+}
+
+.include-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-1) var(--space-3);
+}
+
+.include-list .check {
+  margin-top: 0;
+  font-size: var(--font-s);
+}
+
+/* The save page: what it saves, the status, and for a PDF the page to print. */
+.save-main {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-4);
+}
+
+.save-card {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.save-card p,
+.save-card .button-row {
+  margin: 0;
+}
+
+.save-card .button-row a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+}
+
+/* A preview of the printed page, which is always light like paper. */
+.save-preview {
+  width: 100%;
+  height: 70vh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: #ffffff;
 }
 
 #run-panel {
@@ -889,17 +879,6 @@ details.more[open] > summary {
   margin-bottom: var(--space-2);
 }
 
-pre {
-  max-height: 260px;
-  overflow: auto;
-  background: var(--bg);
-  border-radius: var(--radius-s);
-  padding: var(--space-2);
-  font-size: var(--font-xs);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 /* ------------------------------------------------------------- tables */
 
 .table-wrap {
@@ -985,24 +964,9 @@ td.num button.link {
     display: inline;
   }
 
-  table.cards .run-title {
-    font-weight: 600;
-  }
-
   table.cards td.num button.link {
     margin-block: 0;
     text-align: left;
-  }
-
-  /* The navigation gets a row of its own. */
-  .app-header {
-    flex-wrap: wrap;
-  }
-
-  .app-nav {
-    order: 3;
-    width: 100%;
-    margin-left: 0;
   }
 }
 
@@ -1160,166 +1124,36 @@ details.advanced > summary {
   overflow-wrap: anywhere;
 }
 
-/* -------------------------------------------------------------- export */
+/* --------------------------------------------------------- archive page */
 
-/* One column of choices, then the conversations; side by side from 1200 px. */
-.export-layout {
+/* The page's sections, one under the other: Conversations, Backup and import, Settings, About. */
+.page-section {
   display: grid;
-  gap: var(--space-4);
-}
-
-.export-choices {
-  display: grid;
-  gap: var(--space-4);
-  align-content: start;
-  min-width: 0;
-}
-
-@media (min-width: 1200px) {
-  .export-layout {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: var(--space-5);
-  }
-}
-
-.export-section {
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: none;
-}
-
-.preset-tiles {
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}
-
-.format-tiles {
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-}
-
-@media (max-width: 760px) {
-  .format-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 320px) {
-  .format-tiles {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.picker-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-3);
-  align-items: flex-end;
-  margin-bottom: var(--space-2);
-}
-
-.picker-tools .toolbar-search {
-  flex: 1 1 220px;
-}
-
-/*
- * The bar at the bottom of the Export card: the file it will save (or the progress) and the
- * button. It stays at the window's bottom edge while the card is on screen.
- */
-.export-bar {
-  position: sticky;
-  bottom: 0;
-  z-index: 1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-  margin: var(--space-4) calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
-  padding: var(--space-3);
-  border-top: 1px solid var(--border);
-  border-radius: 0 0 var(--radius-m) var(--radius-m);
-  background: var(--card);
-}
-
-.export-bar-text {
-  display: grid;
-  gap: var(--space-1);
-  flex: 1 1 260px;
-  min-width: 0;
-}
-
-.export-bar-text > * {
-  margin: 0;
-}
-
-/* In the bar a result or an error is a line of text, not a box. */
-.export-bar p.notice,
-.export-bar p.success,
-.export-bar p.error {
-  padding: 0;
-  border: none;
-  background: none;
-  overflow-wrap: anywhere;
-}
-
-.export-bar p.error {
-  color: var(--danger);
-}
-
-#export-will-save {
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 760px) {
-  .export-bar button {
-    flex: 1 1 100%;
-  }
-}
-
-.export-section legend {
-  padding: 0 0 var(--space-2);
-  font-size: var(--font-s);
-  font-weight: 600;
-}
-
-.export-explain {
-  margin: var(--space-2) 0 0;
-}
-
-.export-section .button-row {
-  margin-top: 0;
-}
-
-.export-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  font-size: var(--font-s);
-  color: var(--text);
-}
-
-.export-content {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-2) var(--space-3);
-}
-
-@media (min-width: 761px) {
-  .export-content {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.export-content .field,
-.export-list .field {
-  color: var(--text);
-  font-size: var(--font-s);
-}
-
-.export-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--space-3);
-  margin-top: var(--space-3);
+  scroll-margin-top: var(--space-4);
+}
+
+.page-section > h2 {
+  font-size: var(--font-xl);
+  margin: 0;
+}
+
+.about-line {
+  margin: 0;
+}
+
+.save-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.save-dialog form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.save-dialog h2,
+.save-dialog p {
+  margin: 0;
 }
 
 /* -------------------------------------------------------- message view */
@@ -1488,26 +1322,6 @@ details.advanced > summary {
   margin: 0;
 }
 
-.activity {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.activity li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0 var(--space-3);
-  padding: var(--space-1) 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.activity li:last-child {
-  border-bottom: none;
-}
-
 /* --------------------------------------------------------- touch screens */
 
 /* With a finger, every target is at least 44 px (with a mouse, 32 px keeps the pages compact). */
@@ -1519,11 +1333,9 @@ details.advanced > summary {
   input[type='number'],
   input[type='text'],
   .search-field,
-  .app-nav a,
   a.conv-title,
   .back-link,
   .result-link a,
-  .tile,
   .segment,
   details > summary {
     min-height: 44px;
