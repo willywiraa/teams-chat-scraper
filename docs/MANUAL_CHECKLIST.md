@@ -48,7 +48,10 @@ Build with `npm run build`, click **Reload** on the extension card in `edge://ex
 - [ ] **Troubleshooting**: **Find Teams tabs** lists the open Teams tabs; **Run diagnostics** shows the chat, the number of messages on screen and a summary; **Copy report** copies the JSON. In a Teams tab opened before the extension was reloaded, it says to reload the tab.
 
 - [ ] In a chat with reactions, **Run diagnostics** says *N with reactions* in its summary, with no warning about reaction markup, and `reactionReads` shows `"read": true` for each reaction. If it warns, send the report: the reaction selectors need an update.
-- [ ] The copied report starts with `extensionVersion` and has `"reportVersion": 4`; searching it for a name, a word of a message or an emoji shown on screen finds nothing.
+- [ ] The copied report starts with `extensionVersion` and has `"reportVersion": 5`; searching it for a name, a word of a message or an emoji shown on screen finds nothing.
+- [ ] In a 1:1 chat and in a group chat, the report shows `"hasThreadId": true`, the type `one-on-one` or `group`, and no warning about the thread id. The popup doesn't say the chat is recognised by its title.
+- [ ] A chat archived before 1.8.1: capturing **New messages** continues its archive entry (the message count grows, no second entry with the same name appears), and the entry then shows its type.
+- [ ] In a chat with quoted replies, `replyWithSender` equals `withReply` in the report, and the message view names the quoted sender instead of *an earlier message*.
 - [ ] **About** (at the end of Settings) shows *Teams Chat Scraper, version …* with the current version, and the not-affiliated note.
 
 ## Release

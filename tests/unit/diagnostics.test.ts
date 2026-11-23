@@ -43,7 +43,7 @@ describe('runDiagnostics', () => {
     renderStaticChat(chat, { title: 'Secret Project' });
     const report = diagnose();
 
-    expect(report.reportVersion).toBe(4);
+    expect(report.reportVersion).toBe(5);
     expect(report.conversation).toEqual({ detected: true, keySource: 'dom', type: 'group', hasThreadId: true, titleLength: 'Secret Project'.length });
     expect(report.page).toMatchObject({ origin: 'https://teams.microsoft.com', path: '/l/chat/<thread:v2>/0' });
     expect(report.messageList.found).toBe(true);
@@ -93,14 +93,25 @@ describe('identifier probe in the report', () => {
     });
   }
 
-  it('points to a thread id that is on the page but not read yet, and reveals nothing', () => {
+  it('reads the thread id in the id of the chat header, and reveals nothing', () => {
     renderNewTeamsPage({ header: HEADER_WITH_IDS });
     const report = diagnoseNewTeams();
 
-    expect(report.conversation).toMatchObject({ detected: true, hasThreadId: false, keySource: 'title' });
+    expect(report.conversation).toMatchObject({ detected: true, hasThreadId: true, keySource: 'dom', type: 'one-on-one' });
     expect(report.identifiers.findings).toContainEqual(expect.objectContaining({ region: 'chat-header', attribute: 'id', kind: 'thread:unq' }));
-    expect(report.warnings.join(' ')).toMatch(/thread id is shown in the chat header \(id\)/);
+    expect(report.warnings.join(' ')).not.toMatch(/thread id/);
     expect(report.skeletons.chatHeader).toContain('id="chat-header-<thread:unq>"');
+
+    const json = JSON.stringify(report);
+    for (const secret of PAGE_SECRETS) expect(json).not.toContain(secret);
+  });
+
+  it('points to a thread id that is on the page but not read yet, and reveals nothing', () => {
+    renderNewTeamsPage({ header: `<div data-tid="title-bar"><div data-pinbar-coachmark-anchor="${ONE_ON_ONE_THREAD}"><h2>Alice Andersen</h2></div></div>` });
+    const report = diagnoseNewTeams();
+
+    expect(report.conversation).toMatchObject({ detected: true, hasThreadId: false, keySource: 'title' });
+    expect(report.warnings.join(' ')).toMatch(/thread id is shown in the chat header \(data-pinbar-coachmark-anchor\), but it is not read/);
 
     const json = JSON.stringify(report);
     for (const secret of PAGE_SECRETS) expect(json).not.toContain(secret);

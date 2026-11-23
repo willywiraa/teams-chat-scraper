@@ -114,8 +114,13 @@ export interface ResolutionInput {
   direct: ConversationRecord | null;
   /** Entries known by the detected key (after following merges), without `direct`. */
   aliased: ConversationRecord[];
+  /**
+   * When the chat id is known: the entries stored under, or known by, the chat's title key
+   * (after following merges), without `direct` and `aliased`.
+   */
+  titled?: ConversationRecord[];
   overlaps: MessageOverlap[];
-  /** Keys of `direct` and `aliased` entries whose archived messages contradict those shown. */
+  /** Keys of `direct`, `aliased` and `titled` entries whose archived messages contradict those shown. */
   contradicted: ReadonlySet<string>;
 }
 
@@ -134,6 +139,7 @@ function byRecency(a: ConversationRecord, b: ConversationRecord): number {
 /**
  * Picks the archive entry for an open chat. A Teams chat id settles it; without one the messages
  * shown decide, and the title only counts when the archived messages do not contradict it.
+ * A chat archived by its title before its id was read keeps that entry once the id shows.
  */
 export function decideConversation(input: ResolutionInput): ConversationResolution {
   const { identity, direct, aliased, contradicted } = input;
@@ -164,7 +170,10 @@ export function decideConversation(input: ResolutionInput): ConversationResoluti
     if (direct) return found(direct);
     const sameThread = aliased.find((record) => record.threadId === identity.threadId);
     if (sameThread) return found(sameThread);
-    return strong[0] ? found(strong[0].record) : unarchived('new');
+    if (strong[0]) return found(strong[0].record);
+    // The same rule as for a chat without id: the title counts unless the messages contradict it.
+    const titled = (input.titled ?? []).filter((record) => !record.threadId && !contradicted.has(record.conversationKey)).sort(byRecency);
+    return titled[0] ? found(titled[0], 'title') : unarchived('new');
   }
   if (strong[0]) return found(strong[0].record);
   if (direct && !contradicted.has(direct.conversationKey)) return found(direct);

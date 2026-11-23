@@ -137,6 +137,30 @@ describe('finding a chat that Teams shows without a chat id', () => {
     // A chat with another chat id is another chat, whatever it shows.
     expect(await repository.resolveConversation(titled('Project Alpha', '19:eeeeffff00001111@thread.v2'), identityEvidence(chat('any', [1, 2])))).toMatchObject({ reason: 'new' });
   });
+
+  it('continues the entry archived by title when the chat id shows with none of its messages', async () => {
+    const byTitle = 'title:project alpha';
+    const threadId = '19:aaaabbbbccccdddd@thread.v2';
+    await archive(titled('Project Alpha'), chat(byTitle, [0, 2, 4, 6]));
+    const withId = titled('Project Alpha', threadId);
+
+    // Only messages newer than the archive are on screen, or none with ids: the title finds it.
+    expect(await repository.resolveConversation(withId, identityEvidence(chat('any', [10, 11])))).toMatchObject({ conversationKey: byTitle, reason: 'title' });
+    expect(await repository.resolveConversation(withId)).toMatchObject({ conversationKey: byTitle, reason: 'title' });
+    // Other messages from the same hours: a different chat with that title.
+    expect(await repository.resolveConversation(withId, identityEvidence(chat('any', [1, 3, 5], (minute) => `Other chat ${minute}`)))).toMatchObject({ conversationKey: withId.conversationKey, reason: 'new' });
+
+    // A renamed chat is found under the title it is known by.
+    const renamed = 'title:project alpha (old)';
+    await archive({ ...titled('Project Alpha (old)'), conversationKey: renamed }, chat(renamed, [20, 21]), { aliases: ['title:project beta'] });
+    expect(await repository.resolveConversation(titled('Project Beta', '19:9999888877776666@thread.v2'))).toMatchObject({ conversationKey: renamed, reason: 'title' });
+
+    // Once the run writes there, the entry has the chat id and is found by it.
+    await archive({ ...withId, conversationKey: byTitle }, chat(byTitle, [10]), { aliases: [withId.conversationKey] });
+    expect(await repository.getConversation(byTitle)).toMatchObject({ threadId, type: 'group', messageCount: 5 });
+    expect(await repository.resolveConversation(withId)).toMatchObject({ conversationKey: byTitle, reason: 'alias' });
+    expect(await repository.resolveConversation(titled('Project Alpha', '19:eeeeffff00001111@thread.v2'))).toMatchObject({ reason: 'new' });
+  });
 });
 
 describe('renaming an entry in the archive', () => {

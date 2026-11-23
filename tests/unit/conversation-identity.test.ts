@@ -150,6 +150,22 @@ describe('decideConversation', () => {
     const other = record('title:other', { threadId: '19:zzz@thread.v2' });
     expect(decideConversation({ identity: titled('Old name', threadId), direct: null, aliased: [], overlaps: [overlap(other, 9)], contradicted: none })).toMatchObject({ conversationKey: `teams:${threadId}`, reason: 'new' });
   });
+
+  it('keeps the entry archived under the chat’s title when the chat id first shows', () => {
+    const threadId = '19:abc@thread.v2';
+    const withId = titled('Old name', threadId);
+    // None of its messages on screen (an update after many new messages): the title still finds it.
+    expect(decideConversation({ identity: withId, direct: null, aliased: [], titled: [old], overlaps: [], contradicted: none })).toMatchObject({ conversationKey: OLD, reason: 'title', record: old });
+    // Messages shown decide first, as for a chat without id.
+    expect(decideConversation({ identity: withId, direct: null, aliased: [], titled: [old], overlaps: [overlap(sameTitle, 3)], contradicted: none })).toMatchObject({ conversationKey: NEW, reason: 'overlap' });
+    // Not when its messages say it is another chat, or it already belongs to another chat id.
+    expect(decideConversation({ identity: withId, direct: null, aliased: [], titled: [old], overlaps: [], contradicted: new Set([OLD]) })).toMatchObject({ reason: 'new' });
+    const taken = record(OLD, { threadId: '19:zzz@thread.v2' });
+    expect(decideConversation({ identity: withId, direct: null, aliased: [], titled: [taken], overlaps: [], contradicted: none })).toMatchObject({ reason: 'new' });
+    // An entry stored under the chat id wins over the title.
+    const byThread = record(`teams:${threadId}`, { threadId });
+    expect(decideConversation({ identity: withId, direct: byThread, aliased: [], titled: [old], overlaps: [], contradicted: none })).toMatchObject({ conversationKey: byThread.conversationKey, reason: 'key' });
+  });
 });
 
 describe('rekeyMessage', () => {

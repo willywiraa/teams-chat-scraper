@@ -20,9 +20,10 @@ export interface SelectorHit {
 /**
  * Version of the report layout; 2 added the identifier probe, the extra selector probes and the
  * skeletons; 3 the reaction selector, the count of messages with reactions and each sample's
- * reactions; 4 the outline of each message part and where each reaction's emoji and count came from.
+ * reactions; 4 the outline of each message part and where each reaction's emoji and count came from;
+ * 5 the counts of messages from you and of quoted replies whose sender was read.
  */
-export const DIAGNOSTICS_REPORT_VERSION = 4;
+export const DIAGNOSTICS_REPORT_VERSION = 5;
 
 /** The first element of a message part found in the list, and the selector that found it. */
 export interface PartOutline {
@@ -62,10 +63,14 @@ export interface DiagnosticsReport {
     senderSelf: number;
     senderInferred: number;
     senderUnknown: number;
+    /** Messages marked as sent by you, whether or not Teams also shows your name on them. */
+    fromYou: number;
     timestampSources: Record<string, number>;
     withText: number;
     withAttachments: number;
     withReply: number;
+    /** Of the messages with a quoted reply, those whose quoted sender was read. */
+    replyWithSender: number;
     withReactions: number;
     system: number;
     edited: number;
@@ -319,10 +324,12 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
     senderSelf: 0,
     senderInferred: 0,
     senderUnknown: 0,
+    fromYou: 0,
     timestampSources: {},
     withText: 0,
     withAttachments: 0,
     withReply: 0,
+    replyWithSender: 0,
     withReactions: 0,
     system: 0,
     edited: 0,
@@ -357,10 +364,12 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
       else if (message.sender.source === 'self') parse.senderSelf++;
       else if (message.sender.source === 'group-inferred') parse.senderInferred++;
       else if (message.kind === 'message') parse.senderUnknown++;
+      if (message.sender.isSelf) parse.fromYou++;
       parse.timestampSources[message.timestampSource] = (parse.timestampSources[message.timestampSource] ?? 0) + 1;
       if (message.text) parse.withText++;
       if (message.attachments.length) parse.withAttachments++;
       if (message.replyTo) parse.withReply++;
+      if (message.replyTo?.senderName) parse.replyWithSender++;
       if ((message.reactions ?? []).length > 0) parse.withReactions++;
       if (message.kind === 'system') parse.system++;
       if (message.isEdited) parse.edited++;
@@ -385,6 +394,7 @@ export function runDiagnostics(doc: Document, options: DiagnosticsOptions): Diag
     if (parse.messages > 0 && parse.withMessageId === 0) warnings.push('No Teams message ids found: duplicate detection falls back to content fingerprints.');
     if (parse.messages > 0 && (parse.timestampSources.none ?? 0) === parse.messages) warnings.push('No timestamps found: override "timestamp".');
     if (parse.messages === 0) warnings.push('No messages parsed: override "messageItem" / "body".');
+    if (parse.withReply > 0 && parse.replyWithSender === 0) warnings.push('The sender of no quoted reply could be read: override "reply.author".');
 
     const items = collectItems(list, profile);
     const representative = items.find((item) => item.textContent && item.textContent.trim().length > 0) ?? items[0] ?? null;

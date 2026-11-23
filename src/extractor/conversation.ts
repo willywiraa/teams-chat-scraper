@@ -2,8 +2,9 @@
  * Identifies the conversation currently open in Teams Web.
  *
  * Preferred source is the Teams thread id (`19:...@thread.v2`, `19:..._...@unq.gbl.spaces`),
- * read from the highlighted chat-list entry, then from the URL, then from other page hints.
- * If no thread id is available the normalised chat title is used as a weaker key.
+ * read from the highlighted chat-list entry, then from the URL, then from other page hints such
+ * as the chat header. If no thread id is available the normalised chat title is used as a weaker
+ * key; an entry archived under it is found again once the id shows (see conversation-identity.ts).
  */
 import type { ConversationIdentity, ConversationType } from '../shared/types';
 import { safeQueryAll, textOf } from './dom';

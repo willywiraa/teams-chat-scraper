@@ -9,7 +9,7 @@
 export const ARCHIVE_SCHEMA_VERSION = 3;
 
 /** Bumped whenever DOM parsing rules change in a way that can alter extracted values. */
-export const EXTRACTOR_VERSION = '1.2.0';
+export const EXTRACTOR_VERSION = '1.3.0';
 
 export type ConversationType = 'one-on-one' | 'group' | 'meeting' | 'channel' | 'unknown';
 
@@ -293,11 +293,12 @@ export interface ConversationRecord {
  *  - `key`: the entry stored under the key detected in Teams;
  *  - `alias`: an entry known by that key (the chat was renamed, or its entry was merged);
  *  - `overlap`: an entry holding messages shown in the chat, under another key (a renamed chat);
+ *  - `title`: the entry under the chat's title, archived before the chat's id was read;
  *  - `new`: nothing archived yet, the detected key is used;
  *  - `separate`: the detected key belongs to a different chat (same title, other messages), so
  *    this chat needs an entry of its own under a new key.
  */
-export type ResolutionReason = 'key' | 'alias' | 'overlap' | 'new' | 'separate';
+export type ResolutionReason = 'key' | 'alias' | 'overlap' | 'title' | 'new' | 'separate';
 
 /** Name shown for an archive entry: the name given in the archive, else the Teams title. */
 export function conversationLabel(record: Pick<ConversationRecord, 'conversationKey' | 'title' | 'displayName'>): string {

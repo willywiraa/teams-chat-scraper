@@ -27,15 +27,16 @@ shared ◀── storage   ◀── background, export, ui
 
 ## One extraction pass
 
-1. **Identify the chat** (`extractor/conversation.ts`). The Teams thread id comes from the highlighted chat-list entry, then the URL, then other page hints. It becomes the archive key `teams:<threadId>`. Without a thread id the normalised title is used (`title:<title>`). When a run begins, this detected key is resolved to an archive entry, which can have another key (see [Finding a chat's archive entry](#finding-a-chats-archive-entry)). The thread id also gives the chat type (`@unq.gbl.spaces` → 1:1, `@thread.v2` → group, `19:meeting_` → meeting, `@thread.tacv2` → channel).
+1. **Identify the chat** (`extractor/conversation.ts`). The Teams thread id comes from the highlighted chat-list entry, then the URL, then other page hints (`threadIdHints`). Teams Web shows it in the id of the chat header (`chat-header-<threadId>`) and in the value of the header's Chat tab; its chat list marks no entry as selected, and its URL holds no id. It becomes the archive key `teams:<threadId>`. Without a thread id the normalised title is used (`title:<title>`). When a run begins, this detected key is resolved to an archive entry, which can have another key (see [Finding a chat's archive entry](#finding-a-chats-archive-entry)). The thread id also gives the chat type (`@unq.gbl.spaces` → 1:1, `@thread.v2` → group, `19:meeting_` → meeting, `@thread.tacv2` → channel).
 2. **Collect the rendered items** (`extractor/page-parser.ts`). Message containers, date dividers and system messages, in document order.
 3. **Parse each item** (`extractor/message-parser.ts`):
    - the Teams message id (`data-mid`, `content-<id>`, `timestamp-<id>`, …);
    - the author and the self-message marker;
    - the timestamp (`<time datetime>`, then `title`, then `aria-label`, then the visible label combined with the nearest date divider);
    - the body (`content-serializer.ts`: paragraphs, lists, line breaks, mentions, links, emoji, sanitised HTML);
-   - the quoted reply, attachments, the edited marker and deleted messages;
-   - reactions (`parseReactions`): each pill's emoji (from a picture's alt text, the text, or a name in its accessible name such as "Like reaction"), its count and whether it is pressed (yours). Pills inside a quoted reply are skipped, an emoji is kept once, and reaction pills are never taken for attachments. The selectors (`reaction` in the profile) are not yet confirmed against Teams; Diagnostics counts them and warns when it finds reaction markup they don't match.
+   - the quoted reply (`parseReply`): its sender, time and words. Teams Web shows the sender as the text just before the quoted time, without a test id of its own. When a reply quotes several messages, the first is kept; every quote is left out of the reply's text;
+   - attachments, the edited marker and deleted messages;
+   - reactions (`parseReactions`): each pill's emoji (from a picture's alt text, the text, or a name in its accessible name such as "Like reaction"), its count and whether it is pressed (yours). Pills inside a quoted reply are skipped, an emoji is kept once, and reaction pills are never taken for attachments. The selectors (`reaction` in the profile) were checked against Teams Web in November 2026: the emoji is a picture's alt text, the count is in the pill's text, and `aria-pressed` marks yours. Diagnostics counts them and warns when it finds reaction markup they don't match.
 
    All selectors come from a [selector profile](../src/extractor/selectors.ts) that you can override from the settings.
 4. **Complete the metadata** for the whole window:
@@ -87,7 +88,7 @@ A title is a weak identity: Teams chats can be renamed, and two chats can have t
 
 | Detected | Result |
 | --- | --- |
-| Thread id | The entry under `teams:<threadId>`, else an entry with that thread id that lists the key as alias, else the entry with the strongest overlap that has no other thread id, else a new entry. An entry with another thread id is never used. |
+| Thread id | The entry under `teams:<threadId>`, else an entry with that thread id that lists the key as alias, else the entry with the strongest overlap that has no other thread id, else the most recently extracted entry under the chat's title key, or listing it as alias, that has no thread id and doesn't contradict the evidence (reason `title`: a chat archived by its title before its id was read), else a new entry. An entry with another thread id is never used. |
 | Title only | The entry with the strongest overlap (a renamed chat). Else the entry under the title key, unless it *contradicts* the evidence. Else the most recently extracted entry that lists the key as alias and doesn't contradict it. Else a new entry: under the title key if no entry uses it, otherwise under `local:<uuid>`, so that another chat with this title doesn't mix with the archived one. |
 
 An entry contradicts the evidence when it holds at least two messages with ids from the time span shown and none of them is shown: Teams shows every message of that span, so the entry belongs to another chat. Only ids are compared, because short messages such as "ok" have the same content in many chats. Messages newer than everything archived contradict nothing, since they may be new messages of the archived chat. With no messages with ids on screen, the title decides, as before version 1.2.
@@ -204,6 +205,7 @@ History:
 - Extension 1.3 adds optional fields without a database upgrade: `lastUpdate` on conversations, and `captureFrom` and `continuesFrom` on sessions. Records written before lack them: a conversation without `lastUpdate` continues from its newest archived message, and a session begun before 1.3 never becomes a last update.
 - Extension 1.4 (exports and streaming import) changes nothing in the database.
 - Extension 1.7 adds the optional `reactions` field to messages, without a database upgrade. A message written before lacks it, which reads as no reactions, and gets it the next time a capture sees its reactions. `EXTRACTOR_VERSION` is 1.2.0 from this release.
+- Extension 1.8.1 reads the thread id from the chat header, without a database upgrade. A chat archived before under its title key is found under that key (reason `title`); the first batch of the run gives the entry the thread id and the type, and adds `teams:<threadId>` to its aliases, so the next run finds it by alias. The entry keeps its key. `EXTRACTOR_VERSION` is 1.3.0 from this release, because quoted senders are now read.
 
 `tests/integration/migration.test.ts` opens a version 1 and a version 2 database with data, and checks that everything survives the upgrade.
 
@@ -270,7 +272,7 @@ The archive page (`ui/archive.html`) is one page with four sections, chosen by t
 - Message HTML is re-serialised through a tag and attribute allow-list, and only `http(s)`, `mailto` and `tel` links are kept. The UI writes text through `textContent` only.
 - There is no remote code and no `eval`. The only network access is re-reading images that the open chat displays, normally from the page's own copy or the browser cache (see [Images](#images)). It is off when **Save the images shown in messages** is off.
 - Saved images are shown on the archive page (the message view and the image dialog) only as `<img>` elements from `blob:` addresses, so image content (an SVG, for example) can't run scripts there.
-- Diagnostics reports hold counts and redacted page skeletons: the representative message, the chat header, the highlighted chat-list entry, the first quoted reply and the first of each message part (`parts`), with attribute names but not their values (except test ids, roles and item types, with identifiers removed), and text replaced by its length. `reactionReads` gives the source of each reaction's emoji and count (`readReaction`), never the values. They contain no text, names, emoji, addresses, message ids or thread ids; the copied report adds the extension's version.
+- Diagnostics reports hold counts and redacted page skeletons: the representative message, the chat header, the highlighted chat-list entry, the first quoted reply and the first of each message part (`parts`), with attribute names but not their values (except test ids, roles and item types, with identifiers removed), and text replaced by its length. `reactionReads` gives the source of each reaction's emoji and count (`readReaction`), never the values. Since report version 5, `parse` counts your own messages (`fromYou`) and the quoted replies whose sender was read (`replyWithSender`), with a warning when no quoted sender was read. They contain no text, names, emoji, addresses, message ids or thread ids; the copied report adds the extension's version.
   - The identifier probe (`extractor/id-probe.ts`) reads only attribute values of rendered elements.
   - It reports each identifier as its kind (`thread:v2`, `person:orgid`, …) and a label (`T1`, `P1`, …). Equal labels mean equal values, so a report shows where an identifier appears without revealing it.
 

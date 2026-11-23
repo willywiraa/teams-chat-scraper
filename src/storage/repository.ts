@@ -27,6 +27,7 @@ import {
   type UpsertStatus,
 } from '../shared/types';
 import { imageKey } from '../shared/images';
+import { normalizeTitleKey } from '../extractor/conversation';
 import {
   cleanDisplayName,
   cleanLastUpdate,
@@ -494,6 +495,19 @@ export class ArchiveRepository {
       }
     }
 
+    // A chat archived by its title before Teams showed its id (see decideConversation).
+    const titled: ConversationRecord[] = [];
+    if (identity.threadId && identity.title) {
+      const titleKey = `title:${normalizeTitleKey(identity.title)}`;
+      const known = (await requestToPromise(conversations.index(INDEXES.conversationsByAlias).getAll(titleKey))) as ConversationRecord[];
+      for (const key of [titleKey, ...known.map((record) => record.conversationKey)]) {
+        const current = await live(key);
+        if (!current || current.conversationKey === direct?.conversationKey) continue;
+        if ([...aliased, ...titled].some((entry) => entry.conversationKey === current.conversationKey)) continue;
+        titled.push(current);
+      }
+    }
+
     const shown = evidenceMessages(evidence);
     const overlaps = new Map<string, MessageOverlap>();
     const byMessageId = messages.index(INDEXES.messagesByMessageId);
@@ -509,10 +523,10 @@ export class ArchiveRepository {
     }
 
     const contradicted = new Set<string>();
-    for (const candidate of [direct, ...aliased]) {
+    for (const candidate of [direct, ...aliased, ...titled]) {
       if (candidate && (await contradicts(messages, candidate.conversationKey, shown))) contradicted.add(candidate.conversationKey);
     }
-    return decideConversation({ identity, direct, aliased, overlaps: Array.from(overlaps.values()), contradicted });
+    return decideConversation({ identity, direct, aliased, titled, overlaps: Array.from(overlaps.values()), contradicted });
   }
 
   /**

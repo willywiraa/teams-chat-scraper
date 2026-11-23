@@ -52,10 +52,7 @@ export interface SelectorProfile {
     emojiImage: string[];
   };
   mention: string[];
-  /**
-   * One reaction under a message (a pill with an emoji and a count). Not yet checked against
-   * Teams: run Diagnostics in a chat with reactions to see whether these match.
-   */
+  /** One reaction under a message (a pill with an emoji and a count). */
   reaction: string[];
   edited: string[];
   /** Case-insensitive regular expressions matching the body text of deleted messages. */
@@ -66,7 +63,10 @@ export interface SelectorProfile {
   chatTitle: string[];
   /** The highlighted entry in the chat list; its attributes are scanned for the thread id. */
   selectedChatItem: string[];
-  /** Other elements whose attributes may contain the thread id. */
+  /**
+   * Other elements whose attributes may contain the thread id. Teams Web shows it in the id of
+   * the chat header (`chat-header-19:…`) and in the value of the header's Chat tab.
+   */
   threadIdHints: string[];
 }
 
@@ -141,8 +141,21 @@ export const DEFAULT_SELECTOR_PROFILE: Readonly<SelectorProfile> = Object.freeze
       '[itemtype="http://schema.skype.com/Reply"]',
       'blockquote[itemtype*="Reply"]',
     ],
-    author: ['[itemprop="mri"]', '[data-tid="quoted-reply-author"]', '[data-tid*="quoted-reply-author"]', 'strong'],
-    preview: ['[itemprop="preview"]', '[data-tid="quoted-reply-preview"]', '[data-tid*="quoted-reply-preview"]', 'p'],
+    author: [
+      '[itemprop="mri"]',
+      '[data-tid="quoted-reply-author"]',
+      '[data-tid*="quoted-reply-author"]',
+      // Teams Web shows the quoted sender's name just before the quoted time, without a test id.
+      'span:has(+ [data-tid="quoted-reply-timestamp"])',
+      'strong',
+    ],
+    preview: [
+      '[itemprop="preview"]',
+      '[data-tid="quoted-reply-preview"]',
+      '[data-tid="quoted-reply-preview-content"]',
+      '[data-tid*="quoted-reply-preview"]',
+      'p',
+    ],
     time: ['[itemprop="time"]', 'time', '[data-tid*="quoted-reply-time"]'],
     idRules: [
       { selector: '[itemid]', attribute: 'itemid', pattern: '^(\\d{6,})$' },
@@ -198,7 +211,13 @@ export const DEFAULT_SELECTOR_PROFILE: Readonly<SelectorProfile> = Object.freeze
     '[role="treeitem"][aria-current="true"]',
     '[aria-current="page"]',
   ],
-  threadIdHints: ['[data-tid*="chat-header"]', '[data-tid="message-pane-list-viewport"]', '[data-tid="message-pane-list-runway"]'],
+  threadIdHints: [
+    '[id^="chat-header-"]',
+    '[data-tid="tab-item-com.microsoft.chattabs.chat"]',
+    '[data-tid*="chat-header"]',
+    '[data-tid="message-pane-list-viewport"]',
+    '[data-tid="message-pane-list-runway"]',
+  ],
 } satisfies SelectorProfile);
 
 export class SelectorOverrideError extends Error {}

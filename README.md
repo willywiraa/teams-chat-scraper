@@ -156,6 +156,7 @@ The extension recognises Teams' page structure through a list of CSS selectors. 
    - Each id is replaced by its kind (such as `thread:v2` or `person:orgid`) and a label (`T1`, `P1`, …). The same label in two places means the same id.
    - This shows whether Teams puts the chat id on the page when the popup says the chat is "identified by title".
    - Under `parts`, it outlines the first of each message part on screen (your own message, a system message, a date heading, the sender, the time, *Edited*, a mention, a reaction, a picture, a file, a card, a link preview): tags, test ids and roles, with the text replaced by its length. `reactionReads` says, for each reaction on screen, where its emoji and count were found, without either.
+   - Under `parse`, `fromYou` counts your own messages and `replyWithSender` the quoted replies whose sender was read.
 2. Look at which selectors match nothing (for example `author` or `timestamp`).
 3. Under **Settings → Advanced → Selector overrides**, enter a JSON object that replaces just those lists, for example:
 
@@ -205,9 +206,10 @@ When **Save the images shown in messages** is on (the default), every picture th
 
 - It works through Teams Web's page structure, not an official API. Teams updates can require selector overrides, or an extractor update, before extraction works again.
 - It's designed for chats. Channel posts may be read partially, but reply threads under channel posts aren't expanded.
-- Read receipts and the contents of attached files aren't captured. Reactions are captured (each emoji, its count and whether you chose it, not who else did), but their page selectors aren't confirmed against Teams yet: run Diagnostics in a chat with reactions. A reaction removed in Teams after it was archived stays until another reaction on that message is seen. Images are saved as displayed (often a preview size). Images the browser won't let the extension read are kept as name and link only.
+- Read receipts and the contents of attached files aren't captured. Reactions are captured (each emoji, its count and whether you chose it, not who else did). A reaction removed in Teams after it was archived stays until another reaction on that message is seen. Images are saved as displayed (often a preview size). Images the browser won't let the extension read are kept as name and link only.
 - Exports are written, and imports read, in parts, so a large archive doesn't have to fit in memory. An export of several gigabytes can still be more than the browser allows for one download; export fewer chats, a period, or without pictures.
-- A chat is identified by its Teams thread id. If that id can't be found on the page, the extension goes by the chat title and by the archived messages the chat shows:
+- When a reply quotes more than one message, only the first quote is kept with it. The words of the other quotes are left out of the message, not mixed into it.
+- A chat is identified by its Teams thread id, which Teams Web shows in the chat header. A chat that an earlier version archived under its title continues in that entry once the id is read, unless the entry's messages show it is a different chat. If the id can't be found on the page, the extension goes by the chat title and by the archived messages the chat shows:
   - A renamed chat continues its archive entry when some of the messages on screen are archived already. Otherwise it gets a new entry, which you can merge with the old one on the archive page.
   - A chat with the title of another archived chat gets an entry of its own when that entry lacks the messages it shows from the same period.
   - With no message ids on screen, the title alone decides, and the popup warns about it.
