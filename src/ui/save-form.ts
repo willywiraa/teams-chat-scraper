@@ -15,19 +15,23 @@ import {
   type SaveFormat,
 } from '../export/options';
 import { el } from './common';
+import { icon, type IconName } from './icons';
 
 export const SAVE_CHOICES_KEY = 'exportChoices.v1';
 
 export const FORMAT_NAMES: Record<SaveFormat, string> = { pdf: 'PDF', text: 'Text', json: 'JSON', package: 'ZIP package' };
 
+/** A printer for the print dialog, a page of lines, a page of braces, a page with a zip. */
+const FORMAT_ICONS: Record<SaveFormat, IconName> = { pdf: 'printer', text: 'file-text', json: 'file-braces', package: 'file-archive' };
+
 /** The Include list. *Pictures* are the pictures the archive saved while capturing (Settings, Save pictures). */
-export const CONTENT_FIELDS: ReadonlyArray<{ key: keyof ExportContent; label: string }> = [
-  { key: 'images', label: 'Pictures' },
-  { key: 'attachments', label: 'File attachments' },
-  { key: 'replies', label: 'Reply context' },
-  { key: 'reactions', label: 'Reactions' },
-  { key: 'systemMessages', label: 'System messages' },
-  { key: 'editHistory', label: 'Edit history' },
+export const CONTENT_FIELDS: ReadonlyArray<{ key: keyof ExportContent; label: string; icon: IconName }> = [
+  { key: 'images', label: 'Pictures', icon: 'image' },
+  { key: 'attachments', label: 'File attachments', icon: 'paperclip' },
+  { key: 'replies', label: 'Reply context', icon: 'reply' },
+  { key: 'reactions', label: 'Reactions', icon: 'smile' },
+  { key: 'systemMessages', label: 'System messages', icon: 'info' },
+  { key: 'editHistory', label: 'Edit history', icon: 'pencil' },
 ];
 
 /** The line under the formats: what the chosen one makes. */
@@ -96,6 +100,7 @@ export class SaveForm {
               'label',
               { className: 'segment', for: `save-format-${format}` },
               el('input', { type: 'radio', name: 'save-format', id: `save-format-${format}`, value: format }),
+              el('span', { className: 'icon-holder' }, icon(FORMAT_ICONS[format])),
               el('span', {}, FORMAT_NAMES[format]),
             ),
           ),
@@ -109,11 +114,12 @@ export class SaveForm {
         el(
           'div',
           { className: 'include-list' },
-          ...CONTENT_FIELDS.map(({ key, label }) =>
+          ...CONTENT_FIELDS.map(({ key, label, icon: name }) =>
             el(
               'label',
               { className: 'check', for: `save-include-${key}` },
               el('input', { type: 'checkbox', id: `save-include-${key}`, name: 'save-include', value: key }),
+              el('span', { className: 'icon-holder check-icon' }, icon(name)),
               el('span', {}, label),
             ),
           ),

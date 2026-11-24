@@ -4,15 +4,25 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Teams Chat Scraper</title>
+    <link rel="preload" href="fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="ui.css" />
     <script src="theme.js"></script>
   </head>
   <body data-mode="archive">
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="app-header">
-      <img src="icons/logo.svg" alt="" width="24" height="24" />
-      <h1>Teams Chat Scraper</h1>
-      <label class="header-theme" for="header-theme"><span>Theme</span><select id="header-theme"></select></label>
+      <div class="app-header-inner">
+        <img src="icons/logo.svg" alt="" width="24" height="24" />
+        <h1>Teams Chat Scraper</h1>
+        <nav class="header-nav" aria-label="Sections">
+          <a href="#conversations">Conversations</a>
+          <a href="#backup">Backup</a>
+          <a href="#settings">Settings</a>
+        </nav>
+        <div class="header-actions">
+          <button type="button" id="btn-theme" class="icon-button"></button>
+        </div>
+      </div>
     </header>
 
     <main id="main" class="archive-main" tabindex="-1">
@@ -22,7 +32,10 @@
       <!-- The archive: its chats, backing it up, the settings -->
       <div id="view-home" class="view" hidden>
         <section id="section-conversations" class="page-section" aria-labelledby="conversations-title">
-          <h2 id="conversations-title" class="view-title" tabindex="-1">Conversations</h2>
+          <div class="section-title">
+            <h2 id="conversations-title" tabindex="-1">Conversations</h2>
+            <span id="conv-count" class="muted small" aria-live="polite"></span>
+          </div>
           <div class="card">
             <div class="toolbar" role="search">
               <div class="field toolbar-search">
@@ -34,7 +47,6 @@
               </div>
               <label class="field" for="conv-type"><span>Type</span><select id="conv-type"></select></label>
               <label class="field" for="conv-sort"><span>Sort by</span><select id="conv-sort"></select></label>
-              <span id="conv-count" class="muted small" aria-live="polite"></span>
             </div>
             <div class="table-wrap">
               <table id="conversations" class="cards">
@@ -57,13 +69,15 @@
         </section>
 
         <section id="section-backup" class="page-section" aria-labelledby="backup-title">
-          <h2 id="backup-title" tabindex="-1">Backup and import</h2>
+          <div class="section-title">
+            <h2 id="backup-title" tabindex="-1">Backup and import</h2>
+          </div>
           <div class="card">
             <div class="backup-row">
               <p id="backup-status"></p>
               <div class="button-row">
-                <button type="button" id="btn-backup-now" aria-describedby="backup-status">Back up now</button>
-                <button type="button" data-import>Import archive…</button>
+                <button type="button" id="btn-backup-now" aria-describedby="backup-status"><span data-icon="download"></span>Back up now</button>
+                <button type="button" data-import><span data-icon="upload"></span>Import archive…</button>
               </div>
             </div>
             <dl class="stats" id="archive-stats"></dl>
@@ -76,26 +90,30 @@
         </section>
 
         <section id="section-settings" class="page-section" aria-labelledby="settings-title">
-          <h2 id="settings-title" tabindex="-1">Settings</h2>
-          <form id="settings-form" class="card" aria-labelledby="general-title" novalidate>
-            <h3 id="general-title">General</h3>
+          <div class="section-title">
+            <h2 id="settings-title" tabindex="-1">Settings</h2>
+          </div>
+          <form id="settings-form" class="card settings-card" aria-labelledby="general-title" novalidate>
+            <h3 id="general-title" class="sub-title">General</h3>
             <div id="settings-general-fields" class="settings-grid"></div>
-            <details class="advanced" id="settings-advanced">
-              <summary id="advanced-title">Advanced</summary>
-              <div id="settings-fields" class="settings-grid"></div>
-              <label class="field wide" for="selectorOverrides">
-                <span>Selector overrides (JSON): replace individual entries of the built-in Teams selector profile</span>
-                <textarea id="selectorOverrides" rows="8" spellcheck="false" placeholder='{ "messageItem": ["[data-tid=&quot;chat-pane-item&quot;]"] }'></textarea>
-              </label>
-              <div class="button-row">
-                <button type="button" id="btn-defaults">Reset to defaults</button>
-                <button type="button" id="btn-insert-selectors">Insert default selectors</button>
+            <details class="disclosure divided advanced" id="settings-advanced">
+              <summary id="advanced-title"><span class="disclosure-chevron" data-icon="chevron-right"></span>Advanced<span class="disclosure-hint" id="advanced-hint"></span></summary>
+              <div class="disclosure-body">
+                <div id="settings-fields" class="settings-grid"></div>
+                <label class="field wide" for="selectorOverrides">
+                  <span>Selector overrides (JSON): replace individual entries of the built-in Teams selector profile</span>
+                  <textarea id="selectorOverrides" rows="8" spellcheck="false" placeholder='{ "messageItem": ["[data-tid=&quot;chat-pane-item&quot;]"] }'></textarea>
+                </label>
+                <div class="button-row">
+                  <button type="button" id="btn-defaults">Reset to defaults</button>
+                  <button type="button" id="btn-insert-selectors">Insert default selectors</button>
+                </div>
               </div>
             </details>
-            <div class="button-row">
+            <div class="sticky-bar">
+              <p id="settings-message" class="muted small" role="status" aria-live="polite">New settings apply to the next run.</p>
               <button type="submit" class="primary">Save settings</button>
             </div>
-            <p id="settings-message" class="small" role="status" aria-live="polite" hidden></p>
           </form>
         </section>
 
@@ -108,10 +126,10 @@
 
       <!-- One conversation -->
       <section id="view-conversation" class="view" aria-labelledby="conv-view-title" hidden>
-        <a href="#conversations" class="back-link" id="conv-view-back">All conversations</a>
+        <a href="#conversations" class="back-link" id="conv-view-back"><span data-icon="back"></span>All conversations</a>
         <div class="card">
           <div class="conversation-head">
-            <div>
+            <div class="conversation-head-text">
               <h2 id="conv-view-title" class="view-title" tabindex="-1"></h2>
               <div id="conv-view-meta" class="muted small"></div>
               <div id="conv-view-history" class="small"></div>
@@ -127,7 +145,7 @@
             <span id="conv-view-range" class="muted small" aria-live="polite"></span>
           </div>
           <div class="messages">
-            <button type="button" id="btn-load-earlier" class="load-earlier">Show earlier messages</button>
+            <button type="button" id="btn-load-earlier" class="load-earlier wide"><span data-icon="arrow-up"></span><span id="btn-load-earlier-label">Show earlier messages</span></button>
           </div>
           <ol id="conv-view-messages" class="messages" aria-labelledby="conv-view-messages-title"></ol>
           <div class="to-top">

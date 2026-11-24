@@ -9,7 +9,7 @@ import { imageFileName } from '../../shared/images';
 import { conversationLabel, type ConversationRecord, type StoredImage } from '../../shared/types';
 import { titleHistoryOf } from '../../storage/conversation-identity';
 import { byId, countOf, el, errorText, formatAgo, formatDate, formatDateTime, formatNumber, TYPE_LABELS } from '../common';
-import { icon } from '../icons';
+import { icon, type IconName } from '../icons';
 import { fileNoun, loadSaveChoices, SaveForm } from '../save-form';
 import {
   archivedPeriod,
@@ -104,22 +104,31 @@ function conversationRow(app: AppContext, record: ConversationRecord, imageCount
           )
         : '0',
     ),
-    el('td', { className: 'wide-only' }, el('div', {}, historyLabel(record)), el('div', { className: 'muted small' }, archivedPeriod(record))),
+    el('td', { className: 'wide-only' }, el('div', { className: 'cell-stack' }, historyBadge(record), el('span', { className: 'muted small' }, archivedPeriod(record)))),
     lastUpdateCell(record),
   );
+}
+
+/** The history column: complete, not back to the start, or not checked, as a badge whose words carry the state. */
+function historyBadge(record: ConversationRecord): HTMLSpanElement {
+  const label = historyLabel(record);
+  const tone = label === 'Complete' ? 'success' : label === 'Not checked' ? 'neutral' : '';
+  return el('span', { className: `badge ${tone}`.trim() }, label);
 }
 
 /** Save a file, its images, Rename, Merge and Delete for a conversation, on its message view. */
 export function conversationActions(app: AppContext, record: ConversationRecord, imageCount: number): HTMLButtonElement[] {
   const merging = Boolean(record.mergedInto);
+  const button = (name: IconName, text: string, props: Parameters<typeof el>[1]): HTMLButtonElement =>
+    el('button', { type: 'button', ...props }, el('span', { className: 'icon-holder' }, icon(name)), text);
   const buttons: HTMLButtonElement[] = [
-    el('button', { type: 'button', disabled: record.messageCount === 0, onclick: guarded(app, () => saveConversation(record)) }, 'Save a file…'),
+    button('file-down', 'Save a file…', { className: 'primary', disabled: record.messageCount === 0, onclick: guarded(app, () => saveConversation(record)) }),
   ];
-  if (imageCount > 0) buttons.push(el('button', { type: 'button', onclick: guarded(app, () => showImages(record)) }, `Images (${formatNumber(imageCount)})`));
+  if (imageCount > 0) buttons.push(button('images', `Images (${formatNumber(imageCount)})`, { onclick: guarded(app, () => showImages(record)) }));
   buttons.push(
-    el('button', { type: 'button', disabled: merging, onclick: guarded(app, () => renameConversation(app, record)) }, 'Rename…'),
-    el('button', { type: 'button', disabled: merging, onclick: guarded(app, () => openMerge(app, record)) }, 'Merge…'),
-    el('button', { type: 'button', className: 'danger', disabled: merging, onclick: guarded(app, () => deleteConversation(app, record, imageCount)) }, 'Delete…'),
+    button('pencil', 'Rename…', { disabled: merging, onclick: guarded(app, () => renameConversation(app, record)) }),
+    button('merge', 'Merge…', { disabled: merging, onclick: guarded(app, () => openMerge(app, record)) }),
+    button('trash', 'Delete…', { className: 'danger', disabled: merging, onclick: guarded(app, () => deleteConversation(app, record, imageCount)) }),
   );
   return buttons;
 }

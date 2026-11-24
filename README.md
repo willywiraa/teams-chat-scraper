@@ -29,14 +29,14 @@ After rebuilding, click **Reload** on the extension card in `edge://extensions` 
 
 1. In Teams Web, open the chat (1:1, group or meeting chat).
 2. Click the extension icon. The popup shows the chat it found and one line about its archive, for example *1,234 messages · complete back to 3 Jan 2023 · updated 3 days ago*. A warning appears only when you can act on it, such as a chat archived in two entries (with a link to merge them).
-3. Under **Messages**, choose what to capture, then click the button at the bottom of the popup. It names your choice and the file it saves, for example **Capture new messages and save a PDF**.
+3. Under **Messages to capture**, choose one of the four tiles, then click the button at the bottom of the popup. It names your choice and the file it saves, for example **Capture new messages and save a PDF**.
 
 | Choice | What it does | Ends when |
 | --- | --- | --- |
 | **New messages** | Archives the messages that arrived since the last update, and reads the 2 days before it again (setting) to pick up edits, deletions and late replies. Preselected once the chat has something archived. | It has re-read back to the last update minus those days, and seen at least 8 archived messages again. |
-| **Last 24 hours**, **Last 7 days**, **Last 30 days** | Archives the messages of that period. | The start of the period is reached, or it joins archived messages that already reach back that far. |
+| **Date range**, with a **Period** of **24 hours**, **7 days** (the first choice) or **30 days** | Archives the messages of that period. | The start of the period is reached, or it joins archived messages that already reach back that far. |
+| **Date range**, with the **Period** **From a date** | Shows a date field, **From**, and archives the messages from midnight of that day. | As for a period. |
 | **Full history** | Scrolls back to the beginning of the chat and archives everything. Preselected for a chat with nothing archived. | The beginning of the chat is reached, or it has caught up with a complete archive. |
-| **From a date…** | Shows a date field, **From**, and archives the messages from midnight of that day. | As for a period. |
 | **On screen** | Archives the messages Teams shows on screen, without scrolling. | At once. |
 
 Every choice keeps the newer messages it passes on the way, so there is no "to" date: the archive never gets a hole between the period and now.
@@ -55,11 +55,11 @@ Under **Include in the file**, tick what it holds: pictures, file attachments, r
 - The file holds the period captured (the last days, or from a date), the messages captured (**On screen**), or everything archived of the chat (**New messages**, **Full history**).
 - A page of the extension saves it, in a new tab next to Teams, when the capture completes or stops on its own (for example at the maximum run duration). Closing the popup doesn't stop it. After **Stop** or a failure no file is saved.
 - Files go to the browser's downloads. The popup's result names the file once it is saved.
-- **Save a file from the archive only**, under the button, saves what the archive already holds of the chat (of the period chosen, or all of it) without capturing.
+- **Save a file from the archive only**, under the include list, saves what the archive already holds of the chat (of the period chosen, or all of it) without capturing.
 
 ### Options and progress
 
-The popup also shows how many messages are on screen. Under **Options**, **Re-read archived parts at normal speed** reads archived stretches again, with their images, instead of passing them quickly. Use it to pick up edits and deletions in older messages. The setting *Re-read archived parts by default* presets it. When the popup finds no chat or no messages, it says what to try.
+The status bar at the bottom of the popup says whether it reaches the Teams tab and how many messages are on screen; during a run, the phase, the time so far and the messages seen. Under **Options**, **Re-read archived parts at normal speed** reads archived stretches again, with their images, instead of passing them quickly. Use it to pick up edits and deletions in older messages. The setting *Re-read archived parts by default* presets it. When the popup finds no chat or no messages, it says what to try.
 
 During a run, the progress and **Stop** take the place of the capture controls. For a period, a bar shows how far back the run has reached; for the full history, whose beginning is unknown until it is reached, the popup says how far back it has got. The popup also says which file the run will save. Afterwards the result says what was captured and saved, and links to the chat in the archive.
 
@@ -83,7 +83,7 @@ Running any capture again is always safe: messages are never stored twice.
 
 ## The archive page
 
-Open it with the archive button at the top right of the popup, or via the extension's *Extension options*. It is one page: **Conversations**, then **Backup and import**, then **Settings**, with the version at the end. Each part has its own address (`archive.html#conversations`, `#backup`, `#settings`, `#settings/advanced`), so you can bookmark one; the addresses of earlier versions (`#overview`, `#export`) lead to the part that took their place.
+Open it with the archive button at the top right of the popup, or via the extension's *Extension options*. It is one page: **Conversations**, then **Backup and import**, then **Settings**, with the version at the end; the links in its header lead to each part. Each part has its own address (`archive.html#conversations`, `#backup`, `#settings`, `#settings/advanced`), so you can bookmark one; the addresses of earlier versions (`#overview`, `#export`) lead to the part that took their place.
 
 - **Conversations**: each archived chat with its message count, number of saved images (click it to see them), completeness (*Complete*, *Not back to the start*, *Not checked*), archived period and last update. **Search** finds a chat by any word of its name, an earlier title or its key; filter by type and sort by recent activity, name or size. Click a chat's name to open its page:
   - the **message view** opens at the newest of the latest 200 messages (**Back to the top** below them), with a heading for each day, the sender's name once for messages less than five minutes apart, replies with the message they quote, pictures where they were sent (click one for full size), attachments with their links, and the earlier versions of edited messages. **Show earlier messages** loads the 200 before, keeping your place;
@@ -97,7 +97,7 @@ What you can do with a chat:
 - **Merge…** combines two archive entries of the same chat, for example a chat archived under its old and its new title. The dialog lists first the entries that hold some of the same messages or have a similar name, and you choose the one to merge into. Every message is kept once, with its pictures and runs. A merge can't be undone, so back up first if in doubt. If the page closes during a merge, the merge finishes the next time the archive page opens.
 - **Import archive…** (under Backup and import) merges a JSON file or a ZIP package back in. Use it to restore a backup or combine archives from two browser profiles. The whole file is checked before anything is written, so a damaged file changes nothing, and importing the same file twice changes nothing. An imported chat joins the entry of the same chat, also when that entry has another title. If the page closes during an import, the chat being imported is left incomplete; import the file again to complete it.
 
-The pages follow the Windows light or dark theme (*Same as Windows*), or *Light* or *Dark* as you choose with **Theme** at the top right of the archive page, or the theme button in the popup and side panel. The choice applies at once, to every open page of the extension. They work with the keyboard alone (a **Skip to content** link, visible focus, headings to navigate by), and narrow windows show each table row as a short card.
+The pages follow the Windows light or dark theme (*Same as Windows*), or *Light* or *Dark* as you choose with the theme button at the top right of the archive page, the popup and the side panel, which shows the theme in use and moves to the next. The choice applies at once, to every open page of the extension. The pages are set in Geist, with Geist Mono for keys and logs; both fonts ship inside the extension, so nothing is loaded from the network. They work with the keyboard alone (a **Skip to content** link, visible focus, headings to navigate by), and narrow windows show each table row as a short card.
 
 ### Settings
 
@@ -236,7 +236,7 @@ src/
   export/      export format v1, the pipeline that writes the files (a printable page for PDF, text, JSON, the ZIP package with its Markdown transcript), ZIP writing and reading, streaming import
   background/  service worker: routes captured batches into the archive
   content/     content script: runs the engine in the Teams tab
-  ui/          popup / side panel, the save page and its form, the archive page (archive.ts, with its parts in ui/archive/), themes, and the view models the screens draw
+  ui/          popup / side panel, the save page and its form, the archive page (archive.ts, with its parts in ui/archive/), themes, icons, the Geist fonts with their licences, and the view models the screens draw
 icons/         the logo: SVG masters (logo.svg, and logo-16.svg for 16 px) and the extension's PNG icons
 store/         store listing images (300 × 300 logo, 440 × 280 tile); not part of the extension
 scripts/       build, and the logo description and generator

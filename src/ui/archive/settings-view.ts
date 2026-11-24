@@ -74,11 +74,13 @@ function checkField(id: string, label: string): HTMLLabelElement {
   return el('label', { className: 'check field', for: id }, el('input', { type: 'checkbox', id }), el('span', {}, label));
 }
 
+/** What the bar beside **Save settings** says until something is saved or reset. */
+const SETTINGS_NOTE = 'New settings apply to the next run.';
+
 function settingsMessage(text: string, kind: 'notice' | 'error' | 'success' = 'notice'): void {
   const element = byId('settings-message');
-  element.textContent = text;
-  element.className = `${kind} small`;
-  element.hidden = text === '';
+  element.textContent = text || SETTINGS_NOTE;
+  element.className = text ? `${kind} small` : 'muted small';
 }
 
 // ------------------------------------------------------------------- form
@@ -113,6 +115,8 @@ export function buildSettings(): void {
     ...ADVANCED_NUMBERS.map(numberField),
     checkField('rescanByDefault', 'Re-read archived parts at normal speed by default (the popup’s option under Options)'),
   );
+  // How many settings Advanced holds while it is closed: the numbers, the checkbox and the selector overrides.
+  byId('advanced-hint').textContent = `${ADVANCED_NUMBERS.length + 2} settings`;
 
   byId<HTMLSelectElement>('scroll-speed').addEventListener('change', (event) => {
     const speed = (event.target as HTMLSelectElement).value as ScrollSpeed | 'custom';

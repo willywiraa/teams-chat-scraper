@@ -37,10 +37,10 @@ import {
   STOP_REASON_LABELS,
   TYPE_LABELS,
 } from './common';
-import { icon } from './icons';
+import { icon, placeIcons, type IconName } from './icons';
 import { LAST_SAVE_KEY, parseLastSave, readLastSave, type LastSave } from './last-save';
 import { fileNoun, loadSaveChoices, SaveForm } from './save-form';
-import { nextTheme, readTheme, saveTheme, THEME_STORAGE_KEY, themeLabel } from './theme';
+import { wireThemeButton } from './theme-button';
 import { historyLine, reachShare, routeHash, type Route } from './view-models';
 
 /** The capture choices of the popup: the capture ranges, and the messages on screen only. */
@@ -152,20 +152,16 @@ async function refresh(): Promise<void> {
 function renderStatus(status: ContentStatus): void {
   const conversation = status.conversation;
   setText('conv-title', conversation?.title ?? 'No chat detected');
-  setText(
-    'conv-meta',
-    conversation
-      ? TYPE_LABELS[conversation.type]
-      : status.conversationError ?? 'Open a 1:1 or group chat in Teams.',
-  );
+  setText('conv-type', conversation ? TYPE_LABELS[conversation.type] : '');
+  setHidden('conv-type', !conversation);
+  setText('conv-meta', conversation ? '' : status.conversationError ?? 'Open a 1:1 or group chat in Teams.');
+  setHidden('conv-meta', Boolean(conversation));
   // Without a chat id, the messages on screen tell renamed chats and chats with the same title apart.
   const warning = conversation && !conversation.threadId && status.state === 'idle' && status.evidence && status.evidence.messages.length === 0
     ? 'Teams shows no chat id and no message ids here, so this chat is recognised by its title only. Scroll to some messages first.'
     : '';
   setText('conv-warning', warning);
   setHidden('conv-warning', !warning);
-  setText('visible-count', status.visibleMessages === null ? '' : `${countOf(status.visibleMessages, 'message')} on screen`);
-  setHidden('visible-count', status.visibleMessages === null || !conversation);
 
   const idle = status.state === 'idle';
   // What to try is said up front only when the extension finds nothing to archive.
@@ -181,6 +177,34 @@ function renderStatus(status: ContentStatus): void {
   if (!idle) renderProgress(status);
   setHidden('result-panel', !idle || !status.lastResult);
   if (idle && status.lastResult) renderResult(status.lastResult);
+  renderStatusBar(status);
+}
+
+/**
+ * The line at the bottom: that the popup reaches the Teams tab and what the tab shows, or during a
+ * run its phase, time and the messages seen so far. The run panel says the same in full.
+ */
+function renderStatusBar(status: ContentStatus): void {
+  const bar = byId('status-bar');
+  const seen = status.progress?.counters.uniqueSeen ?? 0;
+  let tone = 'ready';
+  let text = 'Connected to Teams';
+  let detail = '';
+  let count: string | null = null;
+  if (status.state === 'idle') {
+    if (!status.conversation) tone = 'idle';
+    detail = !status.conversation ? 'no chat open' : status.visibleMessages === null ? '' : `${countOf(status.visibleMessages, 'message')} on screen`;
+  } else {
+    tone = status.state === 'paused' ? 'paused' : 'busy';
+    text = byId('run-phase').textContent ?? '';
+    detail = status.session ? formatDuration(Date.now() - Date.parse(status.session.startedAt)) : '';
+    count = `${formatNumber(seen)} seen`;
+  }
+  bar.dataset.tone = tone;
+  setText('status-text', text);
+  setText('status-detail', detail ? ` · ${detail}` : '');
+  setText('status-count', count ?? '');
+  setHidden('status-count', count === null);
 }
 
 function renderProgress(status: ContentStatus): void {
@@ -253,10 +277,22 @@ function imageSummary(counters: SessionCounters): string {
   return ` · ${formatNumber(saved)} images saved${failed > 0 ? ` (${formatNumber(failed)} not saved)` : ''}`;
 }
 
-function renderResult(result: FinishedSessionInfo): void {
+const RESULT_ICONS: Record<'success' | 'notice' | 'error', IconName> = { success: 'circle-check', notice: 'info', error: 'circle-alert' };
+
+/** Fills the result panel: an icon for its tone, then the lines. */
+function showResult(tone: 'success' | 'notice' | 'error', lines: Array<HTMLElement | null>): void {
   const panel = byId('result-panel');
+  panel.hidden = false;
+  panel.className = `card result ${tone}`;
+  panel.replaceChildren(
+    el('span', { className: 'result-icon' }, icon(RESULT_ICONS[tone])),
+    el('div', { className: 'result-body' }, ...lines.filter((line): line is HTMLElement => line !== null)),
+  );
+}
+
+function renderResult(result: FinishedSessionInfo): void {
   const counters = result.counters;
-  panel.className = `card ${result.status === 'failed' ? 'error' : result.status === 'completed' ? 'success' : 'notice'}`;
+  const tone = result.status === 'failed' ? 'error' : result.status === 'completed' ? 'success' : 'notice';
   const children: Array<HTMLElement | null> = [
     el('strong', {}, outcomeText(result.status, result.stopReason)),
     el(
@@ -272,7 +308,7 @@ function renderResult(result: FinishedSessionInfo): void {
     saveLine(result),
     el('div', { className: 'small result-link' }, archiveLink({ view: 'conversation', key: result.conversationKey }, 'Open this chat in the archive')),
   ];
-  panel.replaceChildren(...children.filter((child): child is HTMLElement => child !== null));
+  showResult(tone, children);
 }
 
 /** What became of the file the run was to save, or null when it was to save none. */
@@ -385,8 +421,10 @@ function check(name: string, value: string): void {
   if (input) input.checked = true;
 }
 
+/** The tile chosen; for **Date range**, the period chosen under it. */
 function selectedChoice(): PopupChoice {
-  return (checkedValue('capture') ?? 'everything') as PopupChoice;
+  const tile = checkedValue('capture') ?? 'everything';
+  return (tile === 'range' ? checkedValue('capture-period') ?? 'last-7d' : tile) as PopupChoice;
 }
 
 /** The capture button says what it captures, and the file it saves. */
@@ -444,9 +482,12 @@ function renderCapture(next?: { record: ConversationRecord | null; conversationK
   } else if ((checkedValue('capture') === 'update' && !archived) || checkedValue('capture') === null) {
     check('capture', 'everything');
   }
-  for (const input of byId('capture-box').querySelectorAll<HTMLInputElement>('input[name="capture"]')) input.disabled = !idle || (input.value === 'update' && !archived);
+  for (const input of byId('capture-box').querySelectorAll<HTMLInputElement>('input[name="capture"], input[name="capture-period"]')) {
+    input.disabled = !idle || (input.value === 'update' && !archived);
+  }
   const dateInput = byId<HTMLInputElement>('capture-from');
   const choice = selectedChoice();
+  setHidden('capture-period-box', checkedValue('capture') !== 'range');
   setHidden('capture-from-field', choice !== 'from-date');
   dateInput.disabled = !idle;
   dateInput.max = todayValue();
@@ -459,7 +500,7 @@ function renderCapture(next?: { record: ConversationRecord | null; conversationK
   saveForm?.setDisabled(!idle);
   setHidden('save-choices', save === null);
   const start = byId<HTMLButtonElement>('btn-start');
-  start.textContent = startLabel(choice, plan?.rangeStart ?? null, save);
+  setText('btn-start-label', startLabel(choice, plan?.rangeStart ?? null, save));
   start.disabled = !idle || busy || conversationKey === null || (choice !== 'visible' && plan === null);
   // Saving without capturing needs archived messages of this chat.
   const archivedOnly = byId<HTMLButtonElement>('btn-save-archived');
@@ -517,10 +558,7 @@ async function start(mode: ScrapeMode, rescan: boolean, resumeOf: string | null,
   try {
     await sendToTab({ type: 'content/start', mode, rescan, resumeOf, rangeStart, save });
   } catch (error) {
-    const panel = byId('result-panel');
-    panel.hidden = false;
-    panel.className = 'card error';
-    panel.replaceChildren(el('strong', {}, 'Could not start'), el('div', { className: 'small' }, errorText(error)));
+    showResult('error', [el('strong', {}, 'Could not start'), el('div', { className: 'small' }, errorText(error))]);
   } finally {
     busy = false;
     await refresh();
@@ -535,16 +573,8 @@ async function command(type: 'content/pause' | 'content/resume' | 'content/stop'
   }
 }
 
-/** The theme button shows the theme in use; a click switches to the next one. */
-function renderThemeButton(): void {
-  const theme = readTheme();
-  const button = byId('btn-theme');
-  button.replaceChildren(icon(`theme-${theme}`));
-  button.setAttribute('aria-label', `Theme: ${themeLabel(theme)}`);
-  button.title = `Theme: ${themeLabel(theme)}. Click for ${themeLabel(nextTheme(theme))}.`;
-}
-
 function wire(): void {
+  placeIcons();
   byId('btn-start').addEventListener('click', startCapture);
   saveForm = new SaveForm(byId('save-choices'), () => renderCapture());
   byId('opt-save').addEventListener('change', () => {
@@ -555,15 +585,7 @@ function wire(): void {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes[LAST_SAVE_KEY]) lastSave = parseLastSave(changes[LAST_SAVE_KEY].newValue);
   });
-  renderThemeButton();
-  byId('btn-theme').addEventListener('click', () => {
-    saveTheme(nextTheme(readTheme()));
-    renderThemeButton();
-  });
-  // The archive page, or the side panel, may change the theme while this is open.
-  window.addEventListener('storage', (event) => {
-    if (event.key === THEME_STORAGE_KEY) renderThemeButton();
-  });
+  wireThemeButton(byId('btn-theme'));
   for (const id of ['capture-box', 'opt-rescan']) {
     byId(id).addEventListener('change', () => renderCapture());
     byId(id).addEventListener('input', () => renderCapture());

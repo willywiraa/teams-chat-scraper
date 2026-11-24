@@ -11,6 +11,7 @@ import { runExport, writePrintable, type ExportProgress, type ExportRequest, typ
 import { conversationLabel, type ConversationRecord } from '../shared/types';
 import { ArchiveRepository } from '../storage/repository';
 import { byId, countOf, downloadBlob, errorText, formatDateTime, formatMoment, formatNumber } from './common';
+import { placeIcons } from './icons';
 import { recordBackup } from './last-backup';
 import { recordLastSave } from './last-save';
 import { FORMAT_NAMES } from './save-form';
@@ -166,6 +167,7 @@ async function print(repository: ArchiveRepository, job: Job): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  placeIcons();
   const target = parseSaveTarget(location.hash);
   if (!target) {
     byId('save-title').textContent = 'Nothing to save';

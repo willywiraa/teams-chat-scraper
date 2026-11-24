@@ -93,12 +93,13 @@ async function loadEarlier(app: AppContext): Promise<void> {
   if (!shown || shown.from === 0) return;
   // Says it is loading; a second click meanwhile is ignored (guarded), so no page is added twice.
   const button = byId<HTMLButtonElement>('btn-load-earlier');
-  button.textContent = 'Loading earlier messages…';
+  const label = byId('btn-load-earlier-label');
+  label.textContent = 'Loading earlier messages…';
   button.setAttribute('aria-disabled', 'true');
   try {
     await addEarlierPage(app);
   } finally {
-    button.textContent = 'Show earlier messages';
+    label.textContent = 'Show earlier messages';
     button.removeAttribute('aria-disabled');
   }
 }

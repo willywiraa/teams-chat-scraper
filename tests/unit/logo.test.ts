@@ -144,6 +144,17 @@ describe('interface colours', () => {
       }
       // The focus ring needs 3:1 against what it sits on (WCAG 1.4.11).
       for (const back of ['card', 'bg']) expect(contrast(theme.focus as string, theme[back] as string), `${name}: --focus on --${back}`).toBeGreaterThanOrEqual(3);
+      // Graphics that carry a state: the status dots on the card, the check of a completed run on its notice.
+      const graphics: Array<[string, string]> = [
+        ['success', 'card'],
+        ['success', 'success-bg'],
+        ['accent', 'card'],
+        ['warning', 'card'],
+        ['danger', 'error-bg'],
+      ];
+      for (const [fore, back] of graphics) {
+        expect(contrast(theme[fore] as string, theme[back] as string), `${name}: --${fore} on --${back}`).toBeGreaterThanOrEqual(3);
+      }
     }
   });
 

@@ -31,7 +31,7 @@ if (manifest.version !== pkg.version) throw new Error(`dist/manifest.json has ve
 const paths = await filesIn(dist);
 const maps = paths.filter((file) => file.endsWith('.map'));
 if (maps.length > 0) throw new Error(`A release build has no source maps, but dist/ holds ${maps.join(', ')}`);
-for (const required of ['manifest.json', 'background.js', 'content.js', 'popup.html', 'archive.html', 'sidepanel.html', 'icons/icon128.png']) {
+for (const required of ['manifest.json', 'background.js', 'content.js', 'popup.html', 'archive.html', 'sidepanel.html', 'icons/icon128.png', 'fonts/Geist-Variable.woff2', 'fonts/GeistMono-Variable.woff2', 'licenses/Geist-OFL.txt', 'licenses/Lucide-ISC.txt']) {
   if (!paths.includes(required)) throw new Error(`dist/ has no ${required}`);
 }
 

@@ -17,7 +17,7 @@ Versions before 1.9 also offered an HTML page, Markdown and CSV; a choice rememb
 
 ## What a file holds
 
-**Period.** A file saved when a capture ends holds the period captured: for **Last 24 hours**, **Last 7 days** or **Last 30 days** the messages from that moment on, for **From a date…** those from midnight of that day (in the computer's time zone), and for **On screen** the messages captured, from the oldest to the newest. After **New messages** or **Full history**, and from the archive page, it holds every archived message of the chat. **Save a file from the archive only** takes the period chosen in the popup, or every archived message. A message is in the period when its `sortKey` is; a period always reaches up to the newest message, except for **On screen**.
+**Period.** A file saved when a capture ends holds the period captured: for a **Date range** of **24 hours**, **7 days** or **30 days** the messages from that moment on, for **From a date** those from midnight of that day (in the computer's time zone), and for **On screen** the messages captured, from the oldest to the newest. After **New messages** or **Full history**, and from the archive page, it holds every archived message of the chat. **Save a file from the archive only** takes the period chosen in the popup, or every archived message. A message is in the period when its `sortKey` is; a period always reaches up to the newest message, except for **On screen**.
 
 **Content.**
 
@@ -243,6 +243,6 @@ Re-importing a file changes nothing. If an import is interrupted, for example be
 2. Treat a changed `contentHash` for a known `key` as an edit. `previousVersions` holds what was replaced.
 3. Remove message records whose key appears in another record's `aliases`, and conversations whose key appears in another conversation's `mergedFrom`.
 4. Store images by `key` (or by `imageId` per conversation). An image never changes, so one already ingested can be skipped. Resolve an attachment's `imageId` within its conversation's images.
-5. To fetch only new data, capture the last days (for example **Last 7 days**) with JSON or the ZIP package chosen, and upsert its records: the period's records say which stretch they cover. A file of all archived messages can always be re-ingested with the same upsert logic.
+5. To fetch only new data, capture the last days (for example a **Date range** of **7 days**) with JSON or the ZIP package chosen, and upsert its records: the period's records say which stretch they cover. A file of all archived messages can always be re-ingested with the same upsert logic.
 6. Use `coverage` and `lastUpdate` to show how complete and how current each chat is.
 7. Systems that index documents rather than records can take each conversation's `transcript.md` from the ZIP package.

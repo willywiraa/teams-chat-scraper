@@ -11,8 +11,9 @@ import type { AppContext, MessageKind } from './archive/context';
 import { closeConversation, showConversation, wireConversationView } from './archive/conversation-view';
 import { buildConversationList, renderConversations, resumeMerges, wireConversationDialogs } from './archive/conversations';
 import { buildSettings, showSettings } from './archive/settings-view';
-import { byId, countOf, el, errorText, formatNumber } from './common';
-import { normalizeTheme, readTheme, saveTheme, THEME_CHOICES, THEME_STORAGE_KEY } from './theme';
+import { byId, countOf, errorText, formatNumber } from './common';
+import { placeIcons } from './icons';
+import { wireThemeButton } from './theme-button';
 import { parseRoute, routeHash, type PageSection, type Route } from './view-models';
 
 const APP_NAME = 'Teams Chat Scraper';
@@ -111,17 +112,6 @@ function place(route: Route): void {
   byId(part.heading).focus({ preventScroll: true });
 }
 
-/** The theme select in the header; it follows a choice made in another page of the extension. */
-function wireTheme(): void {
-  const select = byId<HTMLSelectElement>('header-theme');
-  select.replaceChildren(...THEME_CHOICES.map(({ value, label }) => el('option', { value }, label)));
-  select.value = readTheme();
-  select.addEventListener('change', () => saveTheme(normalizeTheme(select.value)));
-  window.addEventListener('storage', (event) => {
-    if (event.key === THEME_STORAGE_KEY) select.value = normalizeTheme(event.newValue);
-  });
-}
-
 // ------------------------------------------------------------------ import
 
 async function importFile(file: File): Promise<void> {
@@ -165,13 +155,14 @@ function wire(): void {
     input.value = '';
     if (file) void importFile(file);
   });
-  wireTheme();
+  wireThemeButton(byId('btn-theme'));
   wireBackup(app);
   byId('about-version').textContent = `Teams Chat Scraper, version ${chrome.runtime.getManifest().version}`;
   window.addEventListener('hashchange', () => void show(parseRoute(location.hash), { navigated: true }));
 }
 
 async function main(): Promise<void> {
+  placeIcons();
   buildConversationList(app);
   wireConversationDialogs(app);
   wireConversationView(app);
