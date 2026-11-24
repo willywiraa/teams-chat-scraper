@@ -1,0 +1,2100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Teams Chat Scraper 1.9.0: current design</title>
+<!--
+  The interface of Teams Chat Scraper 1.9.0 as rendered from src/ui, with made-up chats.
+  Static: buttons do nothing. The styles below are src/ui/ui.css, with two changes so several
+  screens fit on one page: the page rules apply to .screen instead of <body>, and id selectors
+  read data-id (each screen's ids carry a prefix such as s1-). Design direction: DESIGN.md.
+-->
+<style>
+/*
+ * Design tokens. Spacing 4/8/12/16/24, radius 6/8, type 12/13/14/16/20, one blue accent and
+ * neutral greys. `--border` draws structure (cards, table rules); `--control-border` outlines
+ * controls, at 3:1 or more against card and page so they can be found. The dark values are written twice: for "System" when Windows is dark, and for
+ * an explicit "Dark" (tests/unit/logo.test.ts checks that both say the same, and the contrast of
+ * every text colour).
+ */
+:root {
+  color-scheme: light;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --radius-s: 6px;
+  --radius-m: 8px;
+  --font-xs: 12px;
+  --font-s: 13px;
+  --font-m: 14px;
+  --font-l: 16px;
+  --font-xl: 20px;
+
+  --bg: #f5f5f7;
+  --card: #ffffff;
+  --text: #1f1f24;
+  --muted: #63636e;
+  --border: #dcdce3;
+  --control-border: #86868f;
+  --hover: #eef0f4;
+  --selected: #e3ecfa;
+  --accent: #1f5fbf;
+  --accent-hover: #194f9f;
+  --accent-text: #ffffff;
+  --focus: #1f5fbf;
+  --danger: #c4314b;
+  --success-bg: #e7f5ea;
+  --success-border: #9fd3ab;
+  --notice-bg: #eaf1fb;
+  --notice-border: #bcd2f0;
+  --error-bg: #fbe9ec;
+  --error-border: #eeb0bb;
+  --warning: #8a5300;
+  --self-bg: #eaf1fb;
+
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: var(--font-m);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #1b1b1f;
+    --card: #26262c;
+    --text: #ececf1;
+    --muted: #a3a3ad;
+    --border: #3a3a44;
+    --control-border: #7a7a86;
+    --hover: #30303a;
+    --selected: #24344d;
+    --accent: #7aaaf5;
+    --accent-hover: #94bbf7;
+    --accent-text: #15151a;
+    --focus: #7aaaf5;
+    --danger: #f1707f;
+    --success-bg: #1e3324;
+    --success-border: #3c6b47;
+    --notice-bg: #1f2a3b;
+    --notice-border: #35507a;
+    --error-bg: #3d2228;
+    --error-border: #7a3b47;
+    --warning: #f3b65c;
+    --self-bg: #1f2a3b;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #1b1b1f;
+  --card: #26262c;
+  --text: #ececf1;
+  --muted: #a3a3ad;
+  --border: #3a3a44;
+  --control-border: #7a7a86;
+  --hover: #30303a;
+  --selected: #24344d;
+  --accent: #7aaaf5;
+  --accent-hover: #94bbf7;
+  --accent-text: #15151a;
+  --focus: #7aaaf5;
+  --danger: #f1707f;
+  --success-bg: #1e3324;
+  --success-border: #3c6b47;
+  --notice-bg: #1f2a3b;
+  --notice-border: #35507a;
+  --error-bg: #3d2228;
+  --error-border: #7a3b47;
+  --warning: #f3b65c;
+  --self-bg: #1f2a3b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.screen {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.screen[data-mode='popup'] {
+  width: 380px;
+}
+
+.screen[data-mode='panel'] {
+  min-width: 300px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* ------------------------------------------------------------ focus */
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip-link {
+  position: absolute;
+  left: var(--space-2);
+  top: -40px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--card);
+  color: var(--accent);
+  border-radius: var(--radius-s);
+  z-index: 10;
+}
+
+.skip-link:focus {
+  top: var(--space-2);
+}
+
+/* ----------------------------------------------------------- header */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+
+.app-header h1 {
+  font-size: var(--font-l);
+  margin: 0;
+  font-weight: 600;
+}
+
+.app-header .header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-1);
+}
+
+.header-theme {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------ layout */
+
+.popup-main,
+[data-id="view-main"] {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.popup-main > *,
+[data-id="view-main"] > * {
+  min-width: 0;
+}
+
+.popup-main {
+  padding: var(--space-3);
+}
+
+h2.conv-title {
+  margin: 0;
+}
+
+.archive-main {
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-4);
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.view {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.view-title {
+  font-size: var(--font-xl);
+  margin: 0;
+}
+
+.view-title:focus,
+h2[tabindex='-1']:focus,
+h3[tabindex='-1']:focus {
+  outline: none;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: var(--space-3);
+}
+
+.card > :first-child {
+  margin-top: 0;
+}
+
+.card > :last-child {
+  margin-bottom: 0;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-4);
+}
+
+/* ---------------------------------------------------------- messages */
+
+.notice {
+  background: var(--notice-bg);
+  border-color: var(--notice-border);
+}
+
+.success {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+}
+
+.error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+
+p.notice,
+p.success,
+p.error {
+  border: 1px solid;
+  border-radius: var(--radius-s);
+  padding: var(--space-2) var(--space-3);
+}
+
+p.notice {
+  border-color: var(--notice-border);
+}
+
+p.success {
+  border-color: var(--success-border);
+}
+
+p.error {
+  border-color: var(--error-border);
+}
+
+.warning {
+  color: var(--warning);
+  margin-top: var(--space-1);
+}
+
+.error-text {
+  color: var(--danger);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: var(--font-xs);
+}
+
+.mono {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  word-break: break-all;
+}
+
+h2 {
+  font-size: var(--font-l);
+  margin: 0 0 var(--space-3);
+}
+
+h3 {
+  font-size: var(--font-l);
+  margin: 0 0 var(--space-2);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.section-head h2,
+.section-head h3 {
+  margin: 0;
+}
+
+.conv-title {
+  font-weight: 600;
+  font-size: var(--font-m);
+  overflow-wrap: anywhere;
+}
+
+a.conv-title {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: var(--font-s);
+}
+
+a.conv-title:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.stats div {
+  background: var(--bg);
+  border-radius: var(--radius-s);
+  padding: var(--space-2) var(--space-3);
+}
+
+.stats dt {
+  font-size: var(--font-xs);
+  color: var(--muted);
+}
+
+.stats dd {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-l);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.popup-main .stats {
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+}
+
+.popup-main .stats div {
+  padding: var(--space-2);
+}
+
+/* ----------------------------------------------------------- controls */
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-2);
+}
+
+select {
+  max-width: 100%;
+}
+
+button,
+select {
+  font: inherit;
+  font-size: var(--font-s);
+  min-height: 32px;
+  border: 1px solid var(--control-border);
+  background: var(--card);
+  color: var(--text);
+  border-radius: var(--radius-s);
+  padding: 5px var(--space-3);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled),
+select:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+
+/* Pressed: a heavier bottom edge as well as the colour. */
+button:active:not(:disabled):not(.link):not(.icon-button) {
+  background: var(--selected);
+  border-color: var(--accent);
+  border-bottom: 2px solid var(--text);
+  padding-bottom: 4px;
+}
+
+button:disabled,
+select:disabled,
+input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+label:has(> input:disabled) {
+  cursor: not-allowed;
+}
+
+/* Busy (Show earlier messages while it loads): a second click is ignored. */
+button[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+/* Every enabled control shows that it can be clicked. */
+input[type='checkbox'],
+input[type='radio'],
+label[for],
+label.check {
+  cursor: pointer;
+}
+
+input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+button.primary:hover:not(:disabled),
+button.primary:active:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+button.primary:active:not(:disabled) {
+  border-bottom-color: var(--text);
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+button.link {
+  min-width: 32px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  padding: var(--space-1);
+}
+
+button.link:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+}
+
+button.link:active:not(:disabled) {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+/* A link button inside a sentence reads as a link. */
+p button.link {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  font-size: inherit;
+  text-decoration: underline;
+}
+
+button.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  padding: 5px;
+  border-color: transparent;
+  background: none;
+}
+
+/* The popup's capture button: the one thing to click, across the card. */
+button.wide {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-2);
+}
+
+button.icon-button:active:not(:disabled) {
+  background: var(--selected);
+  border-color: var(--accent);
+}
+
+.icon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+a {
+  color: var(--accent);
+}
+
+.check {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  min-height: 24px;
+  margin-top: var(--space-3);
+}
+
+/* ---------------------------------------------------- segmented rows */
+
+/*
+ * A choice among a few options drawn as controls: a row (or grid) of buttons, each a radio. They
+ * take the control outline like a button; the chosen one has the selected tint, the accent edge
+ * and a heavier bottom edge.
+ */
+.choice-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.group-label {
+  padding: 0 0 var(--space-2);
+  font-size: var(--font-s);
+  font-weight: 600;
+}
+
+.segments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.segment {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 5px var(--space-3);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-s);
+  background: var(--card);
+  font-size: var(--font-s);
+  text-align: center;
+}
+
+.segment:hover:not(:has(input:disabled)) {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+
+.segment:has(input:checked) {
+  border-color: var(--accent);
+  border-bottom: 2px solid var(--text);
+  padding-bottom: 4px;
+  background: var(--selected);
+  font-weight: 600;
+}
+
+.segment:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The radio itself is kept for the keyboard and screen readers, but not drawn. */
+.segment input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.segment-count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* A share that is known (how far back a range capture has reached, the chat a backup is
+   writing). It changes in steps, with no transition. */
+.progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.progress-fill {
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* ------------------------------------------------------------- popup */
+
+[data-id="capture-box"],
+[data-id="resume-box"] {
+  display: grid;
+  gap: var(--space-2);
+}
+
+[data-id="resume-box"] p {
+  margin: 0;
+}
+
+[data-id="resume-box"] button.link,
+[data-id="resume-box"] button.wide {
+  justify-self: start;
+  margin-top: 0;
+}
+
+[data-id="resume-box"] button.wide {
+  justify-self: stretch;
+  margin-top: var(--space-1);
+}
+
+/* The messages to capture, two per row; the last one, alone, takes the row. */
+.messages-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.messages-grid .segment:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+[data-id="capture-from-field"] {
+  max-width: 200px;
+}
+
+/* **Save a file** starts the second group of the popup. */
+.save-toggle {
+  margin-top: var(--space-2);
+  font-size: var(--font-s);
+  font-weight: 600;
+}
+
+/*
+ * The bar at the bottom of the capture choices: the button that names what it captures and
+ * saves. It stays at the window's bottom edge while the choices are on screen.
+ */
+.action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: grid;
+  gap: var(--space-1);
+  justify-items: center;
+  margin: var(--space-2) calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
+  padding: var(--space-3);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-m) var(--radius-m);
+  background: var(--card);
+}
+
+.action-bar button.wide {
+  justify-self: stretch;
+}
+
+/* ------------------------------------------------------- saving a file */
+
+/* The format row and the Include checklist, in the popup and in the archive's Save a file dialog. */
+.save-choices {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.format-row .segment {
+  flex: 1 1 auto;
+}
+
+.save-line {
+  margin: var(--space-2) 0 0;
+}
+
+.include-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-1) var(--space-3);
+}
+
+.include-list .check {
+  margin-top: 0;
+  font-size: var(--font-s);
+}
+
+/* The save page: what it saves, the status, and for a PDF the page to print. */
+.save-main {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-4);
+}
+
+.save-card {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.save-card p,
+.save-card .button-row {
+  margin: 0;
+}
+
+.save-card .button-row a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+}
+
+/* A preview of the printed page, which is always light like paper. */
+.save-preview {
+  width: 100%;
+  height: 70vh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: #ffffff;
+}
+
+[data-id="run-panel"] {
+  display: grid;
+  gap: var(--space-2);
+}
+
+[data-id="run-panel"] .stats {
+  margin: var(--space-1) 0 0;
+}
+
+.run-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: var(--space-1);
+}
+
+input[type='date'],
+input[type='datetime-local'],
+input[type='number'],
+input[type='text'],
+input[type='search'],
+textarea {
+  font: inherit;
+  font-size: var(--font-s);
+  min-height: 32px;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-s);
+  padding: 5px var(--space-2);
+  cursor: auto;
+}
+
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+input[type='number'],
+input[type='text'],
+textarea {
+  background: var(--bg);
+}
+
+textarea {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  font-size: var(--font-xs);
+  resize: vertical;
+}
+
+.badge {
+  display: inline-block;
+  background: var(--notice-bg);
+  border: 1px solid var(--notice-border);
+  border-radius: 10px;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+.run-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.result-link {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
+  margin-top: var(--space-1);
+}
+
+.result-link a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+}
+
+.warnings {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  color: var(--warning);
+}
+
+details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 32px;
+  padding: var(--space-1) 0;
+}
+
+details.more p {
+  margin: var(--space-2) 0 0;
+}
+
+details.more {
+  margin-top: var(--space-3);
+}
+
+details.more > summary {
+  font-size: var(--font-s);
+}
+
+details.more[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
+/* ------------------------------------------------------------- tables */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  font-size: var(--font-xs);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+tbody tr:hover {
+  background: var(--hover);
+}
+
+td.num,
+th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A count that opens something (the saved images) lines up with the other numbers. */
+td.num button.link {
+  padding-inline: 0;
+  text-align: right;
+  /* Keeps its 32 px target while its text sits on the row's first line. */
+  margin-block: calc((1lh - 32px) / 2);
+}
+
+/* Lines written for the narrow card of a row (below 760 px), and the cells it replaces. */
+.narrow-only,
+.narrow-only-inline {
+  display: none;
+}
+
+/* Narrow windows: each row becomes a short card whose first cell sums it up. */
+@media (max-width: 760px) {
+  table.cards thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  table.cards tr {
+    display: block;
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  table.cards td {
+    display: block;
+    border: none;
+    padding: 0;
+    text-align: left;
+  }
+
+  table.cards td.wide-only {
+    display: none;
+  }
+
+  table.cards .narrow-only {
+    display: block;
+    margin-top: var(--space-1);
+  }
+
+  table.cards .narrow-only-inline {
+    display: inline;
+  }
+
+  table.cards td.num button.link {
+    margin-block: 0;
+    text-align: left;
+  }
+}
+
+/* ------------------------------------------------------------ toolbar */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: flex-end;
+  margin-bottom: var(--space-3);
+}
+
+.toolbar-search {
+  flex: 1 1 240px;
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-s);
+  background: var(--card);
+  color: var(--muted);
+}
+
+.search-field:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.search-field input {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  background: none;
+  padding: 5px 0;
+  outline: none;
+}
+
+/* ----------------------------------------------------------- settings */
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--muted);
+}
+
+.field.check {
+  flex-direction: row;
+  align-items: center;
+  margin-top: 0;
+  color: var(--text);
+  font-size: var(--font-s);
+}
+
+.field.wide {
+  margin-bottom: var(--space-2);
+}
+
+.field .hint {
+  font-size: var(--font-xs);
+  color: var(--muted);
+}
+
+.button-row .check {
+  margin-top: 0;
+  align-items: center;
+}
+
+details.advanced {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+details.advanced > summary {
+  margin-bottom: var(--space-3);
+}
+
+/* ------------------------------------------------------------- dialogs */
+
+.image-dialog {
+  width: min(960px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: var(--space-4);
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+}
+
+.image-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.merge-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.merge-dialog h2 {
+  margin-top: 0;
+}
+
+.merge-dialog select {
+  display: block;
+  width: 100%;
+  margin: var(--space-1) 0 var(--space-2);
+}
+
+.merge-dialog .field {
+  margin: var(--space-3) 0;
+}
+
+.merge-dialog input[type='text'] {
+  width: 100%;
+}
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+
+.image-tile {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.image-tile img {
+  display: block;
+  width: 100%;
+  height: 160px;
+  object-fit: contain;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+}
+
+.image-tile figcaption {
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------------- archive page */
+
+/* The page's sections, one under the other: Conversations, Backup and import, Settings, About. */
+.page-section {
+  display: grid;
+  gap: var(--space-3);
+  scroll-margin-top: var(--space-4);
+}
+
+.page-section > h2 {
+  font-size: var(--font-xl);
+  margin: 0;
+}
+
+.about-line {
+  margin: 0;
+}
+
+.save-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.save-dialog form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.save-dialog h2,
+.save-dialog p {
+  margin: 0;
+}
+
+/* -------------------------------------------------------- message view */
+
+.conversation-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.conversation-head .button-row {
+  margin-top: 0;
+}
+
+.messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.messages .day {
+  margin: var(--space-4) 0 var(--space-1);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--font-s);
+  font-weight: 600;
+}
+
+.messages .day:first-child {
+  margin-top: 0;
+}
+
+.msg {
+  max-width: 760px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-m);
+}
+
+.msg.self {
+  align-self: flex-end;
+  background: var(--self-bg);
+}
+
+/* A run from one sender: 16 px between its texts, against 28 px between runs. */
+.msg.continued {
+  margin-top: calc(var(--space-2) * -1);
+  padding-top: var(--space-1);
+}
+
+.msg.system {
+  align-self: center;
+  max-width: none;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: var(--font-s);
+  text-align: center;
+}
+
+.msg-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+  margin-bottom: var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--muted);
+}
+
+.msg-meta .who {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.msg-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg-reply {
+  margin: var(--space-1) 0 var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+  font-size: var(--font-s);
+  overflow-wrap: anywhere;
+}
+
+.msg-pictures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.msg-pictures img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--card);
+}
+
+.msg-attachments {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  font-size: var(--font-s);
+  overflow-wrap: anywhere;
+}
+
+.msg-reactions {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+  font-size: var(--font-s);
+  overflow-wrap: anywhere;
+}
+
+.msg-history {
+  margin-top: var(--space-2);
+  font-size: var(--font-s);
+}
+
+.msg-history > summary {
+  font-weight: normal;
+  color: var(--muted);
+}
+
+.msg-history blockquote {
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1) var(--space-3);
+  border-left: 3px dashed var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.load-earlier {
+  align-self: center;
+}
+
+.to-top {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-3);
+}
+
+/* ------------------------------------------------------------ overview */
+
+.backup-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+
+.backup-row p {
+  margin: 0;
+}
+
+/* --------------------------------------------------------- touch screens */
+
+/* With a finger, every target is at least 44 px (with a mouse, 32 px keeps the pages compact). */
+@media (pointer: coarse) {
+  button,
+  select,
+  input[type='date'],
+  input[type='datetime-local'],
+  input[type='number'],
+  input[type='text'],
+  .search-field,
+  a.conv-title,
+  .back-link,
+  .result-link a,
+  .segment,
+  details > summary {
+    min-height: 44px;
+  }
+
+  details > summary {
+    padding: 12px 0;
+  }
+
+  button.icon-button,
+  button.link {
+    min-width: 44px;
+  }
+
+  td.num button.link {
+    margin-block: calc((1lh - 44px) / 2);
+  }
+
+  label.check {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .search-field input,
+  p button.link {
+    min-height: 0;
+    min-width: 0;
+  }
+}
+
+
+/* ------------------------------------------------- this overview only */
+
+html { background: #e6e6ea; }
+:root[data-theme='dark'] { background: #101013; }
+.design-head { padding: 24px 32px 8px; font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text); }
+.design-head h1 { margin: 0 0 4px; font-size: 20px; }
+.design-head p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.design-head .button-row { gap: 8px; }
+.design-canvas { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 32px; padding: 16px 32px 48px; }
+.design-frame { font-family: 'Segoe UI', system-ui, sans-serif; }
+.design-frame-title { margin: 0; font-size: 14px; color: var(--text); }
+.design-frame-note { margin: 2px 0 8px; font-size: 12px; color: var(--muted); }
+.design-frame > .screen { overflow: auto; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 12px rgb(0 0 0 / 0.08); }
+.design-frame > .screen[data-mode='archive'], .design-frame > .screen[data-mode='save'] { max-width: calc(100vw - 64px); }
+.dialog-stage { min-height: 100%; padding: 1px 16px 32px; background: rgb(0 0 0 / 0.3); }
+</style>
+<script>
+  // Theme for this overview: the extension follows Windows, or Light or Dark as chosen.
+  function setTheme(theme) {
+    if (theme === 'system') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = theme;
+  }
+</script>
+</head>
+<body class="screen" style="margin: 0;">
+<header class="design-head">
+  <h1>Teams Chat Scraper 1.9.0: current design</h1>
+  <p>Every screen as the extension draws it, with made-up chats. Static mock-up; the controls do nothing.</p>
+  <div class="button-row" role="group" aria-label="Theme">
+    <button type="button" onclick="setTheme('system')">Same as Windows</button>
+    <button type="button" onclick="setTheme('light')">Light</button>
+    <button type="button" onclick="setTheme('dark')">Dark</button>
+  </div>
+</header>
+<main class="design-canvas">
+
+  <section class="design-frame">
+    <h2 class="design-frame-title">Popup: ready to capture</h2>
+    <p class="design-frame-note">380 × 600. The bar at the bottom stays in view while the choices scroll.</p>
+    <div class="screen" data-mode="popup" style="height: 600px;">
+<header class="app-header">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJDaGF0IGFyY2hpdmUgbG9nbyI+CiAgPHJlY3QgeD0iNCIgeT0iNCIgd2lkdGg9IjEyMCIgaGVpZ2h0PSIxMjAiIHJ4PSIyNiIgZmlsbD0iIzFmNWZiZiIvPgogIDxyZWN0IHg9IjI0IiB5PSIyNCIgd2lkdGg9IjgwIiBoZWlnaHQ9IjE2IiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPgogIDxyZWN0IHg9IjMyIiB5PSI0OCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjQwIiByeD0iOCIgZmlsbD0iI2ZmZmZmZiIvPgogIDxwb2x5Z29uIHBvaW50cz0iNDAsODQgNjQsODQgMzIsMTA0IiBmaWxsPSIjZmZmZmZmIi8+CiAgPHJlY3QgeD0iNDgiIHk9IjY0IiB3aWR0aD0iMzIiIGhlaWdodD0iOCIgcng9IjQiIGZpbGw9IiMxZjVmYmYiLz4KPC9zdmc+Cg==" alt="" width="20" height="20">
+      <h1>Teams Chat Scraper</h1>
+      <div class="header-actions">
+        <button type="button" id="s1-btn-theme" data-id="btn-theme" class="icon-button" aria-label="Theme: Same as Windows" title="Theme: Same as Windows. Click for Light."><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M2.5 3h11v7.5h-11z"></path><path d="M5.5 13.5h5"></path><path d="M8 10.5v3"></path></svg></button>
+        <button type="button" id="s1-btn-archive" data-id="btn-archive" class="icon-button" title="Open the archive" aria-label="Open the archive"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M9 2.5h4.5V7"></path><path d="M13.5 2.5 7.5 8.5"></path><path d="M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3"></path></svg></button>
+        <button type="button" id="s1-btn-panel" data-id="btn-panel" class="icon-button" title="Open in the side panel" aria-label="Open in the side panel"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M2.5 3.5h11v9h-11z"></path><path d="M10 3.5v9"></path></svg></button>
+      </div>
+    </header>
+
+    <main class="popup-main">
+      <p id="s1-view-loading" data-id="view-loading" class="muted small" hidden="">Checking this tab…</p>
+      <section id="s1-view-message" data-id="view-message" class="card notice" role="status" hidden=""></section>
+
+      <section id="s1-view-connect" data-id="view-connect" class="card" hidden="">
+        <p>This Teams tab was opened before the extension was loaded or updated.</p>
+        <div class="button-row">
+          <button type="button" id="s1-btn-connect" data-id="btn-connect" class="primary">Connect to this tab</button>
+        </div>
+        <p class="muted small">Reloading the Teams tab works too.</p>
+      </section>
+
+      <section id="s1-view-main" data-id="view-main">
+        <div class="card" aria-labelledby="s1-conv-title">
+          <h2 class="conv-title" id="s1-conv-title" data-id="conv-title">Design review</h2>
+          <div class="muted small" id="s1-conv-meta" data-id="conv-meta">Group chat</div>
+          <div class="small" id="s1-arch-summary" data-id="arch-summary">451 messages · Nov 4, 2026 – Nov 24, 2026, not back to the start · updated 3 days ago</div>
+          <div class="muted small" id="s1-visible-count" data-id="visible-count">12 messages on screen</div>
+          <div class="warning small" id="s1-conv-warning" data-id="conv-warning" hidden=""></div>
+          <div class="muted small" id="s1-arch-note" data-id="arch-note" hidden=""></div>
+          <p class="small" id="s1-nothing-hint" data-id="nothing-hint" hidden="">
+            Nothing found on this page? Open a chat and wait until its messages are shown. If it still finds nothing, reload the Teams tab.
+          </p>
+        </div>
+
+        <div class="card" id="s1-result-panel" data-id="result-panel" role="status" hidden=""></div>
+
+        <div class="card" id="s1-actions" data-id="actions">
+          <div id="s1-resume-box" data-id="resume-box" hidden="">
+            <p id="s1-resume-text" data-id="resume-text" class="small"></p>
+            <button type="button" id="s1-btn-resume-session" data-id="btn-resume-session" class="primary wide">Resume extraction</button>
+            <button type="button" id="s1-btn-other-capture" data-id="btn-other-capture" class="link small">Start another capture instead</button>
+          </div>
+          <div id="s1-capture-box" data-id="capture-box">
+            <fieldset class="choice-group" aria-describedby="s1-capture-hint">
+              <legend class="group-label">Messages</legend>
+              <div class="segments messages-grid">
+                <label class="segment" for="s1-capture-update"><input type="radio" name="s1-capture" id="s1-capture-update" data-id="capture-update" value="update" checked=""><span>New messages</span></label>
+                <label class="segment" for="s1-capture-24h"><input type="radio" name="s1-capture" id="s1-capture-24h" data-id="capture-24h" value="last-24h"><span>Last 24 hours</span></label>
+                <label class="segment" for="s1-capture-7d"><input type="radio" name="s1-capture" id="s1-capture-7d" data-id="capture-7d" value="last-7d"><span>Last 7 days</span></label>
+                <label class="segment" for="s1-capture-30d"><input type="radio" name="s1-capture" id="s1-capture-30d" data-id="capture-30d" value="last-30d"><span>Last 30 days</span></label>
+                <label class="segment" for="s1-capture-everything"><input type="radio" name="s1-capture" id="s1-capture-everything" data-id="capture-everything" value="everything"><span>Full history</span></label>
+                <label class="segment" for="s1-capture-from-date"><input type="radio" name="s1-capture" id="s1-capture-from-date" data-id="capture-from-date" value="from-date"><span>From a date…</span></label>
+                <label class="segment" for="s1-capture-visible"><input type="radio" name="s1-capture" id="s1-capture-visible" data-id="capture-visible" value="visible"><span>On screen</span></label>
+              </div>
+            </fieldset>
+            <label class="field" for="s1-capture-from" id="s1-capture-from-field" data-id="capture-from-field" hidden=""><span>From</span><input type="date" id="s1-capture-from" data-id="capture-from" max="2026-11-24" value=""></label>
+            <div class="muted small" id="s1-capture-hint" data-id="capture-hint">Since the last update, 3 days ago. Also checks the 2 days before again, for edits and late replies.</div>
+            <label class="check save-toggle" for="s1-opt-save">
+              <input type="checkbox" id="s1-opt-save" data-id="opt-save" checked="">
+              <span>Save a file</span>
+            </label>
+            <div id="s1-save-choices" data-id="save-choices" class="save-choices"><fieldset class="choice-group"><legend class="group-label">Format</legend><div class="segments format-row"><label class="segment" for="s1-save-format-pdf"><input type="radio" name="s1-save-format" id="s1-save-format-pdf" data-id="save-format-pdf" value="pdf" checked=""><span>PDF</span></label><label class="segment" for="s1-save-format-text"><input type="radio" name="s1-save-format" id="s1-save-format-text" data-id="save-format-text" value="text"><span>Text</span></label><label class="segment" for="s1-save-format-json"><input type="radio" name="s1-save-format" id="s1-save-format-json" data-id="save-format-json" value="json"><span>JSON</span></label><label class="segment" for="s1-save-format-package"><input type="radio" name="s1-save-format" id="s1-save-format-package" data-id="save-format-package" value="package"><span>ZIP package</span></label></div><p class="small save-line" data-part="line">Opens the print dialog to save a PDF.</p></fieldset><fieldset class="choice-group"><legend class="group-label">Include in the file</legend><div class="include-list"><label class="check" for="s1-save-include-images"><input type="checkbox" id="s1-save-include-images" data-id="save-include-images" name="save-include" value="images" checked=""><span>Pictures</span></label><label class="check" for="s1-save-include-attachments"><input type="checkbox" id="s1-save-include-attachments" data-id="save-include-attachments" name="save-include" value="attachments" checked=""><span>File attachments</span></label><label class="check" for="s1-save-include-replies"><input type="checkbox" id="s1-save-include-replies" data-id="save-include-replies" name="save-include" value="replies" checked=""><span>Reply context</span></label><label class="check" for="s1-save-include-reactions"><input type="checkbox" id="s1-save-include-reactions" data-id="save-include-reactions" name="save-include" value="reactions" checked=""><span>Reactions</span></label><label class="check" for="s1-save-include-systemMessages"><input type="checkbox" id="s1-save-include-systemMessages" data-id="save-include-systemMessages" name="save-include" value="systemMessages" checked=""><span>System messages</span></label><label class="check" for="s1-save-include-editHistory"><input type="checkbox" id="s1-save-include-editHistory" data-id="save-include-editHistory" name="save-include" value="editHistory" checked=""><span>Edit history</span></label></div><p class="muted small save-line" data-part="note" hidden="">JSON and the ZIP package always include file attachments and reply context: they are part of each record.</p></fieldset></div>
+            <details class="more" id="s1-more" data-id="more">
+              <summary>Options</summary>
+              <label class="check small" for="s1-opt-rescan">
+                <input type="checkbox" id="s1-opt-rescan" data-id="opt-rescan" checked="">
+                <span>Re-read archived parts at normal speed (picks up edits and deletions)</span>
+              </label>
+            </details>
+            <div class="action-bar">
+              <button type="button" id="s1-btn-start" data-id="btn-start" class="primary wide">Capture new messages and save a PDF</button>
+              <button type="button" id="s1-btn-save-archived" data-id="btn-save-archived" class="link small">Save a file from the archive only</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="s1-run-panel" data-id="run-panel" hidden="">
+          <div class="run-head">
+            <span id="s1-run-phase" data-id="run-phase" class="badge" role="status"></span>
+            <span id="s1-run-elapsed" data-id="run-elapsed" class="muted small"></span>
+          </div>
+          <div class="progress" id="s1-run-bar" data-id="run-bar" role="progressbar" aria-label="How far back the capture has reached" aria-valuemin="0" aria-valuemax="100" hidden="">
+            <div class="progress-fill" id="s1-run-bar-fill" data-id="run-bar-fill"></div>
+          </div>
+          <div class="small" id="s1-run-reach" data-id="run-reach" hidden=""></div>
+          <dl class="stats">
+            <div><dt>Seen</dt><dd id="s1-run-seen" data-id="run-seen">0</dd></div>
+            <div><dt>New</dt><dd id="s1-run-new" data-id="run-new">0</dd></div>
+            <div><dt>Updated</dt><dd id="s1-run-updated" data-id="run-updated">0</dd></div>
+            <div><dt>Already archived</dt><dd id="s1-run-unchanged" data-id="run-unchanged">0</dd></div>
+          </dl>
+          <div class="muted small" id="s1-run-detail" data-id="run-detail"></div>
+          <div class="small" id="s1-run-save" data-id="run-save" hidden=""></div>
+          <ul class="warnings small" id="s1-run-warnings" data-id="run-warnings" hidden=""></ul>
+          <div class="button-row run-buttons">
+            <button type="button" id="s1-btn-pause" data-id="btn-pause">Pause</button>
+            <button type="button" id="s1-btn-continue" data-id="btn-continue" class="primary" hidden="">Continue</button>
+            <button type="button" id="s1-btn-stop" data-id="btn-stop" class="danger">Stop</button>
+          </div>
+        </div>
+      </section>
+    </main>
+    </div>
+  </section>
+
+  <section class="design-frame">
+    <h2 class="design-frame-title">Popup: during a run</h2>
+    <p class="design-frame-note">The progress and Stop take the capture controls’ place.</p>
+    <div class="screen" data-mode="popup" style="height: 600px;">
+<header class="app-header">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJDaGF0IGFyY2hpdmUgbG9nbyI+CiAgPHJlY3QgeD0iNCIgeT0iNCIgd2lkdGg9IjEyMCIgaGVpZ2h0PSIxMjAiIHJ4PSIyNiIgZmlsbD0iIzFmNWZiZiIvPgogIDxyZWN0IHg9IjI0IiB5PSIyNCIgd2lkdGg9IjgwIiBoZWlnaHQ9IjE2IiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPgogIDxyZWN0IHg9IjMyIiB5PSI0OCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjQwIiByeD0iOCIgZmlsbD0iI2ZmZmZmZiIvPgogIDxwb2x5Z29uIHBvaW50cz0iNDAsODQgNjQsODQgMzIsMTA0IiBmaWxsPSIjZmZmZmZmIi8+CiAgPHJlY3QgeD0iNDgiIHk9IjY0IiB3aWR0aD0iMzIiIGhlaWdodD0iOCIgcng9IjQiIGZpbGw9IiMxZjVmYmYiLz4KPC9zdmc+Cg==" alt="" width="20" height="20">
+      <h1>Teams Chat Scraper</h1>
+      <div class="header-actions">
+        <button type="button" id="s2-btn-theme" data-id="btn-theme" class="icon-button" aria-label="Theme: Same as Windows" title="Theme: Same as Windows. Click for Light."><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M2.5 3h11v7.5h-11z"></path><path d="M5.5 13.5h5"></path><path d="M8 10.5v3"></path></svg></button>
+        <button type="button" id="s2-btn-archive" data-id="btn-archive" class="icon-button" title="Open the archive" aria-label="Open the archive"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M9 2.5h4.5V7"></path><path d="M13.5 2.5 7.5 8.5"></path><path d="M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3"></path></svg></button>
+        <button type="button" id="s2-btn-panel" data-id="btn-panel" class="icon-button" title="Open in the side panel" aria-label="Open in the side panel"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M2.5 3.5h11v9h-11z"></path><path d="M10 3.5v9"></path></svg></button>
+      </div>
+    </header>
+
+    <main class="popup-main">
+      <p id="s2-view-loading" data-id="view-loading" class="muted small" hidden="">Checking this tab…</p>
+      <section id="s2-view-message" data-id="view-message" class="card notice" role="status" hidden=""></section>
+
+      <section id="s2-view-connect" data-id="view-connect" class="card" hidden="">
+        <p>This Teams tab was opened before the extension was loaded or updated.</p>
+        <div class="button-row">
+          <button type="button" id="s2-btn-connect" data-id="btn-connect" class="primary">Connect to this tab</button>
+        </div>
+        <p class="muted small">Reloading the Teams tab works too.</p>
+      </section>
+
+      <section id="s2-view-main" data-id="view-main">
+        <div class="card" aria-labelledby="s2-conv-title">
+          <h2 class="conv-title" id="s2-conv-title" data-id="conv-title">Design review</h2>
+          <div class="muted small" id="s2-conv-meta" data-id="conv-meta">Group chat</div>
+          <div class="small" id="s2-arch-summary" data-id="arch-summary">451 messages · Nov 4, 2026 – Nov 24, 2026, not back to the start · updated 3 days ago</div>
+          <div class="muted small" id="s2-visible-count" data-id="visible-count" hidden=""></div>
+          <div class="warning small" id="s2-conv-warning" data-id="conv-warning" hidden=""></div>
+          <div class="muted small" id="s2-arch-note" data-id="arch-note" hidden=""></div>
+          <p class="small" id="s2-nothing-hint" data-id="nothing-hint" hidden="">
+            Nothing found on this page? Open a chat and wait until its messages are shown. If it still finds nothing, reload the Teams tab.
+          </p>
+        </div>
+
+        <div class="card" id="s2-result-panel" data-id="result-panel" role="status" hidden=""></div>
+
+        <div class="card" id="s2-actions" data-id="actions" hidden="">
+          <div id="s2-resume-box" data-id="resume-box" hidden="">
+            <p id="s2-resume-text" data-id="resume-text" class="small"></p>
+            <button type="button" id="s2-btn-resume-session" data-id="btn-resume-session" class="primary wide" disabled="">Resume extraction</button>
+            <button type="button" id="s2-btn-other-capture" data-id="btn-other-capture" class="link small">Start another capture instead</button>
+          </div>
+          <div id="s2-capture-box" data-id="capture-box">
+            <fieldset class="choice-group" aria-describedby="s2-capture-hint">
+              <legend class="group-label">Messages</legend>
+              <div class="segments messages-grid">
+                <label class="segment" for="s2-capture-update"><input type="radio" name="s2-capture" id="s2-capture-update" data-id="capture-update" value="update" disabled="" checked=""><span>New messages</span></label>
+                <label class="segment" for="s2-capture-24h"><input type="radio" name="s2-capture" id="s2-capture-24h" data-id="capture-24h" value="last-24h" disabled=""><span>Last 24 hours</span></label>
+                <label class="segment" for="s2-capture-7d"><input type="radio" name="s2-capture" id="s2-capture-7d" data-id="capture-7d" value="last-7d" disabled=""><span>Last 7 days</span></label>
+                <label class="segment" for="s2-capture-30d"><input type="radio" name="s2-capture" id="s2-capture-30d" data-id="capture-30d" value="last-30d" disabled=""><span>Last 30 days</span></label>
+                <label class="segment" for="s2-capture-everything"><input type="radio" name="s2-capture" id="s2-capture-everything" data-id="capture-everything" value="everything" disabled=""><span>Full history</span></label>
+                <label class="segment" for="s2-capture-from-date"><input type="radio" name="s2-capture" id="s2-capture-from-date" data-id="capture-from-date" value="from-date" disabled=""><span>From a date…</span></label>
+                <label class="segment" for="s2-capture-visible"><input type="radio" name="s2-capture" id="s2-capture-visible" data-id="capture-visible" value="visible" disabled=""><span>On screen</span></label>
+              </div>
+            </fieldset>
+            <label class="field" for="s2-capture-from" id="s2-capture-from-field" data-id="capture-from-field" hidden=""><span>From</span><input type="date" id="s2-capture-from" data-id="capture-from" max="2026-11-24" disabled="" value=""></label>
+            <div class="muted small" id="s2-capture-hint" data-id="capture-hint">Since the last update, 3 days ago. Also checks the 2 days before again, for edits and late replies.</div>
+            <label class="check save-toggle" for="s2-opt-save">
+              <input type="checkbox" id="s2-opt-save" data-id="opt-save" disabled="" checked="">
+              <span>Save a file</span>
+            </label>
+            <div id="s2-save-choices" data-id="save-choices" class="save-choices"><fieldset class="choice-group"><legend class="group-label">Format</legend><div class="segments format-row"><label class="segment" for="s2-save-format-pdf"><input type="radio" name="s2-save-format" id="s2-save-format-pdf" data-id="save-format-pdf" value="pdf" disabled="" checked=""><span>PDF</span></label><label class="segment" for="s2-save-format-text"><input type="radio" name="s2-save-format" id="s2-save-format-text" data-id="save-format-text" value="text" disabled=""><span>Text</span></label><label class="segment" for="s2-save-format-json"><input type="radio" name="s2-save-format" id="s2-save-format-json" data-id="save-format-json" value="json" disabled=""><span>JSON</span></label><label class="segment" for="s2-save-format-package"><input type="radio" name="s2-save-format" id="s2-save-format-package" data-id="save-format-package" value="package" disabled=""><span>ZIP package</span></label></div><p class="small save-line" data-part="line">Opens the print dialog to save a PDF.</p></fieldset><fieldset class="choice-group"><legend class="group-label">Include in the file</legend><div class="include-list"><label class="check" for="s2-save-include-images"><input type="checkbox" id="s2-save-include-images" data-id="save-include-images" name="save-include" value="images" disabled="" checked=""><span>Pictures</span></label><label class="check" for="s2-save-include-attachments"><input type="checkbox" id="s2-save-include-attachments" data-id="save-include-attachments" name="save-include" value="attachments" disabled="" checked=""><span>File attachments</span></label><label class="check" for="s2-save-include-replies"><input type="checkbox" id="s2-save-include-replies" data-id="save-include-replies" name="save-include" value="replies" disabled="" checked=""><span>Reply context</span></label><label class="check" for="s2-save-include-reactions"><input type="checkbox" id="s2-save-include-reactions" data-id="save-include-reactions" name="save-include" value="reactions" disabled="" checked=""><span>Reactions</span></label><label class="check" for="s2-save-include-systemMessages"><input type="checkbox" id="s2-save-include-systemMessages" data-id="save-include-systemMessages" name="save-include" value="systemMessages" disabled="" checked=""><span>System messages</span></label><label class="check" for="s2-save-include-editHistory"><input type="checkbox" id="s2-save-include-editHistory" data-id="save-include-editHistory" name="save-include" value="editHistory" disabled="" checked=""><span>Edit history</span></label></div><p class="muted small save-line" data-part="note" hidden="">JSON and the ZIP package always include file attachments and reply context: they are part of each record.</p></fieldset></div>
+            <details class="more" id="s2-more" data-id="more">
+              <summary>Options</summary>
+              <label class="check small" for="s2-opt-rescan">
+                <input type="checkbox" id="s2-opt-rescan" data-id="opt-rescan" disabled="" checked="">
+                <span>Re-read archived parts at normal speed (picks up edits and deletions)</span>
+              </label>
+            </details>
+            <div class="action-bar">
+              <button type="button" id="s2-btn-start" data-id="btn-start" class="primary wide" disabled="">Capture new messages and save a PDF</button>
+              <button type="button" id="s2-btn-save-archived" data-id="btn-save-archived" class="link small" disabled="">Save a file from the archive only</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="s2-run-panel" data-id="run-panel">
+          <div class="run-head">
+            <span id="s2-run-phase" data-id="run-phase" class="badge" role="status">Passing archived messages…</span>
+            <span id="s2-run-elapsed" data-id="run-elapsed" class="muted small">New messages since the last update · 2s</span>
+          </div>
+          <div class="progress" id="s2-run-bar" data-id="run-bar" role="progressbar" aria-label="How far back the capture has reached" aria-valuemin="0" aria-valuemax="100" hidden="">
+            <div class="progress-fill" id="s2-run-bar-fill" data-id="run-bar-fill"></div>
+          </div>
+          <div class="small" id="s2-run-reach" data-id="run-reach">Back to Nov 20, 2026, 1:46 PM, going back to Nov 19, 2026, 1:46 PM</div>
+          <dl class="stats">
+            <div><dt>Seen</dt><dd id="s2-run-seen" data-id="run-seen">40</dd></div>
+            <div><dt>New</dt><dd id="s2-run-new" data-id="run-new">0</dd></div>
+            <div><dt>Updated</dt><dd id="s2-run-updated" data-id="run-updated">0</dd></div>
+            <div><dt>Already archived</dt><dd id="s2-run-unchanged" data-id="run-unchanged">40</dd></div>
+          </dl>
+          <div class="muted small" id="s2-run-detail" data-id="run-detail">3 scroll steps</div>
+          <div class="small" id="s2-run-save" data-id="run-save">Saves a PDF when the capture ends.</div>
+          <ul class="warnings small" id="s2-run-warnings" data-id="run-warnings" hidden=""></ul>
+          <div class="button-row run-buttons">
+            <button type="button" id="s2-btn-pause" data-id="btn-pause">Pause</button>
+            <button type="button" id="s2-btn-continue" data-id="btn-continue" class="primary" hidden="">Continue</button>
+            <button type="button" id="s2-btn-stop" data-id="btn-stop" class="danger">Stop</button>
+          </div>
+        </div>
+      </section>
+    </main>
+    </div>
+  </section>
+
+  <section class="design-frame">
+    <h2 class="design-frame-title">Popup: after a run</h2>
+    <p class="design-frame-note">The result names the saved file.</p>
+    <div class="screen" data-mode="popup" style="height: 600px;">
+<header class="app-header">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJDaGF0IGFyY2hpdmUgbG9nbyI+CiAgPHJlY3QgeD0iNCIgeT0iNCIgd2lkdGg9IjEyMCIgaGVpZ2h0PSIxMjAiIHJ4PSIyNiIgZmlsbD0iIzFmNWZiZiIvPgogIDxyZWN0IHg9IjI0IiB5PSIyNCIgd2lkdGg9IjgwIiBoZWlnaHQ9IjE2IiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPgogIDxyZWN0IHg9IjMyIiB5PSI0OCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjQwIiByeD0iOCIgZmlsbD0iI2ZmZmZmZiIvPgogIDxwb2x5Z29uIHBvaW50cz0iNDAsODQgNjQsODQgMzIsMTA0IiBmaWxsPSIjZmZmZmZmIi8+CiAgPHJlY3QgeD0iNDgiIHk9IjY0IiB3aWR0aD0iMzIiIGhlaWdodD0iOCIgcng9IjQiIGZpbGw9IiMxZjVmYmYiLz4KPC9zdmc+Cg==" alt="" width="20" height="20">
+      <h1>Teams Chat Scraper</h1>
+      <div class="header-actions">
+        <button type="button" id="s3-btn-theme" data-id="btn-theme" class="icon-button" aria-label="Theme: Same as Windows" title="Theme: Same as Windows. Click for Light."><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M2.5 3h11v7.5h-11z"></path><path d="M5.5 13.5h5"></path><path d="M8 10.5v3"></path></svg></button>
+        <button type="button" id="s3-btn-archive" data-id="btn-archive" class="icon-button" title="Open the archive" aria-label="Open the archive"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M9 2.5h4.5V7"></path><path d="M13.5 2.5 7.5 8.5"></path><path d="M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3"></path></svg></button>
+        <button type="button" id="s3-btn-panel" data-id="btn-panel" class="icon-button" title="Open in the side panel" aria-label="Open in the side panel"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M2.5 3.5h11v9h-11z"></path><path d="M10 3.5v9"></path></svg></button>
+      </div>
+    </header>
+
+    <main class="popup-main">
+      <p id="s3-view-loading" data-id="view-loading" class="muted small" hidden="">Checking this tab…</p>
+      <section id="s3-view-message" data-id="view-message" class="card notice" role="status" hidden=""></section>
+
+      <section id="s3-view-connect" data-id="view-connect" class="card" hidden="">
+        <p>This Teams tab was opened before the extension was loaded or updated.</p>
+        <div class="button-row">
+          <button type="button" id="s3-btn-connect" data-id="btn-connect" class="primary">Connect to this tab</button>
+        </div>
+        <p class="muted small">Reloading the Teams tab works too.</p>
+      </section>
+
+      <section id="s3-view-main" data-id="view-main">
+        <div class="card" aria-labelledby="s3-conv-title">
+          <h2 class="conv-title" id="s3-conv-title" data-id="conv-title">Design review</h2>
+          <div class="muted small" id="s3-conv-meta" data-id="conv-meta">Group chat</div>
+          <div class="small" id="s3-arch-summary" data-id="arch-summary">451 messages · Nov 4, 2026 – Nov 24, 2026, not back to the start · updated 3 days ago</div>
+          <div class="muted small" id="s3-visible-count" data-id="visible-count">12 messages on screen</div>
+          <div class="warning small" id="s3-conv-warning" data-id="conv-warning" hidden=""></div>
+          <div class="muted small" id="s3-arch-note" data-id="arch-note" hidden=""></div>
+          <p class="small" id="s3-nothing-hint" data-id="nothing-hint" hidden="">
+            Nothing found on this page? Open a chat and wait until its messages are shown. If it still finds nothing, reload the Teams tab.
+          </p>
+        </div>
+
+        <div class="card success" id="s3-result-panel" data-id="result-panel" role="status"><strong>Completed: Reached the start of the chosen period</strong><div class="small">3 new · 0 updated · 40 already archived</div><div class="small">Saved Design-review-2026-11-23T19-30-00.txt.</div><div class="small result-link"><a href="chrome-extension://stub/archive.html#conversation/title%3Adesign%20review">Open this chat in the archive</a></div></div>
+
+        <div class="card" id="s3-actions" data-id="actions">
+          <div id="s3-resume-box" data-id="resume-box" hidden="">
+            <p id="s3-resume-text" data-id="resume-text" class="small"></p>
+            <button type="button" id="s3-btn-resume-session" data-id="btn-resume-session" class="primary wide">Resume extraction</button>
+            <button type="button" id="s3-btn-other-capture" data-id="btn-other-capture" class="link small">Start another capture instead</button>
+          </div>
+          <div id="s3-capture-box" data-id="capture-box">
+            <fieldset class="choice-group" aria-describedby="s3-capture-hint">
+              <legend class="group-label">Messages</legend>
+              <div class="segments messages-grid">
+                <label class="segment" for="s3-capture-update"><input type="radio" name="s3-capture" id="s3-capture-update" data-id="capture-update" value="update" checked=""><span>New messages</span></label>
+                <label class="segment" for="s3-capture-24h"><input type="radio" name="s3-capture" id="s3-capture-24h" data-id="capture-24h" value="last-24h"><span>Last 24 hours</span></label>
+                <label class="segment" for="s3-capture-7d"><input type="radio" name="s3-capture" id="s3-capture-7d" data-id="capture-7d" value="last-7d"><span>Last 7 days</span></label>
+                <label class="segment" for="s3-capture-30d"><input type="radio" name="s3-capture" id="s3-capture-30d" data-id="capture-30d" value="last-30d"><span>Last 30 days</span></label>
+                <label class="segment" for="s3-capture-everything"><input type="radio" name="s3-capture" id="s3-capture-everything" data-id="capture-everything" value="everything"><span>Full history</span></label>
+                <label class="segment" for="s3-capture-from-date"><input type="radio" name="s3-capture" id="s3-capture-from-date" data-id="capture-from-date" value="from-date"><span>From a date…</span></label>
+                <label class="segment" for="s3-capture-visible"><input type="radio" name="s3-capture" id="s3-capture-visible" data-id="capture-visible" value="visible"><span>On screen</span></label>
+              </div>
+            </fieldset>
+            <label class="field" for="s3-capture-from" id="s3-capture-from-field" data-id="capture-from-field" hidden=""><span>From</span><input type="date" id="s3-capture-from" data-id="capture-from" max="2026-11-24" value=""></label>
+            <div class="muted small" id="s3-capture-hint" data-id="capture-hint">Since the last update, 3 days ago. Also checks the 2 days before again, for edits and late replies.</div>
+            <label class="check save-toggle" for="s3-opt-save">
+              <input type="checkbox" id="s3-opt-save" data-id="opt-save" checked="">
+              <span>Save a file</span>
+            </label>
+            <div id="s3-save-choices" data-id="save-choices" class="save-choices"><fieldset class="choice-group"><legend class="group-label">Format</legend><div class="segments format-row"><label class="segment" for="s3-save-format-pdf"><input type="radio" name="s3-save-format" id="s3-save-format-pdf" data-id="save-format-pdf" value="pdf" checked=""><span>PDF</span></label><label class="segment" for="s3-save-format-text"><input type="radio" name="s3-save-format" id="s3-save-format-text" data-id="save-format-text" value="text"><span>Text</span></label><label class="segment" for="s3-save-format-json"><input type="radio" name="s3-save-format" id="s3-save-format-json" data-id="save-format-json" value="json"><span>JSON</span></label><label class="segment" for="s3-save-format-package"><input type="radio" name="s3-save-format" id="s3-save-format-package" data-id="save-format-package" value="package"><span>ZIP package</span></label></div><p class="small save-line" data-part="line">Opens the print dialog to save a PDF.</p></fieldset><fieldset class="choice-group"><legend class="group-label">Include in the file</legend><div class="include-list"><label class="check" for="s3-save-include-images"><input type="checkbox" id="s3-save-include-images" data-id="save-include-images" name="save-include" value="images" checked=""><span>Pictures</span></label><label class="check" for="s3-save-include-attachments"><input type="checkbox" id="s3-save-include-attachments" data-id="save-include-attachments" name="save-include" value="attachments" checked=""><span>File attachments</span></label><label class="check" for="s3-save-include-replies"><input type="checkbox" id="s3-save-include-replies" data-id="save-include-replies" name="save-include" value="replies" checked=""><span>Reply context</span></label><label class="check" for="s3-save-include-reactions"><input type="checkbox" id="s3-save-include-reactions" data-id="save-include-reactions" name="save-include" value="reactions" checked=""><span>Reactions</span></label><label class="check" for="s3-save-include-systemMessages"><input type="checkbox" id="s3-save-include-systemMessages" data-id="save-include-systemMessages" name="save-include" value="systemMessages" checked=""><span>System messages</span></label><label class="check" for="s3-save-include-editHistory"><input type="checkbox" id="s3-save-include-editHistory" data-id="save-include-editHistory" name="save-include" value="editHistory" checked=""><span>Edit history</span></label></div><p class="muted small save-line" data-part="note" hidden="">JSON and the ZIP package always include file attachments and reply context: they are part of each record.</p></fieldset></div>
+            <details class="more" id="s3-more" data-id="more">
+              <summary>Options</summary>
+              <label class="check small" for="s3-opt-rescan">
+                <input type="checkbox" id="s3-opt-rescan" data-id="opt-rescan" checked="">
+                <span>Re-read archived parts at normal speed (picks up edits and deletions)</span>
+              </label>
+            </details>
+            <div class="action-bar">
+              <button type="button" id="s3-btn-start" data-id="btn-start" class="primary wide">Capture new messages and save a PDF</button>
+              <button type="button" id="s3-btn-save-archived" data-id="btn-save-archived" class="link small">Save a file from the archive only</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="s3-run-panel" data-id="run-panel" hidden="">
+          <div class="run-head">
+            <span id="s3-run-phase" data-id="run-phase" class="badge" role="status">Passing archived messages…</span>
+            <span id="s3-run-elapsed" data-id="run-elapsed" class="muted small">New messages since the last update · 2s</span>
+          </div>
+          <div class="progress" id="s3-run-bar" data-id="run-bar" role="progressbar" aria-label="How far back the capture has reached" aria-valuemin="0" aria-valuemax="100" hidden="">
+            <div class="progress-fill" id="s3-run-bar-fill" data-id="run-bar-fill"></div>
+          </div>
+          <div class="small" id="s3-run-reach" data-id="run-reach">Back to Nov 20, 2026, 1:46 PM, going back to Nov 19, 2026, 1:46 PM</div>
+          <dl class="stats">
+            <div><dt>Seen</dt><dd id="s3-run-seen" data-id="run-seen">40</dd></div>
+            <div><dt>New</dt><dd id="s3-run-new" data-id="run-new">0</dd></div>
+            <div><dt>Updated</dt><dd id="s3-run-updated" data-id="run-updated">0</dd></div>
+            <div><dt>Already archived</dt><dd id="s3-run-unchanged" data-id="run-unchanged">40</dd></div>
+          </dl>
+          <div class="muted small" id="s3-run-detail" data-id="run-detail">3 scroll steps</div>
+          <div class="small" id="s3-run-save" data-id="run-save">Saves a PDF when the capture ends.</div>
+          <ul class="warnings small" id="s3-run-warnings" data-id="run-warnings" hidden=""></ul>
+          <div class="button-row run-buttons">
+            <button type="button" id="s3-btn-pause" data-id="btn-pause">Pause</button>
+            <button type="button" id="s3-btn-continue" data-id="btn-continue" class="primary" hidden="">Continue</button>
+            <button type="button" id="s3-btn-stop" data-id="btn-stop" class="danger">Stop</button>
+          </div>
+        </div>
+      </section>
+    </main>
+    </div>
+  </section>
+
+  <section class="design-frame">
+    <h2 class="design-frame-title">Side panel</h2>
+    <p class="design-frame-note">The same page at 300 px.</p>
+    <div class="screen" data-mode="panel" style="width: 300px; height: 700px;">
+<header class="app-header">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJDaGF0IGFyY2hpdmUgbG9nbyI+CiAgPHJlY3QgeD0iNCIgeT0iNCIgd2lkdGg9IjEyMCIgaGVpZ2h0PSIxMjAiIHJ4PSIyNiIgZmlsbD0iIzFmNWZiZiIvPgogIDxyZWN0IHg9IjI0IiB5PSIyNCIgd2lkdGg9IjgwIiBoZWlnaHQ9IjE2IiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPgogIDxyZWN0IHg9IjMyIiB5PSI0OCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjQwIiByeD0iOCIgZmlsbD0iI2ZmZmZmZiIvPgogIDxwb2x5Z29uIHBvaW50cz0iNDAsODQgNjQsODQgMzIsMTA0IiBmaWxsPSIjZmZmZmZmIi8+CiAgPHJlY3QgeD0iNDgiIHk9IjY0IiB3aWR0aD0iMzIiIGhlaWdodD0iOCIgcng9IjQiIGZpbGw9IiMxZjVmYmYiLz4KPC9zdmc+Cg==" alt="" width="20" height="20">
+      <h1>Teams Chat Scraper</h1>
+      <div class="header-actions">
+        <button type="button" id="s4-btn-theme" data-id="btn-theme" class="icon-button" aria-label="Theme: Same as Windows" title="Theme: Same as Windows. Click for Light."><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M2.5 3h11v7.5h-11z"></path><path d="M5.5 13.5h5"></path><path d="M8 10.5v3"></path></svg></button>
+        <button type="button" id="s4-btn-archive" data-id="btn-archive" class="icon-button" title="Open the archive" aria-label="Open the archive"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M9 2.5h4.5V7"></path><path d="M13.5 2.5 7.5 8.5"></path><path d="M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3"></path></svg></button>
+        <button type="button" id="s4-btn-panel" data-id="btn-panel" class="icon-button" title="Open in the side panel" aria-label="Open in the side panel"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M2.5 3.5h11v9h-11z"></path><path d="M10 3.5v9"></path></svg></button>
+      </div>
+    </header>
+
+    <main class="popup-main">
+      <p id="s4-view-loading" data-id="view-loading" class="muted small" hidden="">Checking this tab…</p>
+      <section id="s4-view-message" data-id="view-message" class="card notice" role="status" hidden=""></section>
+
+      <section id="s4-view-connect" data-id="view-connect" class="card" hidden="">
+        <p>This Teams tab was opened before the extension was loaded or updated.</p>
+        <div class="button-row">
+          <button type="button" id="s4-btn-connect" data-id="btn-connect" class="primary">Connect to this tab</button>
+        </div>
+        <p class="muted small">Reloading the Teams tab works too.</p>
+      </section>
+
+      <section id="s4-view-main" data-id="view-main">
+        <div class="card" aria-labelledby="s4-conv-title">
+          <h2 class="conv-title" id="s4-conv-title" data-id="conv-title">Design review</h2>
+          <div class="muted small" id="s4-conv-meta" data-id="conv-meta">Group chat</div>
+          <div class="small" id="s4-arch-summary" data-id="arch-summary">451 messages · Nov 4, 2026 – Nov 24, 2026, not back to the start · updated 3 days ago</div>
+          <div class="muted small" id="s4-visible-count" data-id="visible-count">12 messages on screen</div>
+          <div class="warning small" id="s4-conv-warning" data-id="conv-warning" hidden=""></div>
+          <div class="muted small" id="s4-arch-note" data-id="arch-note" hidden=""></div>
+          <p class="small" id="s4-nothing-hint" data-id="nothing-hint" hidden="">
+            Nothing found on this page? Open a chat and wait until its messages are shown. If it still finds nothing, reload the Teams tab.
+          </p>
+        </div>
+
+        <div class="card" id="s4-result-panel" data-id="result-panel" role="status" hidden=""></div>
+
+        <div class="card" id="s4-actions" data-id="actions">
+          <div id="s4-resume-box" data-id="resume-box" hidden="">
+            <p id="s4-resume-text" data-id="resume-text" class="small"></p>
+            <button type="button" id="s4-btn-resume-session" data-id="btn-resume-session" class="primary wide">Resume extraction</button>
+            <button type="button" id="s4-btn-other-capture" data-id="btn-other-capture" class="link small">Start another capture instead</button>
+          </div>
+          <div id="s4-capture-box" data-id="capture-box">
+            <fieldset class="choice-group" aria-describedby="s4-capture-hint">
+              <legend class="group-label">Messages</legend>
+              <div class="segments messages-grid">
+                <label class="segment" for="s4-capture-update"><input type="radio" name="s4-capture" id="s4-capture-update" data-id="capture-update" value="update" checked=""><span>New messages</span></label>
+                <label class="segment" for="s4-capture-24h"><input type="radio" name="s4-capture" id="s4-capture-24h" data-id="capture-24h" value="last-24h"><span>Last 24 hours</span></label>
+                <label class="segment" for="s4-capture-7d"><input type="radio" name="s4-capture" id="s4-capture-7d" data-id="capture-7d" value="last-7d"><span>Last 7 days</span></label>
+                <label class="segment" for="s4-capture-30d"><input type="radio" name="s4-capture" id="s4-capture-30d" data-id="capture-30d" value="last-30d"><span>Last 30 days</span></label>
+                <label class="segment" for="s4-capture-everything"><input type="radio" name="s4-capture" id="s4-capture-everything" data-id="capture-everything" value="everything"><span>Full history</span></label>
+                <label class="segment" for="s4-capture-from-date"><input type="radio" name="s4-capture" id="s4-capture-from-date" data-id="capture-from-date" value="from-date"><span>From a date…</span></label>
+                <label class="segment" for="s4-capture-visible"><input type="radio" name="s4-capture" id="s4-capture-visible" data-id="capture-visible" value="visible"><span>On screen</span></label>
+              </div>
+            </fieldset>
+            <label class="field" for="s4-capture-from" id="s4-capture-from-field" data-id="capture-from-field" hidden=""><span>From</span><input type="date" id="s4-capture-from" data-id="capture-from" max="2026-11-24" value=""></label>
+            <div class="muted small" id="s4-capture-hint" data-id="capture-hint">Since the last update, 3 days ago. Also checks the 2 days before again, for edits and late replies.</div>
+            <label class="check save-toggle" for="s4-opt-save">
+              <input type="checkbox" id="s4-opt-save" data-id="opt-save" checked="">
+              <span>Save a file</span>
+            </label>
+            <div id="s4-save-choices" data-id="save-choices" class="save-choices"><fieldset class="choice-group"><legend class="group-label">Format</legend><div class="segments format-row"><label class="segment" for="s4-save-format-pdf"><input type="radio" name="s4-save-format" id="s4-save-format-pdf" data-id="save-format-pdf" value="pdf" checked=""><span>PDF</span></label><label class="segment" for="s4-save-format-text"><input type="radio" name="s4-save-format" id="s4-save-format-text" data-id="save-format-text" value="text"><span>Text</span></label><label class="segment" for="s4-save-format-json"><input type="radio" name="s4-save-format" id="s4-save-format-json" data-id="save-format-json" value="json"><span>JSON</span></label><label class="segment" for="s4-save-format-package"><input type="radio" name="s4-save-format" id="s4-save-format-package" data-id="save-format-package" value="package"><span>ZIP package</span></label></div><p class="small save-line" data-part="line">Opens the print dialog to save a PDF.</p></fieldset><fieldset class="choice-group"><legend class="group-label">Include in the file</legend><div class="include-list"><label class="check" for="s4-save-include-images"><input type="checkbox" id="s4-save-include-images" data-id="save-include-images" name="save-include" value="images" checked=""><span>Pictures</span></label><label class="check" for="s4-save-include-attachments"><input type="checkbox" id="s4-save-include-attachments" data-id="save-include-attachments" name="save-include" value="attachments" checked=""><span>File attachments</span></label><label class="check" for="s4-save-include-replies"><input type="checkbox" id="s4-save-include-replies" data-id="save-include-replies" name="save-include" value="replies" checked=""><span>Reply context</span></label><label class="check" for="s4-save-include-reactions"><input type="checkbox" id="s4-save-include-reactions" data-id="save-include-reactions" name="save-include" value="reactions" checked=""><span>Reactions</span></label><label class="check" for="s4-save-include-systemMessages"><input type="checkbox" id="s4-save-include-systemMessages" data-id="save-include-systemMessages" name="save-include" value="systemMessages" checked=""><span>System messages</span></label><label class="check" for="s4-save-include-editHistory"><input type="checkbox" id="s4-save-include-editHistory" data-id="save-include-editHistory" name="save-include" value="editHistory" checked=""><span>Edit history</span></label></div><p class="muted small save-line" data-part="note" hidden="">JSON and the ZIP package always include file attachments and reply context: they are part of each record.</p></fieldset></div>
+            <details class="more" id="s4-more" data-id="more">
+              <summary>Options</summary>
+              <label class="check small" for="s4-opt-rescan">
+                <input type="checkbox" id="s4-opt-rescan" data-id="opt-rescan" checked="">
+                <span>Re-read archived parts at normal speed (picks up edits and deletions)</span>
+              </label>
+            </details>
+            <div class="action-bar">
+              <button type="button" id="s4-btn-start" data-id="btn-start" class="primary wide">Capture new messages and save a PDF</button>
+              <button type="button" id="s4-btn-save-archived" data-id="btn-save-archived" class="link small">Save a file from the archive only</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="s4-run-panel" data-id="run-panel" hidden="">
+          <div class="run-head">
+            <span id="s4-run-phase" data-id="run-phase" class="badge" role="status"></span>
+            <span id="s4-run-elapsed" data-id="run-elapsed" class="muted small"></span>
+          </div>
+          <div class="progress" id="s4-run-bar" data-id="run-bar" role="progressbar" aria-label="How far back the capture has reached" aria-valuemin="0" aria-valuemax="100" hidden="">
+            <div class="progress-fill" id="s4-run-bar-fill" data-id="run-bar-fill"></div>
+          </div>
+          <div class="small" id="s4-run-reach" data-id="run-reach" hidden=""></div>
+          <dl class="stats">
+            <div><dt>Seen</dt><dd id="s4-run-seen" data-id="run-seen">0</dd></div>
+            <div><dt>New</dt><dd id="s4-run-new" data-id="run-new">0</dd></div>
+            <div><dt>Updated</dt><dd id="s4-run-updated" data-id="run-updated">0</dd></div>
+            <div><dt>Already archived</dt><dd id="s4-run-unchanged" data-id="run-unchanged">0</dd></div>
+          </dl>
+          <div class="muted small" id="s4-run-detail" data-id="run-detail"></div>
+          <div class="small" id="s4-run-save" data-id="run-save" hidden=""></div>
+          <ul class="warnings small" id="s4-run-warnings" data-id="run-warnings" hidden=""></ul>
+          <div class="button-row run-buttons">
+            <button type="button" id="s4-btn-pause" data-id="btn-pause">Pause</button>
+            <button type="button" id="s4-btn-continue" data-id="btn-continue" class="primary" hidden="">Continue</button>
+            <button type="button" id="s4-btn-stop" data-id="btn-stop" class="danger">Stop</button>
+          </div>
+        </div>
+      </section>
+    </main>
+    </div>
+  </section>
+
+  <section class="design-frame">
+    <h2 class="design-frame-title">Archive page</h2>
+    <p class="design-frame-note">Conversations, Backup and import, Settings, then the version line.</p>
+    <div class="screen" data-mode="archive" style="width: 1200px; height: 900px;">
+<a class="skip-link" href="#main">Skip to content</a>
+    <header class="app-header">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJDaGF0IGFyY2hpdmUgbG9nbyI+CiAgPHJlY3QgeD0iNCIgeT0iNCIgd2lkdGg9IjEyMCIgaGVpZ2h0PSIxMjAiIHJ4PSIyNiIgZmlsbD0iIzFmNWZiZiIvPgogIDxyZWN0IHg9IjI0IiB5PSIyNCIgd2lkdGg9IjgwIiBoZWlnaHQ9IjE2IiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPgogIDxyZWN0IHg9IjMyIiB5PSI0OCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjQwIiByeD0iOCIgZmlsbD0iI2ZmZmZmZiIvPgogIDxwb2x5Z29uIHBvaW50cz0iNDAsODQgNjQsODQgMzIsMTA0IiBmaWxsPSIjZmZmZmZmIi8+CiAgPHJlY3QgeD0iNDgiIHk9IjY0IiB3aWR0aD0iMzIiIGhlaWdodD0iOCIgcng9IjQiIGZpbGw9IiMxZjVmYmYiLz4KPC9zdmc+Cg==" alt="" width="24" height="24">
+      <h1>Teams Chat Scraper</h1>
+      <label class="header-theme" for="s5-header-theme"><span>Theme</span><select id="s5-header-theme" data-id="header-theme"><option value="system" selected="">Same as Windows</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+    </header>
+
+    <main id="s5-main" data-id="main" class="archive-main" tabindex="-1">
+      <p id="s5-archive-message" data-id="archive-message" class="notice small" role="status" aria-live="polite" hidden=""></p>
+      <p id="s5-archive-loading" data-id="archive-loading" class="muted small" hidden="">Reading the archive…</p>
+
+      
+      <div id="s5-view-home" data-id="view-home" class="view">
+        <section id="s5-section-conversations" data-id="section-conversations" class="page-section" aria-labelledby="s5-conversations-title">
+          <h2 id="s5-conversations-title" data-id="conversations-title" class="view-title" tabindex="-1">Conversations</h2>
+          <div class="card">
+            <div class="toolbar" role="search">
+              <div class="field toolbar-search">
+                <label for="s5-conv-search">Search</label>
+                <label class="search-field" for="s5-conv-search">
+                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" class="icon"><path d="M7 12A5 5 0 1 0 7 2a5 5 0 0 0 0 10Z"></path><path d="M10.5 10.5 14 14"></path></svg>
+                  <input type="search" id="s5-conv-search" data-id="conv-search" placeholder="Name, earlier title or key" autocomplete="off" value="">
+                </label>
+              </div>
+              <label class="field" for="s5-conv-type"><span>Type</span><select id="s5-conv-type" data-id="conv-type"><option value="all" selected="">All types</option><option value="one-on-one">1:1 chats</option><option value="group">Group chats</option><option value="meeting">Meeting chats</option><option value="channel">Channels</option><option value="unknown">Other</option></select></label>
+              <label class="field" for="s5-conv-sort"><span>Sort by</span><select id="s5-conv-sort" data-id="conv-sort"><option value="recent" selected="">Recently archived</option><option value="name">Name</option><option value="messages">Most messages</option></select></label>
+              <span id="s5-conv-count" data-id="conv-count" class="muted small" aria-live="polite">2 conversations</span>
+            </div>
+            <div class="table-wrap">
+              <table id="s5-conversations" data-id="conversations" class="cards">
+                <thead>
+                  <tr>
+                    <th scope="col">Conversation</th>
+                    <th scope="col">Type</th>
+                    <th scope="col" class="num">Messages</th>
+                    <th scope="col" class="num">Images</th>
+                    <th scope="col">History</th>
+                    <th scope="col">Last update</th>
+                  </tr>
+                </thead>
+                <tbody><tr><td><a class="conv-title" href="#conversation/title%3Adesign%20review">Design review</a><div class="narrow-only muted small">Group chat · 451 messages · Nov 4, 2026 – Nov 24, 2026, not back to the start · updated 3 days ago</div></td><td class="wide-only">Group chat</td><td class="num wide-only">451</td><td class="num"><button type="button" class="link" aria-label="View the 1 saved image of Design review">1<span class="narrow-only-inline"> saved image</span></button></td><td class="wide-only"><div>Not back to the start</div><div class="muted small">Nov 4, 2026 – Nov 24, 2026</div></td><td class="wide-only"><div>3 days ago</div><div class="muted small">Nov 21, 2026, 1:46 PM</div><div class="muted small">last run Nov 24, 2026, 8:46 AM</div></td></tr><tr><td><a class="conv-title" href="#conversation/title%3Aalice%20andersen">Alice Andersen</a><div class="narrow-only muted small">1:1 chat · 1 message · Nov 23, 2026, history not checked · last run yesterday</div></td><td class="wide-only">1:1 chat</td><td class="num wide-only">1</td><td class="num wide-only">0</td><td class="wide-only"><div>Not checked</div><div class="muted small">Nov 23, 2026</div></td><td class="wide-only"><div>Not yet</div><div class="muted small">last run Nov 23, 2026, 7:46 AM</div></td></tr></tbody>
+              </table>
+            </div>
+            <p id="s5-no-conversations" data-id="no-conversations" class="muted" hidden="">Nothing archived yet. Open a chat in Teams Web and click the toolbar button.</p>
+            <p id="s5-no-matches" data-id="no-matches" class="muted" hidden="">No conversation matches the search and type chosen. <button type="button" class="link" id="s5-btn-clear-search" data-id="btn-clear-search">Show all conversations</button></p>
+          </div>
+        </section>
+
+        <section id="s5-section-backup" data-id="section-backup" class="page-section" aria-labelledby="s5-backup-title">
+          <h2 id="s5-backup-title" data-id="backup-title" tabindex="-1">Backup and import</h2>
+          <div class="card">
+            <div class="backup-row">
+              <p id="s5-backup-status" data-id="backup-status">Last full backup 2 days ago (Nov 22, 2026, 1:18 PM): 2 conversations, 452 messages.</p>
+              <div class="button-row">
+                <button type="button" id="s5-btn-backup-now" data-id="btn-backup-now" aria-describedby="s5-backup-status">Back up now</button>
+                <button type="button" data-import="">Import archive…</button>
+              </div>
+            </div>
+            <dl class="stats" id="s5-archive-stats" data-id="archive-stats"><div><dt>Conversations</dt><dd>2</dd></div><div><dt>Messages</dt><dd>452</dd></div><div><dt>Saved images</dt><dd>1</dd></div><div><dt>Complete histories</dt><dd>0 of 2</dd></div><div><dt>Space used</dt><dd>0.8 MB</dd></div></dl>
+            <p class="muted small">
+              The archive is kept only in this browser profile: removing the extension, or clearing its site data, deletes it. Back up now
+              saves a ZIP package of every chat with everything in it, in a new tab. Import archive… reads a package or a JSON file back,
+              for example to restore a backup or to combine the archives of two browser profiles; importing a file twice changes nothing.
+            </p>
+          </div>
+        </section>
+
+        <section id="s5-section-settings" data-id="section-settings" class="page-section" aria-labelledby="s5-settings-title">
+          <h2 id="s5-settings-title" data-id="settings-title" tabindex="-1">Settings</h2>
+          <form id="s5-settings-form" data-id="settings-form" class="card" aria-labelledby="s5-general-title" novalidate="">
+            <h3 id="s5-general-title" data-id="general-title">General</h3>
+            <div id="s5-settings-general-fields" data-id="settings-general-fields" class="settings-grid"><label class="field" for="s5-scroll-speed"><span>Scrolling speed</span><select id="s5-scroll-speed" data-id="scroll-speed"><option value="gentle">Gentle: slower, for slow computers or connections</option><option value="normal" selected="">Normal</option><option value="fast">Fast: shorter waits, for fast computers</option><option value="custom" hidden="" disabled="">Custom (set under Advanced)</option></select></label><label class="field" for="s5-maxDurationMinutes"><span>Maximum run duration (minutes)</span><input type="number" id="s5-maxDurationMinutes" data-id="maxDurationMinutes" name="maxDurationMinutes" min="1" max="1440" step="1" inputmode="decimal" value="360"><span class="hint">1 to 1,440</span></label><label class="field" for="s5-updateOverlapDays"><span>Update: days before the last update to check again for edits and late replies</span><input type="number" id="s5-updateOverlapDays" data-id="updateOverlapDays" name="updateOverlapDays" min="0" max="30" step="1" inputmode="decimal" value="2"><span class="hint">0 to 30</span></label><label class="field" for="s5-selfDisplayName"><span>Your display name (sender of your own messages)</span><input type="text" id="s5-selfDisplayName" data-id="selfDisplayName" maxlength="200" value=""></label><label class="field" for="s5-dateOrder"><span>Date order used by Teams (fallback only)</span><select id="s5-dateOrder" data-id="dateOrder"><option value="auto" selected="">Automatic (browser language)</option><option value="MDY">Month/Day/Year</option><option value="DMY">Day/Month/Year</option><option value="YMD">Year/Month/Day</option></select></label><label class="check field" for="s5-saveImages"><input type="checkbox" id="s5-saveImages" data-id="saveImages" checked=""><span>Keep the pictures shown in messages while capturing (the copy Teams already displays). Without them, no saved file can include pictures.</span></label><label class="check field" for="s5-pauseWhenHidden"><input type="checkbox" id="s5-pauseWhenHidden" data-id="pauseWhenHidden" checked=""><span>Pause while the Teams tab is hidden (recommended: background tabs are throttled)</span></label></div>
+            <details class="advanced" id="s5-settings-advanced" data-id="settings-advanced">
+              <summary id="s5-advanced-title" data-id="advanced-title">Advanced</summary>
+              <div id="s5-settings-fields" data-id="settings-fields" class="settings-grid"><label class="field" for="s5-scrollIntervalMs"><span>Scroll interval while capturing (ms)</span><input type="number" id="s5-scrollIntervalMs" data-id="scrollIntervalMs" name="scrollIntervalMs" min="250" max="60000" step="1" inputmode="decimal" value="600"><span class="hint">250 to 60,000</span></label><label class="field" for="s5-seekIntervalMs"><span>Scroll interval through archived parts (ms)</span><input type="number" id="s5-seekIntervalMs" data-id="seekIntervalMs" name="seekIntervalMs" min="100" max="60000" step="1" inputmode="decimal" value="300"><span class="hint">100 to 60,000</span></label><label class="field" for="s5-scrollStepRatio"><span>Scroll step (fraction of the visible height)</span><input type="number" id="s5-scrollStepRatio" data-id="scrollStepRatio" name="scrollStepRatio" min="0.2" max="3" step="0.05" inputmode="decimal" value="0.8"><span class="hint">0.2 to 3</span></label><label class="field" for="s5-scrollAnimationMs"><span>Smooth scrolling: animation per step (ms, 0 = off)</span><input type="number" id="s5-scrollAnimationMs" data-id="scrollAnimationMs" name="scrollAnimationMs" min="0" max="2000" step="1" inputmode="decimal" value="250"><span class="hint">0 to 2,000</span></label><label class="field" for="s5-settleQuietMs"><span>Render quiet period (ms)</span><input type="number" id="s5-settleQuietMs" data-id="settleQuietMs" name="settleQuietMs" min="100" max="10000" step="1" inputmode="decimal" value="350"><span class="hint">100 to 10,000</span></label><label class="field" for="s5-settleTimeoutMs"><span>Maximum render wait per step (ms)</span><input type="number" id="s5-settleTimeoutMs" data-id="settleTimeoutMs" name="settleTimeoutMs" min="500" max="120000" step="1" inputmode="decimal" value="6000"><span class="hint">500 to 120,000</span></label><label class="field" for="s5-topLoadTimeoutMs"><span>Wait for older history at the top (ms)</span><input type="number" id="s5-topLoadTimeoutMs" data-id="topLoadTimeoutMs" name="topLoadTimeoutMs" min="1000" max="120000" step="1" inputmode="decimal" value="8000"><span class="hint">1,000 to 120,000</span></label><label class="field" for="s5-maxNoProgressPasses"><span>Attempts at the top before finishing</span><input type="number" id="s5-maxNoProgressPasses" data-id="maxNoProgressPasses" name="maxNoProgressPasses" min="1" max="20" step="1" inputmode="decimal" value="3"><span class="hint">1 to 20</span></label><label class="field" for="s5-maxStallPasses"><span>Steps without new messages before stopping</span><input type="number" id="s5-maxStallPasses" data-id="maxStallPasses" name="maxStallPasses" min="3" max="500" step="1" inputmode="decimal" value="25"><span class="hint">3 to 500</span></label><label class="field" for="s5-maxSteps"><span>Maximum scroll steps per run</span><input type="number" id="s5-maxSteps" data-id="maxSteps" name="maxSteps" min="1" max="1000000" step="1" inputmode="decimal" value="50000"><span class="hint">1 to 1,000,000</span></label><label class="field" for="s5-incrementalOverlap"><span>Update: archived messages to see again before stopping (at least)</span><input type="number" id="s5-incrementalOverlap" data-id="incrementalOverlap" name="incrementalOverlap" min="1" max="500" step="1" inputmode="decimal" value="8"><span class="hint">1 to 500</span></label><label class="field" for="s5-maxImageMB"><span>Largest image to save (MB)</span><input type="number" id="s5-maxImageMB" data-id="maxImageMB" name="maxImageMB" min="1" max="50" step="1" inputmode="decimal" value="10"><span class="hint">1 to 50</span></label><label class="check field" for="s5-rescanByDefault"><input type="checkbox" id="s5-rescanByDefault" data-id="rescanByDefault"><span>Re-read archived parts at normal speed by default (the popup’s option under Options)</span></label></div>
+              <label class="field wide" for="s5-selectorOverrides">
+                <span>Selector overrides (JSON): replace individual entries of the built-in Teams selector profile</span>
+                <textarea id="s5-selectorOverrides" data-id="selectorOverrides" rows="8" spellcheck="false" placeholder="{ &quot;messageItem&quot;: [&quot;[data-tid=&quot;chat-pane-item&quot;]&quot;] }"></textarea>
+              </label>
+              <div class="button-row">
+                <button type="button" id="s5-btn-defaults" data-id="btn-defaults">Reset to defaults</button>
+                <button type="button" id="s5-btn-insert-selectors" data-id="btn-insert-selectors">Insert default selectors</button>
+              </div>
+            </details>
+            <div class="button-row">
+              <button type="submit" class="primary">Save settings</button>
+            </div>
+            <p id="s5-settings-message" data-id="settings-message" class="small" role="status" aria-live="polite" hidden=""></p>
+          </form>
+        </section>
+
+        <footer class="muted small about-line">
+          <span id="s5-about-version" data-id="about-version">Teams Chat Scraper, version 1.7.0</span>. An independent extension, not made by or affiliated with Microsoft. Microsoft
+          Teams is a trademark of the Microsoft group of companies. It reads only the chats Teams Web shows you, and keeps them in this
+          browser profile.
+        </footer>
+      </div>
+
+      
+      </main>
+    </div>
+  </section>
+
+  <section class="design-frame">
+    <h2 class="design-frame-title">A chat’s page</h2>
+    <p class="design-frame-note">Opens at the newest message.</p>
+    <div class="screen" data-mode="archive" style="width: 1200px; height: 700px;">
+<a class="skip-link" href="#main">Skip to content</a><header class="app-header">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJDaGF0IGFyY2hpdmUgbG9nbyI+CiAgPHJlY3QgeD0iNCIgeT0iNCIgd2lkdGg9IjEyMCIgaGVpZ2h0PSIxMjAiIHJ4PSIyNiIgZmlsbD0iIzFmNWZiZiIvPgogIDxyZWN0IHg9IjI0IiB5PSIyNCIgd2lkdGg9IjgwIiBoZWlnaHQ9IjE2IiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPgogIDxyZWN0IHg9IjMyIiB5PSI0OCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjQwIiByeD0iOCIgZmlsbD0iI2ZmZmZmZiIvPgogIDxwb2x5Z29uIHBvaW50cz0iNDAsODQgNjQsODQgMzIsMTA0IiBmaWxsPSIjZmZmZmZmIi8+CiAgPHJlY3QgeD0iNDgiIHk9IjY0IiB3aWR0aD0iMzIiIGhlaWdodD0iOCIgcng9IjQiIGZpbGw9IiMxZjVmYmYiLz4KPC9zdmc+Cg==" alt="" width="24" height="24">
+      <h1>Teams Chat Scraper</h1>
+      <label class="header-theme" for="s6-header-theme"><span>Theme</span><select id="s6-header-theme" data-id="header-theme"><option value="system" selected="">Same as Windows</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+    </header><main class="archive-main"><section id="s6-view-conversation" data-id="view-conversation" class="view" aria-labelledby="s6-conv-view-title">
+        <a href="#conversations" class="back-link" id="s6-conv-view-back" data-id="conv-view-back">All conversations</a>
+        <div class="card">
+          <div class="conversation-head">
+            <div>
+              <h2 id="s6-conv-view-title" data-id="conv-view-title" class="view-title" tabindex="-1">Design review</h2>
+              <div id="s6-conv-view-meta" data-id="conv-view-meta" class="muted small">Group chat · Alice Andersen, Bob Brown</div>
+              <div id="s6-conv-view-history" data-id="conv-view-history" class="small">451 messages · Nov 4, 2026 – Nov 24, 2026, not back to the start · updated 3 days ago</div>
+              <div id="s6-conv-view-details" data-id="conv-view-details" class="muted small"></div>
+              <div id="s6-conv-view-key" data-id="conv-view-key" class="muted small mono">title:design review</div>
+            </div>
+            <div class="button-row" id="s6-conv-view-actions" data-id="conv-view-actions"><button type="button">Save a file…</button><button type="button">Images (1)</button><button type="button">Rename…</button><button type="button">Merge…</button><button type="button" class="danger">Delete…</button></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="section-head">
+            <h3 id="s6-conv-view-messages-title" data-id="conv-view-messages-title">Messages</h3>
+            <span id="s6-conv-view-range" data-id="conv-view-range" class="muted small" aria-live="polite">The newest 200 of 451 messages</span>
+          </div>
+          <div class="messages">
+            <button type="button" id="s6-btn-load-earlier" data-id="btn-load-earlier" class="load-earlier">Show earlier messages</button>
+          </div>
+          <ol id="s6-conv-view-messages" data-id="conv-view-messages" class="messages" aria-labelledby="s6-conv-view-messages-title"><li class="msg" data-key="title:design review#1795355183892"><div class="msg-meta"><span class="who">Alice Andersen</span><span>20:46</span></div><div class="msg-text">Sketch 439</div></li><li class="msg" data-key="title:design review#1795358783892"><div class="msg-meta"><span class="who">Alice Andersen</span><span>21:46</span></div><div class="msg-text">Sketch 440</div></li><li class="msg" data-key="title:design review#1795362383892"><div class="msg-meta"><span class="who">Alice Andersen</span><span>22:46</span></div><div class="msg-text">Sketch 441</div></li><li class="msg" data-key="title:design review#1795365983892"><div class="msg-meta"><span class="who">Alice Andersen</span><span>23:46</span></div><div class="msg-text">Sketch 442</div></li><li class="day"><h4 class="visually-hidden">Monday, November 23, 2026</h4><span aria-hidden="true">Monday, November 23, 2026</span></li><li class="msg" data-key="title:design review#1795369583892"><div class="msg-meta"><span class="who">Alice Andersen</span><span>00:46</span></div><div class="msg-text">Sketch 443</div></li><li class="msg" data-key="title:design review#1795373183892"><div class="msg-meta"><span class="who">Alice Andersen</span><span>01:46</span></div><div class="msg-text">Sketch 444</div></li><li class="msg continued" data-key="title:design review#1795373303892"><div class="msg-meta"><span class="who visually-hidden">Alice Andersen</span><span>01:48</span></div><div class="msg-text">Sketch 445</div></li><li class="msg continued" data-key="title:design review#1795373423892"><div class="msg-meta"><span class="who visually-hidden">Alice Andersen</span><span>01:50</span></div><div class="msg-text">Sketch 446</div></li><li class="msg" data-key="title:design review#1795373543892"><div class="msg-meta"><span class="who">Bob Brown</span><span>01:52</span></div><div class="msg-text">Sketch 447</div><p class="msg-reactions">Reactions: 👍 3 · ❤️ 1 · Like 2 (yours: 👍)</p></li><li class="msg continued" data-key="title:design review#1795373663892"><div class="msg-meta"><span class="who visually-hidden">Bob Brown</span><span>01:54</span></div><div class="msg-text">Sketch 448</div></li><li class="msg" data-key="title:design review#1795373783892"><div class="msg-meta"><span class="who">Alice Andersen</span><span>01:56</span></div><div class="msg-text">Sketch 449</div><p class="msg-reactions">Reactions: 👍 3 · ❤️ 1 · Like 2 (yours: 👍)</p></li><li class="day"><h4 class="visually-hidden">Tuesday, November 24, 2026</h4><span aria-hidden="true">Tuesday, November 24, 2026</span></li><li class="msg" data-key="title:design review#1795484783892"><div class="msg-meta"><span class="who">Alice Andersen</span><span>08:46</span></div><div class="msg-text">=SUM(A1:A3) "chart" below</div><div class="msg-pictures"><a target="_blank" rel="noopener" title="Open full size" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iNjAiPjxyZWN0IHdpZHRoPSIxMjAiIGhlaWdodD0iNjAiIGZpbGw9IiM0YTdiZDAiLz48dGV4dCB4PSI0MCIgeT0iMzQiIGZpbGw9IiNmZmYiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXNpemU9IjEwIj5za2V0Y2g8L3RleHQ+PC9zdmc+"><img alt="sketch.png" data-image-id="339c2945a21be3aa56ca9f7907ac21119d71af77802182315ff9945ea96c25ac" width="120" height="60" loading="lazy" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iNjAiPjxyZWN0IHdpZHRoPSIxMjAiIGhlaWdodD0iNjAiIGZpbGw9IiM0YTdiZDAiLz48dGV4dCB4PSI0MCIgeT0iMzQiIGZpbGw9IiNmZmYiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXNpemU9IjEwIj5za2V0Y2g8L3RleHQ+PC9zdmc+"></a></div></li></ol>
+          <div class="to-top">
+            <button type="button" class="link" id="s6-btn-to-top" data-id="btn-to-top">Back to the top</button>
+          </div>
+          <p id="s6-conv-view-empty" data-id="conv-view-empty" class="muted">No messages are archived for this chat. Open it in Teams Web and click the toolbar button to archive them.</p>
+        </div>
+      </section></main>
+    </div>
+  </section>
+
+  <section class="design-frame">
+    <h2 class="design-frame-title">Save a file… (dialog on a chat’s page)</h2>
+    <p class="design-frame-note">Shown in place here; on the page it is a modal dialog.</p>
+    <div class="screen" data-mode="archive" style="width: 1200px; height: 520px;">
+<header class="app-header">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJDaGF0IGFyY2hpdmUgbG9nbyI+CiAgPHJlY3QgeD0iNCIgeT0iNCIgd2lkdGg9IjEyMCIgaGVpZ2h0PSIxMjAiIHJ4PSIyNiIgZmlsbD0iIzFmNWZiZiIvPgogIDxyZWN0IHg9IjI0IiB5PSIyNCIgd2lkdGg9IjgwIiBoZWlnaHQ9IjE2IiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPgogIDxyZWN0IHg9IjMyIiB5PSI0OCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjQwIiByeD0iOCIgZmlsbD0iI2ZmZmZmZiIvPgogIDxwb2x5Z29uIHBvaW50cz0iNDAsODQgNjQsODQgMzIsMTA0IiBmaWxsPSIjZmZmZmZmIi8+CiAgPHJlY3QgeD0iNDgiIHk9IjY0IiB3aWR0aD0iMzIiIGhlaWdodD0iOCIgcng9IjQiIGZpbGw9IiMxZjVmYmYiLz4KPC9zdmc+Cg==" alt="" width="24" height="24">
+      <h1>Teams Chat Scraper</h1>
+      <label class="header-theme" for="s7-header-theme"><span>Theme</span><select id="s7-header-theme" data-id="header-theme"><option value="system" selected="">Same as Windows</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+    </header><div class="dialog-stage"><dialog open style="position: static; margin: 64px auto 0;" id="s7-save-dialog" data-id="save-dialog" class="image-dialog save-dialog" aria-labelledby="s7-save-dialog-title" aria-describedby="s7-save-dialog-what" open="">
+      <form id="s7-save-dialog-form" data-id="save-dialog-form" novalidate="">
+        <h2 id="s7-save-dialog-title" data-id="save-dialog-title">Save a file</h2>
+        <p class="muted small" id="s7-save-dialog-what" data-id="save-dialog-what">Design review · all 451 archived messages. The file is saved in a new tab.</p>
+        <div id="s7-save-dialog-choices" data-id="save-dialog-choices" class="save-choices"><fieldset class="choice-group"><legend class="group-label">Format</legend><div class="segments format-row"><label class="segment" for="s7-save-format-pdf"><input type="radio" name="s7-save-format" id="s7-save-format-pdf" data-id="save-format-pdf" value="pdf"><span>PDF</span></label><label class="segment" for="s7-save-format-text"><input type="radio" name="s7-save-format" id="s7-save-format-text" data-id="save-format-text" value="text" checked=""><span>Text</span></label><label class="segment" for="s7-save-format-json"><input type="radio" name="s7-save-format" id="s7-save-format-json" data-id="save-format-json" value="json"><span>JSON</span></label><label class="segment" for="s7-save-format-package"><input type="radio" name="s7-save-format" id="s7-save-format-package" data-id="save-format-package" value="package"><span>ZIP package</span></label></div><p class="small save-line" data-part="line">A ZIP with the text and the pictures as files.</p></fieldset><fieldset class="choice-group"><legend class="group-label">Include in the file</legend><div class="include-list"><label class="check" for="s7-save-include-images"><input type="checkbox" id="s7-save-include-images" data-id="save-include-images" name="save-include" value="images" checked=""><span>Pictures</span></label><label class="check" for="s7-save-include-attachments"><input type="checkbox" id="s7-save-include-attachments" data-id="save-include-attachments" name="save-include" value="attachments" checked=""><span>File attachments</span></label><label class="check" for="s7-save-include-replies"><input type="checkbox" id="s7-save-include-replies" data-id="save-include-replies" name="save-include" value="replies" checked=""><span>Reply context</span></label><label class="check" for="s7-save-include-reactions"><input type="checkbox" id="s7-save-include-reactions" data-id="save-include-reactions" name="save-include" value="reactions" checked=""><span>Reactions</span></label><label class="check" for="s7-save-include-systemMessages"><input type="checkbox" id="s7-save-include-systemMessages" data-id="save-include-systemMessages" name="save-include" value="systemMessages"><span>System messages</span></label><label class="check" for="s7-save-include-editHistory"><input type="checkbox" id="s7-save-include-editHistory" data-id="save-include-editHistory" name="save-include" value="editHistory" checked=""><span>Edit history</span></label></div><p class="muted small save-line" data-part="note" hidden="">JSON and the ZIP package always include file attachments and reply context: they are part of each record.</p></fieldset></div>
+        <div class="button-row">
+          <button type="submit" class="primary" id="s7-btn-save-confirm" data-id="btn-save-confirm">Save the text and pictures (ZIP)</button>
+          <button type="button" id="s7-btn-save-cancel" data-id="btn-save-cancel">Cancel</button>
+        </div>
+      </form>
+    </dialog></div>
+    </div>
+  </section>
+
+  <section class="design-frame">
+    <h2 class="design-frame-title">Save page: PDF</h2>
+    <p class="design-frame-note">Opens in its own tab when a capture ends, then the print dialog.</p>
+    <div class="screen" data-mode="save" style="width: 1000px; height: 820px;">
+<header class="app-header">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJDaGF0IGFyY2hpdmUgbG9nbyI+CiAgPHJlY3QgeD0iNCIgeT0iNCIgd2lkdGg9IjEyMCIgaGVpZ2h0PSIxMjAiIHJ4PSIyNiIgZmlsbD0iIzFmNWZiZiIvPgogIDxyZWN0IHg9IjI0IiB5PSIyNCIgd2lkdGg9IjgwIiBoZWlnaHQ9IjE2IiByeD0iNiIgZmlsbD0iI2ZmZmZmZiIvPgogIDxyZWN0IHg9IjMyIiB5PSI0OCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjQwIiByeD0iOCIgZmlsbD0iI2ZmZmZmZiIvPgogIDxwb2x5Z29uIHBvaW50cz0iNDAsODQgNjQsODQgMzIsMTA0IiBmaWxsPSIjZmZmZmZmIi8+CiAgPHJlY3QgeD0iNDgiIHk9IjY0IiB3aWR0aD0iMzIiIGhlaWdodD0iOCIgcng9IjQiIGZpbGw9IiMxZjVmYmYiLz4KPC9zdmc+Cg==" alt="" width="24" height="24">
+      <h1>Teams Chat Scraper</h1>
+    </header>
+
+    <main class="save-main">
+      <section class="card save-card" aria-labelledby="s8-save-title">
+        <h2 id="s8-save-title" data-id="save-title" class="view-title">Design review</h2>
+        <p id="s8-save-what" data-id="save-what" class="muted small">PDF · messages since Nov 20, 2025, 7:53 AM</p>
+        <p id="s8-save-status" data-id="save-status" class="small" role="status" aria-live="polite">451 messages and 1 picture are ready. In the print dialog, choose “Save as PDF” as the printer.</p>
+        <div class="progress" id="s8-save-progress" data-id="save-progress" role="progressbar" aria-label="Chats written" aria-valuemin="0" aria-valuemax="100" hidden="">
+          <div class="progress-fill" id="s8-save-progress-fill" data-id="save-progress-fill"></div>
+        </div>
+        <div class="button-row" id="s8-save-actions" data-id="save-actions">
+          <button type="button" class="primary" id="s8-btn-print-again" data-id="btn-print-again">Print again</button>
+          <a href="archive.html#conversation/title%3Adesign%20review" id="s8-link-archive" data-id="link-archive" class="result-link">Open this chat in the archive</a>
+        </div>
+      </section>
+      <iframe id="s8-save-preview" data-id="save-preview" class="save-preview" title="The page to print" srcdoc="<!doctype html><html lang=&quot;en&quot;><head><meta charset=&quot;utf-8&quot;><meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;>
+<title>Design review</title><style>
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 880px; padding: 24px 16px 48px; background: #fff; color: #1f1f1f;
+  font: 15px/1.5 &quot;Segoe UI&quot;, system-ui, -apple-system, sans-serif; }
+h1 { font-size: 22px; line-height: 1.3; margin: 0 0 8px; overflow-wrap: anywhere; }
+.summary { list-style: none; margin: 0 0 20px; padding: 0; color: #555; font-size: 13px; }
+.day { margin: 28px 0 12px; padding-bottom: 4px; border-bottom: 1px solid #e3e3e3; color: #555; font-size: 13px; font-weight: 600; }
+.msg { margin: 0 48px 10px 0; padding: 8px 12px; border: 1px solid #e3e3e3; border-radius: 8px; background: #f7f7f7; break-inside: avoid; }
+.msg.self { margin: 0 0 10px 48px; background: #eaf1fb; border-color: #cddcf3; }
+.meta { margin-bottom: 2px; color: #616161; font-size: 12px; }
+.who { margin-right: 8px; color: #1f1f1f; font-weight: 600; }
+.flags { margin-left: 6px; font-style: italic; }
+.text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.reply { margin: 2px 0 6px; padding: 2px 10px; border-left: 3px solid #b8b8b8; color: #555; font-size: 13px; overflow-wrap: anywhere; }
+.history { margin: 6px 0 0; padding: 2px 10px; border-left: 3px dashed #c8c8c8; color: #555; font-size: 13px; }
+.history .text { color: #555; }
+figure { margin: 8px 0 2px; }
+figure img { display: block; width: auto; height: auto; max-width: 100%; max-height: 640px; border: 1px solid #ddd; border-radius: 4px; background: #fff; }
+figcaption { color: #616161; font-size: 12px; }
+.att { margin: 6px 0 0; padding-left: 18px; color: #444; font-size: 13px; overflow-wrap: anywhere; }
+.reactions { margin: 4px 0 0; color: #555; font-size: 13px; }
+.missing { color: #8a5300; }
+.system { margin: 8px 0; color: #666; font-size: 13px; text-align: center; }
+section + section { margin-top: 48px; break-before: page; }
+a { color: #1f5fbf; }
+@media print {
+  body { max-width: none; padding: 0; font-size: 11pt; }
+  .msg, .msg.self { margin-left: 0; margin-right: 0; }
+  figure img { max-height: 20cm; }
+  a { color: inherit; text-decoration: none; }
+}
+</style></head><body>
+<section><h1>Design review</h1>
+<ul class=&quot;summary&quot;><li>Participants: Alice Andersen, Bob Brown</li><li>Messages: 451 · Pictures: 1</li><li>Period: from 20 Nov 2025, 07:53</li><li>Archived history: partial · Times shown in Asia/Jakarta</li></ul>
+<h2 class=&quot;day&quot;>Wednesday, 4 November 2026</h2>
+<article class=&quot;msg&quot;><div class=&quot;meta&quot;><span class=&quot;who&quot;>Alice Andersen</span>13:46</div><div class=&quot;text&quot;>Sketch 0</div></article>
+<article class=&quot;msg&quot;><div class=&quot;meta&quot;><span class=&quot;who&quot;>Alice Andersen</span>14:46</div><div class=&quot;text&quot;>Sketch 1</div></article>
+<article class=&quot;msg&quot;><div class=&quot;meta&quot;><span class=&quot;who&quot;>Alice Andersen</span>15:46</div><div class=&quot;text&quot;>Sketch 2</div></article>
+<h2 class=&quot;day&quot;>Tuesday, 24 November 2026</h2>
+<article class=&quot;msg&quot;><div class=&quot;meta&quot;><span class=&quot;who&quot;>Alice Andersen</span>08:46</div><div class=&quot;text&quot;>=SUM(A1:A3) &quot;chart&quot; below</div><figure><a href=&quot;data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iNjAiPjxyZWN0IHdpZHRoPSIxMjAiIGhlaWdodD0iNjAiIGZpbGw9IiM0YTdiZDAiLz48dGV4dCB4PSI0MCIgeT0iMzQiIGZpbGw9IiNmZmYiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXNpemU9IjEwIj5za2V0Y2g8L3RleHQ+PC9zdmc+&quot; target=&quot;_blank&quot;><img src=&quot;data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iNjAiPjxyZWN0IHdpZHRoPSIxMjAiIGhlaWdodD0iNjAiIGZpbGw9IiM0YTdiZDAiLz48dGV4dCB4PSI0MCIgeT0iMzQiIGZpbGw9IiNmZmYiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXNpemU9IjEwIj5za2V0Y2g8L3RleHQ+PC9zdmc+&quot; alt=&quot;sketch.png&quot; width=&quot;120&quot; height=&quot;60&quot;></a><figcaption>sketch.png</figcaption></figure></article>
+</section>
+
+</body></html>"></iframe>
+    </main>
+    </div>
+  </section>
+</main>
+</body>
+</html>
