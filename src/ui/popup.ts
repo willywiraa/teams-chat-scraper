@@ -43,8 +43,8 @@ import { fileNoun, loadSaveChoices, SaveForm } from './save-form';
 import { wireThemeButton } from './theme-button';
 import { historyLine, reachShare, routeHash, type Route } from './view-models';
 
-/** The capture choices of the popup: the capture ranges, and the messages on screen only. */
-type PopupChoice = CaptureChoice | 'visible';
+/** The capture choices of the popup: new messages, a period, or the full history. */
+type PopupChoice = CaptureChoice;
 
 /** Whether a capture also saves a file (the **Save a file** checkbox), remembered. */
 const SAVE_AFTER_KEY = 'saveAfterCapture.v1';
@@ -447,14 +447,11 @@ function captureText(choice: PopupChoice, rangeStart: number | null): string {
       return rangeStart === null ? 'Capture from a date' : `Capture from ${formatDate(rangeStart)}`;
     case 'everything':
       return 'Capture the full history';
-    case 'visible':
-      return 'Capture the messages on screen';
   }
 }
 
 /** One sentence under the choices: what the chosen one captures. */
 function captureHint(choice: PopupChoice, record: ConversationRecord | null): string {
-  if (choice === 'visible') return 'Only the messages shown now, without scrolling.';
   const passed = byId<HTMLInputElement>('opt-rescan').checked ? 'parts already archived are read again' : 'parts already archived are passed quickly';
   if (choice === 'update') {
     const since = record?.lastUpdate ? `Since the last update, ${formatAgo(record.lastUpdate.at)}.` : 'Since the newest archived message.';
@@ -494,20 +491,19 @@ function renderCapture(next?: { record: ConversationRecord | null; conversationK
   const hint = conversationKey === null ? '' : captureHint(choice, record);
   setText('capture-hint', hint);
   setHidden('capture-hint', hint === '');
-  const plan = choice === 'visible' ? null : capturePlan(choice, Date.now(), dateInput.value);
+  const plan = capturePlan(choice, Date.now(), dateInput.value);
   const save = savingChoice();
   byId<HTMLInputElement>('opt-save').disabled = !idle;
   saveForm?.setDisabled(!idle);
   setHidden('save-choices', save === null);
   const start = byId<HTMLButtonElement>('btn-start');
   setText('btn-start-label', startLabel(choice, plan?.rangeStart ?? null, save));
-  start.disabled = !idle || busy || conversationKey === null || (choice !== 'visible' && plan === null);
+  start.disabled = !idle || busy || conversationKey === null || plan === null;
   // Saving without capturing needs archived messages of this chat.
   const archivedOnly = byId<HTMLButtonElement>('btn-save-archived');
   archivedOnly.hidden = save === null || !record || record.messageCount === 0;
-  archivedOnly.disabled = !idle || (choice !== 'visible' && plan === null);
-  // Re-reading applies to the capture ranges, not to the messages on screen.
-  byId<HTMLInputElement>('opt-rescan').disabled = !idle || choice === 'visible';
+  archivedOnly.disabled = !idle || plan === null;
+  byId<HTMLInputElement>('opt-rescan').disabled = !idle;
 }
 
 /** The file a capture saves, or null when **Save a file** is off. */
@@ -536,7 +532,7 @@ async function saveArchived(): Promise<void> {
   const save = savingChoice();
   if (!record || !save) return;
   const choice = selectedChoice();
-  const plan = choice === 'visible' || choice === 'update' || choice === 'everything' ? null : capturePlan(choice, Date.now(), byId<HTMLInputElement>('capture-from').value);
+  const plan = choice === 'update' || choice === 'everything' ? null : capturePlan(choice, Date.now(), byId<HTMLInputElement>('capture-from').value);
   const range: TimeRange = { from: plan?.rangeStart ?? null, to: null };
   await chrome.tabs.create({ url: chrome.runtime.getURL(`save.html${saveTargetHash({ kind: 'conversation', conversationKey: record.conversationKey, choices: save, range })}`) });
   if (!isPanel) window.close();
@@ -545,10 +541,6 @@ async function saveArchived(): Promise<void> {
 function startCapture(): void {
   const choice = selectedChoice();
   const save = savingChoice();
-  if (choice === 'visible') {
-    void start('visible', false, null, null, save);
-    return;
-  }
   const plan = capturePlan(choice, Date.now(), byId<HTMLInputElement>('capture-from').value);
   if (plan) void start(plan.mode, byId<HTMLInputElement>('opt-rescan').checked, null, plan.rangeStart, save);
 }

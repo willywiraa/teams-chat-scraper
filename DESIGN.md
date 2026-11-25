@@ -2,7 +2,7 @@
 
 The look and voice of the extension's pages: the popup, the side panel, the archive page and the save page. This file states the direction; `src/ui/ui.css` holds the values, and the antislop skills in `.claude/skills/` are the filter applied on top (see `AGENTS.md`). When the two disagree, change one of them on purpose, not by accident.
 
-It records the decisions already made (Phase 4 and 5 of [docs/IMPROVEMENT_PLAN.md](docs/IMPROVEMENT_PLAN.md), antislop audits [001](anti-slop/audit-001-2026-11-22.md) and [002](anti-slop/audit-002-2026-11-22.md), proposal [004](anti-slop/proposal-004-2026-11-23.md), which moved saving a file into the popup and made the archive one page, and the owner's Claude Design prototype of November 2026, which brought the Geist type, the capture tiles, the status bar and the icons). Change it when the direction changes.
+It records the decisions already made (Phase 4 and 5 of [docs/IMPROVEMENT_PLAN.md](docs/IMPROVEMENT_PLAN.md), antislop audits [001](anti-slop/audit-001-2026-11-22.md) and [002](anti-slop/audit-002-2026-11-22.md), proposal [004](anti-slop/proposal-004-2026-11-23.md), which moved saving a file into the popup and made the archive one page, and the owner's Claude Design prototype of November 2026, which brought the capture tiles, the status bar and the icons; its Geist type was tried in 1.10 and dropped again in 1.11). Change it when the direction changes.
 
 ## Design read
 
@@ -43,24 +43,25 @@ No gradients, glow, glass, background textures or decorative shadows. A shadow i
 
 ## Typography
 
-- **Geist** for everything, and **Geist Mono** for machine text. The owner chose them in November 2026, in place of Segoe UI: Segoe made the pages look like any default Windows form, while Geist is as plain and as readable at 12 to 14 px but looks set on purpose. Its figures can all take one width (`tabular-nums`), so the counts and times in the status bar and the tables do not jump as they change, and Geist Mono is drawn to match it. Both are variable fonts shipped inside the extension (`src/ui/fonts/`, SIL Open Font Licence in `src/ui/licenses/`) and never fetched from the network; Segoe UI and Consolas remain as the fallback.
-- Sizes 12, 13, 14 (body), 16 and 20 px, each with its line height: 12/16, 13/18, 14/20, and 1.25 for titles. Titles of 16 px and more are set 0.012 em tighter, as Geist is meant to be set large; nothing is spaced wider.
-- Three weights: 400 for reading; 500 for controls, labels, legends, badges and table headings; 600 for titles, sender names and numbers that matter. Nothing heavier: the hierarchy comes from size and colour, and the 20 px page and chat titles are the largest text there is.
-- **Geist Mono** only for machine text the user may need to read or copy exactly: conversation keys, the selector overrides and the run's step log. Never as a style for headings or labels.
+- **Segoe UI** (then the system font), because the extension lives in Edge on Windows and should read like the browser around it. The owner tried Geist in version 1.10 and returned to Segoe UI in 1.11: a bundled display face made the pages look like a web product rather than part of the browser. No font is bundled or downloaded.
+- Sizes 12, 13, 14 (body), 16 and 20 px, each with its line height: 12/16, 13/18, 14/20, and 1.25 for titles. No letter-spacing anywhere.
+- Two weights, because Segoe UI has no medium (a 500 would draw as 400): **600** for titles, group headings (*Messages to capture*, *Format*, *Options*), sender names, chat names and the numbers that matter; **400** for everything else, controls and labels included. The hierarchy comes from size, weight and colour together: 16 px for section titles, 20 px only for a chat's name on its page, and nothing larger. Counts that change while you watch use tabular figures, which Segoe UI has.
+- **Consolas** only for machine values the user may need to copy exactly: conversation keys and the selector overrides. Never for headings, labels, logs or decoration.
 - Sentence case everywhere. No uppercase labels, no wide letter-spacing.
 
 ## Shape and space
 
-- Spacing steps of 4, 8, 12, 16 and 24 px. Related items 4 to 8 px apart; separate groups 12 to 16; views 16 to 24.
+- Spacing steps of 4, 8, 12, 16 and 24 px. Related items 4 to 8 px apart; separate groups 12 to 16; views 16 to 24. In practice: a section title sits 8 px above its card, sections are 24 px apart, cards are padded 12 px in the popup and 16 px on the pages, and messages are 16 px apart (6 px within one sender's run). Compact, not cramped: no gap is there only to fill space.
+- Totals and run counts are a label over a number, set apart by space alone: no boxes or tinted tiles around them.
 - Radius 6 px for controls, 8 px for cards and dialogs. Pill shapes only for **badges**, which mark a real state in a word or two (a chat's type, its history such as *Complete* or *Not checked*, the phase of a run), and for the count of messages seen in the status bar.
 - Controls (buttons, selects, fields, segments, **Options** and **Advanced**) are at least 32 px tall with a mouse and 44 px on a touch screen. A link inside a sentence stays a link in the text.
 - Links that open a chat, and **All conversations**, are targets like controls: 32 px tall with a mouse, 44 px on touch.
 - Cards are flat with a 1 px border, and nothing inside a card gets a border of its own except controls: groups inside it (the format and the include list of the save form, for example) are set apart by space and a heading, or by a hairline rule in the border colour where one part of a card follows another (**Save a file** after the capture choices, **Options**, **Advanced**). Messages have no border either; your own carry the selected tint.
 - A choice among a few options is drawn as **segments** or **tiles**, not a select, so every option can be seen at once: a radio group drawn as buttons with short names.
-  - The popup's **Messages to capture** is four tiles in a row (two by two in a side panel narrower than 360 px), each an icon over a short name: *New messages*, *Date range*, *Full history*, *On screen*. *Date range* opens a **Period** row of segments under them (*24 hours*, *7 days*, *30 days*, *From a date*), and *From a date* opens the date field. One line under the choices says what the chosen one does.
-  - The formats are a row of segments with icons, with one line under it saying what the chosen format makes. The line changes with the choice; the names stay short.
+  - The popup's **Messages to capture** is three tiles in a row, each an icon over a short name: *New messages*, *Date range*, *Full history*. (Capturing only the messages on screen was taken out of the popup in 1.11.) *Date range* opens a **Period** row of segments under them (*24 hours*, *7 days*, *30 days*, *From a date*), and *From a date* opens the date field. One line under the choices says what the chosen one does.
+  - The formats are one row of segments, each with its icon before its name and as wide as the name needs (two by two where the row would not fit, as in a narrow side panel), with one line under it saying what the chosen format makes. The line changes with the choice; the names stay short.
 
-  Segments and tiles take the control outline, the 6 px radius and the 32 / 44 px minimum (a tile is 64 px tall). The chosen one has the selected tint, an accent ring two lines wide (its border and an inner line), and its name and icon in the accent colour. Longer lists, such as the settings and the Conversations list's type and sort, stay selects. What a file includes is a list of checkboxes in two columns; a box the format fixes is ticked and disabled, with a note under the list saying why.
+  Segments and tiles take the control outline, the 6 px radius and the 32 / 44 px minimum (a tile is 56 px tall). The chosen one has the selected tint, an accent ring two lines wide (its border and an inner line), and its name and icon in the accent colour. Longer lists, such as the settings and the Conversations list's type and sort, stay selects. What a file includes is a list of checkboxes in two columns; a box the format fixes is ticked and disabled, with a note under the list saying why.
 - A coloured left edge appears only where it means something: a quoted reply, an earlier version of a message.
 
 ## Focal point of each screen
@@ -80,7 +81,7 @@ An icon stands beside words that name the same thing, so the eye finds a choice 
 | Where | Icon | What it stands for |
 | --- | --- | --- |
 | Header | screen, sun or moon; window with an arrow; window with a column | The theme in use; open the archive; open the side panel. |
-| Messages to capture | circling arrows, calendar, clock turning back, eye | Messages new since the last run; a date range; the history back to the start; what is on screen. |
+| Messages to capture | circling arrows, calendar, clock turning back | Messages new since the last run; a date range; the history back to the start. |
 | Formats | printer, page of lines, page with braces, page with a zip | PDF (printed by the browser); Text; JSON; ZIP package. |
 | What a file includes | picture, paperclip, reply arrow, smile, *i* in a circle, pencil | Pictures, file attachments, reply context, reactions, system messages, edit history. |
 | Capture and run | arrow into a tray; pause, play, square | The capture brings messages in; pause, resume and stop, as on any player. |
@@ -90,7 +91,7 @@ An icon stands beside words that name the same thing, so the eye finds a choice 
 
 ## Writing
 
-- Plain sentences that say what happens: "Archives the messages on screen without scrolling", not "Instantly capture your conversations". Technical detail goes in the line under a choice, or in the docs, not in its name: the format is *ZIP package*, and the line under it says what the package holds.
+- Plain sentences that say what happens: "Back to the beginning of the chat; parts already archived are passed quickly", not "Instantly capture your conversations". Technical detail goes in the line under a choice, or in the docs, not in its name: the format is *ZIP package*, and the line under it says what the package holds.
 - Buttons say what they do: "Capture new messages and save a PDF", "Back up now". A button that opens a dialog ends with an ellipsis ("Rename…").
 - Everything the user needs is on the page. A tooltip may repeat it, never hold it alone: there is no hover on a touch screen.
 - Name the next action in empty, error and warning states: "Nothing archived yet. Open a chat in Teams Web and click the toolbar button."

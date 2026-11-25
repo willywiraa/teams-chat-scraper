@@ -1,6 +1,6 @@
 # Privacy policy
 
-**Teams Chat Scraper**, a browser extension for Microsoft Edge. Last updated 24 November 2026, for version 1.10.0.
+**Teams Chat Scraper**, a browser extension for Microsoft Edge. Last updated 25 November 2026, for version 1.11.0.
 
 Teams Chat Scraper keeps the chats you archive in your own browser profile. It has no server, no account and no analytics. It sends nothing to its developer or to anyone else.
 

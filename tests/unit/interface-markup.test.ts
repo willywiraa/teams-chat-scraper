@@ -1,13 +1,13 @@
 /**
- * The pages' markup and stylesheet: the icons they ask for exist, the fonts they name ship with
- * the extension, and nothing is loaded from the network.
+ * The pages' markup and stylesheet: the icons they ask for exist, the type is the system's own
+ * (Segoe UI, Consolas for machine values), and nothing is loaded from the network.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ICON_NAMES } from '../../src/ui/icons';
 
 const PAGES = ['src/ui/popup.html', 'src/ui/archive.html', 'src/ui/save.html'];
-const CSS = readFileSync('src/ui/ui.css', 'utf8');
+const CSS = readFileSync('src/ui/ui.css', 'utf8').replace(/\r\n/g, '\n');
 
 describe('interface markup', () => {
   it('asks only for icons that exist', () => {
@@ -17,25 +17,26 @@ describe('interface markup', () => {
     }
   });
 
-  it('ships the fonts the stylesheet and the pages name, with their licence', () => {
-    const urls = [...CSS.matchAll(/url\('([^']+)'\)/g)].map((match) => match[1] as string);
-    expect(urls).toEqual(['fonts/Geist-Variable.woff2', 'fonts/GeistMono-Variable.woff2']);
-    for (const page of PAGES) for (const [, href] of readFileSync(page, 'utf8').matchAll(/rel="preload" href="([^"]+)"/g)) urls.push(href as string);
-    for (const url of urls) expect(existsSync(`src/ui/${url}`), url).toBe(true);
-    expect(readFileSync('src/ui/licenses/Geist-OFL.txt', 'utf8')).toContain('SIL OPEN FONT LICENSE Version 1.1');
+  it('ships the licence of the icons it draws', () => {
     expect(readFileSync('src/ui/licenses/Lucide-ISC.txt', 'utf8')).toContain('ISC License');
   });
 
-  it('loads nothing from another origin', () => {
+  it('loads nothing from another origin, and no font file', () => {
     for (const file of [...PAGES, 'src/ui/ui.css']) expect(readFileSync(file, 'utf8'), file).not.toMatch(/(?:src|href)=["']https?:|url\(['"]?https?:|@import/);
+    expect(CSS).not.toMatch(/@font-face/);
+    for (const page of PAGES) expect(readFileSync(page, 'utf8'), page).not.toMatch(/rel="preload"/);
+    expect(existsSync('src/ui/fonts')).toBe(false);
   });
 
-  it('uses Geist for the interface and Geist Mono for machine values', () => {
-    expect(CSS).toMatch(/--font-sans: 'Geist',/);
-    expect(CSS).toMatch(/--font-mono: 'Geist Mono',/);
-    for (const rule of ['.mono {', '.log {', 'textarea {\n  font-family']) {
-      const start = CSS.replace(/\r\n/g, '\n').indexOf(rule);
-      expect(start, rule).toBeGreaterThanOrEqual(0);
-    }
+  it('uses Segoe UI for the interface and Consolas only for machine values', () => {
+    expect(CSS).toMatch(/--font-sans: 'Segoe UI',/);
+    expect(CSS).toMatch(/--font-mono: Consolas,/);
+    const mono = [...CSS.matchAll(/([^{}]+)\{[^}]*font-family: var\(--font-mono\)/g)].map((match) => (match[1] as string).trim().split('\n').at(-1));
+    expect(mono).toEqual(['.mono', 'textarea']);
+  });
+
+  it('draws with two weights only, as Segoe UI has no medium', () => {
+    const weights = new Set([...CSS.matchAll(/font-weight: (\w+)/g)].map((match) => match[1]));
+    expect([...weights].sort()).toEqual(['400', '600', 'inherit']);
   });
 });

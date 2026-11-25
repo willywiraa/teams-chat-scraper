@@ -98,31 +98,14 @@
 }
 
 /*
- * Type. Geist for the interface and Geist Mono for machine values (conversation keys, the
- * selector overrides, a run's step log), both shipped in fonts/ (SIL OFL, licenses/Geist-OFL.txt).
- * Five sizes, each with its line height; weight 400 for reading, 500 for what is clicked or labels
- * a group, 600 for titles and the numbers that matter. Titles of 16 px and more are set a little
- * tighter, as Geist is drawn for it.
+ * Type. Segoe UI, the font of Edge and Windows around the extension, and Consolas only for values
+ * the user may copy exactly (conversation keys, the selector overrides). Five sizes, each with its
+ * line height. Two weights, because Segoe UI has no medium: 400 for everything, 600 for titles,
+ * group headings, sender names and the numbers that matter.
  */
-@font-face {
-  font-family: 'Geist';
-  src: url('fonts/Geist-Variable.woff2') format('woff2');
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Geist Mono';
-  src: url('fonts/GeistMono-Variable.woff2') format('woff2');
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
 :root {
-  --font-sans: 'Geist', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-mono: 'Geist Mono', Consolas, ui-monospace, monospace;
+  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: Consolas, ui-monospace, monospace;
   --font-xs: 12px;
   --font-s: 13px;
   --font-m: 14px;
@@ -132,7 +115,6 @@
   --leading-s: 18px;
   --leading-m: 20px;
   --leading-title: 1.25;
-  --tracking-title: -0.012em;
   /* The status bar's height: the capture button's bar stops above it. */
   --status-height: 36px;
 }
@@ -148,15 +130,10 @@ body {
   font-family: var(--font-sans);
   font-size: var(--font-m);
   line-height: var(--leading-m);
-  font-synthesis: none;
 }
 
 body[data-mode='popup'] {
   width: 380px;
-}
-
-body[data-mode='panel'] {
-  min-width: 300px;
 }
 
 [hidden] {
@@ -166,15 +143,21 @@ body[data-mode='panel'] {
 h1,
 h2,
 h3,
-h4 {
+h4,
+strong {
   font-weight: 600;
+}
+
+h1,
+h2,
+h3,
+h4 {
   line-height: var(--leading-title);
   text-wrap: pretty;
 }
 
 h2 {
   font-size: var(--font-l);
-  letter-spacing: var(--tracking-title);
   margin: 0 0 var(--space-3);
 }
 
@@ -211,10 +194,8 @@ a:hover {
   word-break: break-all;
 }
 
-/* A run's step log: counts that change every second, in one width so they do not jump. */
+/* A run's step log: counts that change every second, in figures of one width so they do not jump. */
 .log {
-  font-family: var(--font-mono);
-  font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -290,7 +271,6 @@ a:hover {
   margin: 0;
   min-width: 0;
   font-size: var(--font-l);
-  letter-spacing: var(--tracking-title);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -330,7 +310,6 @@ a:hover {
   border-radius: var(--radius-s);
   color: var(--text);
   font-size: var(--font-s);
-  font-weight: 500;
   text-decoration: none;
   transition: background-color 120ms ease;
 }
@@ -376,7 +355,7 @@ a:hover {
 
 .view {
   display: grid;
-  gap: 32px;
+  gap: var(--space-5);
 }
 
 /* A chat's page: the way back, its head, its messages. */
@@ -387,7 +366,6 @@ a:hover {
 .view-title {
   margin: 0;
   font-size: var(--font-xl);
-  letter-spacing: var(--tracking-title);
   overflow-wrap: anywhere;
 }
 
@@ -480,7 +458,7 @@ p.error {
 
 .section-title h2 {
   margin: 0;
-  font-size: var(--font-xl);
+  font-size: var(--font-l);
 }
 
 .section-head {
@@ -513,7 +491,6 @@ a.conv-title {
   align-items: center;
   min-height: 32px;
   color: var(--text);
-  font-weight: 500;
   text-decoration: none;
 }
 
@@ -534,7 +511,6 @@ a.conv-title:hover {
   gap: 6px;
   min-height: 32px;
   font-size: var(--font-s);
-  font-weight: 500;
   text-decoration: none;
 }
 
@@ -542,18 +518,16 @@ a.conv-title:hover {
   text-decoration: underline;
 }
 
+/* Totals and run counts: a label over its number, set apart by space only. */
 .stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: var(--space-2);
-  margin: var(--space-3) 0 var(--space-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: var(--space-3) 0;
 }
 
 .stats div {
   min-width: 0;
-  background: var(--bg);
-  border-radius: var(--radius-s);
-  padding: var(--space-2) var(--space-3);
 }
 
 .stats dt {
@@ -563,7 +537,7 @@ a.conv-title:hover {
 }
 
 .stats dd {
-  margin: var(--space-1) 0 0;
+  margin: 2px 0 0;
   font-size: var(--font-l);
   font-weight: 600;
   line-height: var(--leading-title);
@@ -571,11 +545,7 @@ a.conv-title:hover {
 }
 
 .popup-main .stats {
-  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
-}
-
-.popup-main .stats div {
-  padding: var(--space-2);
+  gap: var(--space-2) var(--space-4);
 }
 
 /* A short state: a chat's type, its history, the phase of a run. The words carry the state. */
@@ -589,7 +559,6 @@ a.conv-title:hover {
   background: var(--notice-bg);
   color: var(--text);
   font-size: var(--font-xs);
-  font-weight: 500;
   line-height: var(--leading-xs);
   white-space: nowrap;
 }
@@ -648,7 +617,6 @@ button {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-weight: 500;
 }
 
 button:hover:not(:disabled),
@@ -814,12 +782,6 @@ textarea {
   opacity: 1;
 }
 
-input[type='number'],
-input[type='text'],
-textarea {
-  background: var(--bg);
-}
-
 input[type='number'] {
   font-variant-numeric: tabular-nums;
 }
@@ -845,10 +807,11 @@ textarea {
   border: none;
 }
 
+/* A group's heading in a card: Messages to capture, Period, Save a file, Format, Options. */
 .group-label {
-  padding: 0 0 var(--space-2);
+  padding: 0 0 6px;
   font-size: var(--font-s);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .segments {
@@ -869,7 +832,6 @@ textarea {
   border-radius: var(--radius-s);
   background: var(--card);
   font-size: var(--font-s);
-  font-weight: 500;
   line-height: var(--leading-s);
   text-align: center;
   transition:
@@ -887,16 +849,15 @@ textarea {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-1);
   min-width: 0;
-  min-height: 64px;
-  padding: 10px var(--space-1) var(--space-2);
+  min-height: 56px;
+  padding: var(--space-2) var(--space-1);
   border: 1px solid var(--control-border);
   border-radius: var(--radius-s);
   background: var(--card);
-  font-size: var(--font-xs);
-  font-weight: 500;
-  line-height: var(--leading-xs);
+  font-size: var(--font-s);
+  line-height: var(--leading-s);
   text-align: center;
   transition:
     background-color 120ms ease,
@@ -969,7 +930,7 @@ textarea {
 
 .tiles {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-2);
 }
 
@@ -996,7 +957,7 @@ textarea {
   min-height: 32px;
   padding: var(--space-1) 0;
   font-size: var(--font-s);
-  font-weight: 500;
+  font-weight: 600;
   list-style: none;
   cursor: pointer;
 }
@@ -1048,7 +1009,6 @@ textarea {
 .conv-head .conv-title {
   margin: 0;
   font-size: var(--font-l);
-  letter-spacing: var(--tracking-title);
 }
 
 #capture-box,
@@ -1087,7 +1047,7 @@ textarea {
 
 /* **Save a file** starts the second group of the popup. */
 .save-toggle {
-  font-weight: 500;
+  font-weight: 600;
 }
 
 /*
@@ -1230,7 +1190,6 @@ a.result-link {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-weight: 500;
 }
 
 .status-detail {
@@ -1244,15 +1203,8 @@ a.result-link {
   padding: 2px var(--space-2);
   border-radius: 10px;
   background: var(--selected);
-  font-weight: 500;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-}
-
-/* The side panel at its narrowest: two tiles per row. */
-@media (max-width: 359px) {
-  .capture-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 /* ------------------------------------------------------- saving a file */
@@ -1263,19 +1215,22 @@ a.result-link {
   gap: var(--space-3);
 }
 
-.format-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+/* The four formats share one row, each as wide as its name needs, its icon before it. */
+.save-choices {
+  container-type: inline-size;
 }
 
-/* In the popup and the side panel, each format's icon sits over its name. */
-body[data-mode='popup'] .format-row .segment,
-body[data-mode='panel'] .format-row .segment {
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-1);
-  font-size: var(--font-xs);
-  line-height: var(--leading-xs);
+.format-row > .segment {
+  flex: 1 1 auto;
+  padding-inline: var(--space-2);
+}
+
+/* Where one row would not fit them (the side panel, narrower than the popup), two by two. */
+@container (max-width: 320px) {
+  .format-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .save-line {
@@ -1338,7 +1293,7 @@ th {
   font-size: var(--font-xs);
   line-height: var(--leading-xs);
   color: var(--muted);
-  font-weight: 500;
+  font-weight: 400;
   white-space: nowrap;
 }
 
@@ -1570,7 +1525,7 @@ td.num button.link {
 /* The page's sections, one under the other: Conversations, Backup and import, Settings, About. */
 .page-section {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
   scroll-margin-top: var(--space-4);
 }
 
@@ -1617,7 +1572,7 @@ td.num button.link {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-1);
 }
 
 .messages .day {
@@ -1626,7 +1581,7 @@ td.num button.link {
   border-bottom: 1px solid var(--border);
   color: var(--muted);
   font-size: var(--font-s);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .messages .day:first-child {
@@ -1635,7 +1590,7 @@ td.num button.link {
 
 .msg {
   max-width: 760px;
-  padding: var(--space-2) var(--space-3);
+  padding: 6px var(--space-3);
   border-radius: var(--radius-m);
 }
 
@@ -1644,10 +1599,10 @@ td.num button.link {
   background: var(--self-bg);
 }
 
-/* A run from one sender: 16 px between its texts, against 28 px between runs. */
+/* A run from one sender: 6 px between its texts, against 16 px between messages. */
 .msg.continued {
-  margin-top: calc(var(--space-2) * -1);
-  padding-top: var(--space-1);
+  margin-top: calc(var(--space-1) * -1);
+  padding-top: 0;
 }
 
 .msg.system {
@@ -1665,7 +1620,7 @@ td.num button.link {
   flex-wrap: wrap;
   gap: var(--space-2);
   align-items: baseline;
-  margin-bottom: var(--space-1);
+  margin-bottom: 2px;
   font-size: var(--font-xs);
   line-height: var(--leading-xs);
   color: var(--muted);

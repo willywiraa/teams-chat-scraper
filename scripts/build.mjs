@@ -34,9 +34,7 @@ async function copyStatic() {
   const popup = await readFile(path.join(root, 'src/ui/popup.html'), 'utf8');
   await writeFile(path.join(outdir, 'sidepanel.html'), popup.replace('data-mode="popup"', 'data-mode="panel"'));
   await cp(path.join(root, 'icons'), path.join(outdir, 'icons'), { recursive: true });
-  // Geist and Geist Mono ship with the extension, which loads nothing from the network; the
-  // licences cover the fonts and the Lucide icons drawn in src/ui/icons.ts.
-  await cp(path.join(root, 'src/ui/fonts'), path.join(outdir, 'fonts'), { recursive: true });
+  // The licence of the Lucide icons drawn in src/ui/icons.ts.
   await cp(path.join(root, 'src/ui/licenses'), path.join(outdir, 'licenses'), { recursive: true });
 }
 
