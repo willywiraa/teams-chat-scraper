@@ -333,7 +333,7 @@ a:hover {
 .popup-main,
 #view-main {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 .popup-main > *,
@@ -342,7 +342,17 @@ a:hover {
 }
 
 .popup-main {
+  padding: var(--space-2);
+}
+
+/* The popup's cards: 12 px inside, 8 px apart, so more of the choices fit without scrolling. */
+.popup-main .card {
   padding: var(--space-3);
+}
+
+/* A group's heading sits 6 px over its choices, a little closer than the 8 px between parts. */
+.popup-main .group-label {
+  padding-bottom: 6px;
 }
 
 .archive-main {
@@ -1007,18 +1017,18 @@ textarea {
 }
 
 /*
- * The popup's parts, each a card 12 px from the next: the chat, what to capture (with Options),
- * the file to save (its format, then what it includes). Inside a card, 12 px between its parts.
+ * The popup's parts, each a card 8 px from the next: the chat, what to capture (with Options),
+ * the file to save (its format, then what it includes). Inside a card, 8 px between its parts.
  */
 #actions,
 #capture-box,
 #resume-box,
 .popup-group {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
-/* The line under the capture choices belongs to them: 8 px, not 12. */
+/* The line under the capture choices belongs to them: 4 px, not 8. */
 #capture-hint {
   margin-top: calc(-1 * var(--space-1));
 }
@@ -1038,7 +1048,7 @@ textarea {
 
 .period-box {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 /* Four periods, two by two like the formats: four in a row would not fit their names. */
@@ -1071,8 +1081,8 @@ textarea {
   bottom: var(--status-height);
   z-index: 1;
   display: grid;
-  margin: 0 calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
-  padding: var(--space-3);
+  margin: 0 calc(-1 * var(--space-2)) calc(-1 * var(--space-2));
+  padding: var(--space-2);
   border-top: 1px solid var(--border);
   background: var(--card);
 }
@@ -1083,12 +1093,12 @@ textarea {
 
 #run-panel {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 /*
  * Controls in the popup and the side panel are a little roomier than on the archive page: 36 px
- * with a mouse (touch keeps its 44 px), with 8 px between the choices of a group.
+ * with a mouse (touch keeps its 44 px), with 6 px between the choices of a group.
  */
 @media not (pointer: coarse) {
   .popup-main button:not(.link):not(.icon-button),
@@ -1104,17 +1114,26 @@ textarea {
 
 .popup-main .segments,
 .popup-main .tiles {
-  gap: var(--space-2);
-}
-
-.popup-main .tile {
-  min-height: 64px;
-  padding: 10px var(--space-1);
   gap: 6px;
 }
 
+.popup-main .tile {
+  min-height: 56px;
+  padding: var(--space-2) var(--space-1);
+  gap: var(--space-1);
+}
+
 .popup-main .include-list {
-  gap: var(--space-2) var(--space-3);
+  gap: 6px var(--space-3);
+}
+
+/* Format and Include in the file: 12 px on each side of the rule in the popup, 16 on the page. */
+.popup-main .save-choices {
+  gap: var(--space-3);
+}
+
+.popup-main .save-choices > .choice-group:not(:last-child) {
+  padding-bottom: var(--space-3);
 }
 
 #run-panel .stats {
@@ -1195,7 +1214,7 @@ a.result-link {
   align-items: center;
   gap: var(--space-2);
   height: var(--status-height);
-  margin: 0 calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
+  margin: 0 calc(-1 * var(--space-2)) calc(-1 * var(--space-2));
   padding: 0 var(--space-3);
   border-top: 1px solid var(--border);
   background: var(--card);
