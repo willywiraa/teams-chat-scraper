@@ -146,55 +146,43 @@ export function conversationDetails(record: ConversationRecord): string {
 
 // ---------------------------------------------------------- summary lines
 
+/** "Complete", "Not back to the start" or "Not checked". */
 /**
  * How much of a chat's history is archived, in the same words everywhere: complete back to its
- * beginning, partial (not back to it), or not checked (no capture covered a stretch of it:
- * only messages on screen, for example). This is the History column's badge.
+ * beginning, not back to the start, or not checked (no capture covered a stretch of it: only
+ * messages on screen, for example).
  */
-export function historyLabel(record: ConversationRecord): 'Complete' | 'Partial' | 'Not checked' {
+export function historyLabel(record: ConversationRecord): string {
   const status = coverageStatus(record.coverage, record.newestSortKey);
-  return status === 'complete' ? 'Complete' : status === 'partial' ? 'Partial' : 'Not checked';
+  return status === 'complete' ? 'Complete' : status === 'partial' ? 'Not back to the start' : 'Not checked';
 }
 
-const HISTORY_WORDS: Record<ReturnType<typeof historyLabel>, string> = {
-  Complete: 'complete history',
-  Partial: 'partial history',
-  'Not checked': 'history not checked',
-};
+/** "3 Jan 2023 – 5 Mar 2024", or '' when nothing is archived. */
+export function archivedPeriod(record: Pick<ConversationRecord, 'oldestSortKey' | 'newestSortKey'>): string {
+  if (record.oldestSortKey === null) return '';
+  const from = formatDate(record.oldestSortKey);
+  const to = formatDate(record.newestSortKey);
+  // One day is one date, not "21 Nov – 21 Nov".
+  return from === to ? from : `${from} – ${to}`;
+}
 
 /**
- * "4–24 Nov 2026", "3 Jan 2023 – 5 Mar 2024", or '' when nothing is archived. A month and year
- * the two ends share are written once, and one day is one date. `locale` is for the tests.
+ * One line about a chat's archive: "1,234 messages · complete back to 3 Jan 2023 · updated 3 days ago".
+ * Otherwise it gives the period and what is missing; a chat without messages is "Not archived yet".
  */
-export function archivedPeriod(record: Pick<ConversationRecord, 'oldestSortKey' | 'newestSortKey'>, locale?: string): string {
-  const from = record.oldestSortKey;
-  if (from === null || !Number.isFinite(from)) return '';
-  const to = record.newestSortKey !== null && Number.isFinite(record.newestSortKey) ? record.newestSortKey : from;
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).formatRange(Math.min(from, to), Math.max(from, to));
-}
-
-/** "updated 3 days ago", or "last run 3 days ago" when no update brought the chat up to date. */
-export function updatedText(record: ConversationRecord, nowMs: number = Date.now()): string {
-  return record.lastUpdate ? `updated ${formatAgo(record.lastUpdate.at, nowMs)}` : `last run ${formatAgo(record.lastExtractedAt, nowMs)}`;
-}
-
-/** The popup's first line about a chat's archive: "451 messages · updated 4 days ago", or "Not archived yet". */
-export function historySummary(record: ConversationRecord | null | undefined, nowMs: number = Date.now()): string {
-  if (!record || record.messageCount === 0) return 'Not archived yet';
-  return `${countOf(record.messageCount, 'message')} · ${updatedText(record, nowMs)}`;
-}
-
-/** The line under it: the period archived and how much of the history that is, "4–24 Nov 2026 · partial history". */
-export function historyExtent(record: ConversationRecord | null | undefined): string {
-  if (!record || record.messageCount === 0) return '';
-  const period = archivedPeriod(record);
-  return period ? `${period} · ${HISTORY_WORDS[historyLabel(record)]}` : '';
-}
-
-/** Both on one line, for the narrow list: "451 messages · 4–24 Nov 2026 · partial history · updated 4 days ago". */
 export function historyLine(record: ConversationRecord | null | undefined, nowMs: number = Date.now()): string {
   if (!record || record.messageCount === 0) return 'Not archived yet';
-  return [countOf(record.messageCount, 'message'), historyExtent(record), updatedText(record, nowMs)].filter(Boolean).join(' · ');
+  const parts = [`${formatNumber(record.messageCount)} ${record.messageCount === 1 ? 'message' : 'messages'}`];
+  const status = coverageStatus(record.coverage, record.newestSortKey);
+  if (record.oldestSortKey !== null) {
+    parts.push(
+      status === 'complete'
+        ? `complete back to ${formatDate(record.oldestSortKey)}`
+        : `${archivedPeriod(record)}, ${status === 'partial' ? 'not back to the start' : 'history not checked'}`,
+    );
+  }
+  parts.push(record.lastUpdate ? `updated ${formatAgo(record.lastUpdate.at, nowMs)}` : `last run ${formatAgo(record.lastExtractedAt, nowMs)}`);
+  return parts.join(' · ');
 }
 
 // ------------------------------------------------------------ archive totals

@@ -28,14 +28,11 @@ interface NumberField {
   key: NumericSetting;
   label: string;
   step?: number;
-  /** The line under the field; else its range, "1 to 1,440". */
-  hint?: string;
 }
 
-/** General: a short label, and what it means in the line under the field. */
 const GENERAL_NUMBERS: NumberField[] = [
-  { key: 'maxDurationMinutes', label: 'Longest run (minutes)' },
-  { key: 'updateOverlapDays', label: 'Recheck days', hint: 'Days before the last update checked again for edits.' },
+  { key: 'maxDurationMinutes', label: 'Maximum run duration (minutes)' },
+  { key: 'updateOverlapDays', label: 'Update: days before the last update to check again for edits and late replies' },
 ];
 
 const ADVANCED_NUMBERS: NumberField[] = [
@@ -56,31 +53,25 @@ const ADVANCED_NUMBERS: NumberField[] = [
 const NUMBER_FIELDS = [...GENERAL_NUMBERS, ...ADVANCED_NUMBERS];
 
 const SPEED_LABELS: Record<ScrollSpeed | 'custom', string> = {
-  gentle: 'Gentle',
+  gentle: 'Gentle: slower, for slow computers or connections',
   normal: 'Normal',
-  fast: 'Fast',
+  fast: 'Fast: shorter waits, for fast computers',
   custom: 'Custom (set under Advanced)',
 };
 
-function numberField({ key, label, step, hint }: NumberField): HTMLLabelElement {
+function numberField({ key, label, step }: NumberField): HTMLLabelElement {
   const [min, max] = SETTING_LIMITS[key];
   return el(
     'label',
     { className: 'field', for: key },
     el('span', {}, label),
     el('input', { type: 'number', id: key, name: key, min: String(min), max: String(max), step: String(step ?? 1), inputmode: 'decimal' }),
-    el('span', { className: 'hint' }, hint ?? `${formatNumber(min)} to ${formatNumber(max)}`),
+    el('span', { className: 'hint' }, `${formatNumber(min)} to ${formatNumber(max)}`),
   );
 }
 
-/** A checkbox, its short label, and the line under the label that explains it. */
-function checkField(id: string, label: string, hint?: string): HTMLLabelElement {
-  return el(
-    'label',
-    { className: 'check field', for: id },
-    el('input', { type: 'checkbox', id }),
-    el('span', {}, label, hint ? el('span', { className: 'hint' }, hint) : null),
-  );
+function checkField(id: string, label: string): HTMLLabelElement {
+  return el('label', { className: 'check field', for: id }, el('input', { type: 'checkbox', id }), el('span', {}, label));
 }
 
 /** What the bar beside **Save settings** says until something is saved or reset. */
@@ -101,36 +92,28 @@ export function buildSettings(): void {
       { className: 'field', for: 'scroll-speed' },
       el('span', {}, 'Scrolling speed'),
       el('select', { id: 'scroll-speed' }, ...(Object.keys(SPEED_LABELS) as Array<ScrollSpeed | 'custom'>).map((speed) => el('option', { value: speed }, SPEED_LABELS[speed]))),
-      el('span', { className: 'hint' }, 'Use Gentle on slow computers.'),
     ),
     ...GENERAL_NUMBERS.map(numberField),
-    el(
-      'label',
-      { className: 'field', for: 'selfDisplayName' },
-      el('span', {}, 'Your display name'),
-      el('input', { type: 'text', id: 'selfDisplayName', maxlength: '200', placeholder: 'As shown in Teams' }),
-      el('span', { className: 'hint' }, 'Marks your own messages.'),
-    ),
+    el('label', { className: 'field', for: 'selfDisplayName' }, el('span', {}, 'Your display name (sender of your own messages)'), el('input', { type: 'text', id: 'selfDisplayName', maxlength: '200' })),
     el(
       'label',
       { className: 'field', for: 'dateOrder' },
-      el('span', {}, 'Date order'),
+      el('span', {}, 'Date order used by Teams (fallback only)'),
       el(
         'select',
         { id: 'dateOrder' },
-        el('option', { value: 'auto' }, 'Automatic'),
+        el('option', { value: 'auto' }, 'Automatic (browser language)'),
         el('option', { value: 'MDY' }, 'Month/Day/Year'),
         el('option', { value: 'DMY' }, 'Day/Month/Year'),
         el('option', { value: 'YMD' }, 'Year/Month/Day'),
       ),
-      el('span', { className: 'hint' }, 'Only if Teams dates read wrong.'),
     ),
-    checkField('saveImages', 'Keep pictures while capturing', 'Needed to include pictures in saved files.'),
-    checkField('pauseWhenHidden', 'Pause when the Teams tab is hidden', 'Recommended. Hidden tabs run slowly.'),
+    checkField('saveImages', 'Keep the pictures shown in messages while capturing (the copy Teams already displays). Without them, no saved file can include pictures.'),
+    checkField('pauseWhenHidden', 'Pause while the Teams tab is hidden (recommended: background tabs are throttled)'),
   );
   byId('settings-fields').replaceChildren(
     ...ADVANCED_NUMBERS.map(numberField),
-    checkField('rescanByDefault', 'Re-read archived parts by default', 'The popup’s option under Options. Finds edits and deletions. Slower.'),
+    checkField('rescanByDefault', 'Re-read archived parts at normal speed by default (the popup’s option under Options)'),
   );
   // How many settings Advanced holds while it is closed: the numbers, the checkbox and the selector overrides.
   byId('advanced-hint').textContent = `${ADVANCED_NUMBERS.length + 2} settings`;

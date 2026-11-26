@@ -20,13 +20,13 @@ import { coverageStatus } from '../storage/coverage';
 import { ArchiveRepository } from '../storage/repository';
 import {
   byId,
+  captureLabel,
   countOf,
   el,
   errorText,
   formatDate,
+  formatAgo,
   formatDateTime,
-  formatDay,
-  formatDayTime,
   formatDuration,
   formatMoment,
   formatNumber,
@@ -39,9 +39,9 @@ import {
 } from './common';
 import { icon, placeIcons, type IconName } from './icons';
 import { LAST_SAVE_KEY, parseLastSave, readLastSave, type LastSave } from './last-save';
-import { fileNoun, fileShortName, loadSaveChoices, SaveForm, SHORT_FORMAT_NAMES } from './save-form';
+import { fileNoun, loadSaveChoices, SaveForm } from './save-form';
 import { wireThemeButton } from './theme-button';
-import { historyExtent, historySummary, reachShare, routeHash, type Route } from './view-models';
+import { historyLine, reachShare, routeHash, type Route } from './view-models';
 
 /** The capture choices of the popup: new messages, a period, or the full history. */
 type PopupChoice = CaptureChoice;
@@ -181,24 +181,30 @@ function renderStatus(status: ContentStatus): void {
 }
 
 /**
- * The line at the bottom: that the popup reaches the Teams tab and what the tab shows. During a
- * run the panel above says what it is doing, and the line says what keeps it going.
+ * The line at the bottom: that the popup reaches the Teams tab and what the tab shows, or during a
+ * run its phase, time and the messages seen so far. The run panel says the same in full.
  */
 function renderStatusBar(status: ContentStatus): void {
   const bar = byId('status-bar');
+  const seen = status.progress?.counters.uniqueSeen ?? 0;
   let tone = 'ready';
   let text = 'Connected to Teams';
   let detail = '';
+  let count: string | null = null;
   if (status.state === 'idle') {
     if (!status.conversation) tone = 'idle';
     detail = !status.conversation ? 'no chat open' : status.visibleMessages === null ? '' : `${countOf(status.visibleMessages, 'message')} on screen`;
   } else {
     tone = status.state === 'paused' ? 'paused' : 'busy';
-    text = 'Keep this Teams tab open';
+    text = byId('run-phase').textContent ?? '';
+    detail = status.session ? formatDuration(Date.now() - Date.parse(status.session.startedAt)) : '';
+    count = `${formatNumber(seen)} seen`;
   }
   bar.dataset.tone = tone;
   setText('status-text', text);
   setText('status-detail', detail ? ` · ${detail}` : '');
+  setText('status-count', count ?? '');
+  setHidden('status-count', count === null);
 }
 
 function renderProgress(status: ContentStatus): void {
@@ -208,9 +214,13 @@ function renderProgress(status: ContentStatus): void {
   if (status.state === 'stopping') phase = 'Stopping…';
   else if (status.state === 'paused' || progress?.phase === 'paused') phase = 'Paused';
   else if (progress?.phase === 'waiting-visible') phase = 'Waiting: Teams tab is hidden';
-  else if (progress?.phase === 'running') phase = progress.inCoveredRange ? 'Passing archived messages…' : runPhase(status.session?.mode, status.session?.captureFrom);
+  else if (progress?.phase === 'running') phase = progress.inCoveredRange ? 'Passing archived messages…' : 'Extracting…';
   setText('run-phase', phase);
-  setText('run-elapsed', status.session ? formatDuration(Date.now() - Date.parse(status.session.startedAt)) : '');
+  setText(
+    'run-elapsed',
+    status.session ? `${runName(status.session.mode, status.session.captureFrom)} · ${formatDuration(Date.now() - Date.parse(status.session.startedAt))}` : '',
+  );
+  setText('run-seen', formatNumber(counters?.uniqueSeen ?? 0));
   setText('run-new', formatNumber(counters?.inserted ?? 0));
   setText('run-updated', formatNumber(counters?.updated ?? 0));
   setText('run-unchanged', formatNumber(counters?.unchanged ?? 0));
@@ -228,10 +238,17 @@ function renderProgress(status: ContentStatus): void {
     bar.setAttribute('aria-valuetext', oldest ? `${percent}%, back to ${formatDateTime(oldest)}` : `${percent}%`);
   }
   let reach = '';
-  if (typeof captureFrom === 'number') reach = oldest ? `Reached ${formatDayTime(oldest)} · going back to ${formatDayTime(captureFrom)}` : `Going back to ${formatDayTime(captureFrom)}`;
-  else if (oldest) reach = `Reached ${formatDayTime(oldest)}`;
+  if (typeof captureFrom === 'number') reach = oldest ? `Back to ${formatDateTime(oldest)}, going back to ${formatMoment(captureFrom)}` : `Going back to ${formatMoment(captureFrom)}`;
+  else if (oldest) reach = `Reached back to ${formatDateTime(oldest)}`;
   setText('run-reach', reach);
   setHidden('run-reach', reach === '');
+  const detail = [
+    counters ? `${formatNumber(counters.passes)} scroll steps` : '',
+    counters?.gapsDetected ? `${counters.gapsDetected} gap checks` : '',
+    counters?.imagesSaved ? `${countOf(counters.imagesSaved, 'image')} saved` : '',
+    counters?.imagesFailed ? `${countOf(counters.imagesFailed, 'image')} not saved` : '',
+  ].filter(Boolean);
+  setText('run-detail', detail.join(' · '));
   const save = status.session?.save ?? null;
   setText('run-save', save ? `Saves ${fileNoun(save)} when the capture ends.` : '');
   setHidden('run-save', !save);
@@ -245,12 +262,11 @@ function renderProgress(status: ContentStatus): void {
   byId<HTMLButtonElement>('btn-stop').disabled = status.state === 'stopping';
 }
 
-/** The phase title while a run reads new messages: what it captures, as in the capture choice. */
-function runPhase(mode: ScrapeMode | undefined, captureFrom: number | null | undefined): string {
-  if (mode === 'incremental') return 'Capturing new messages…';
-  if (mode === 'visible') return 'Capturing the messages on screen…';
-  if (mode === 'full') return typeof captureFrom === 'number' ? `Capturing since ${formatDayTime(captureFrom)}…` : 'Capturing the full history…';
-  return 'Capturing…';
+/** The run in progress, named as in the capture choice. */
+function runName(mode: ScrapeMode, captureFrom: number | null | undefined): string {
+  if (mode === 'incremental') return 'New messages since the last update';
+  if (mode === 'visible') return 'The messages on screen';
+  return captureLabel(mode, captureFrom);
 }
 
 /** "· 3 images saved (1 not saved)", or nothing when the run met no images. */
@@ -277,18 +293,20 @@ function showResult(tone: 'success' | 'notice' | 'error', lines: Array<HTMLEleme
 function renderResult(result: FinishedSessionInfo): void {
   const counters = result.counters;
   const tone = result.status === 'failed' ? 'error' : result.status === 'completed' ? 'success' : 'notice';
-  // A finished run is "Done"; one that ended early says how, as before.
-  const outcome = result.status === 'completed' ? 'Done' : outcomeText(result.status, result.stopReason);
   const children: Array<HTMLElement | null> = [
-    el('strong', {}, `${outcome} · ${countOf(counters.inserted, 'new message')}`),
-    el('div', { className: 'muted small' }, `${formatNumber(counters.updated)} updated · ${formatNumber(counters.unchanged)} already archived${imageSummary(counters)}`),
+    el('strong', {}, outcomeText(result.status, result.stopReason)),
+    el(
+      'div',
+      { className: 'small' },
+      `${formatNumber(counters.inserted)} new · ${formatNumber(counters.updated)} updated · ${formatNumber(counters.unchanged)} already archived${imageSummary(counters)}`,
+    ),
     result.error ? el('div', { className: 'small' }, result.error) : null,
     result.status !== 'completed' && result.mode !== 'visible'
       ? el('div', { className: 'muted small' }, 'Start it again to continue; parts already archived are passed quickly.')
       : null,
     ...result.warnings.slice(0, 3).map((warning) => el('div', { className: 'warning small' }, warning)),
     saveLine(result),
-    el('div', { className: 'small result-link' }, archiveLink({ view: 'conversation', key: result.conversationKey }, 'Open in the archive')),
+    el('div', { className: 'small result-link' }, archiveLink({ view: 'conversation', key: result.conversationKey }, 'Open this chat in the archive')),
   ];
   showResult(tone, children);
 }
@@ -298,8 +316,7 @@ function saveLine(result: FinishedSessionInfo): HTMLElement | null {
   if (!result.save) return null;
   const saved = lastSave?.sessionId === result.sessionId ? lastSave : null;
   if (saved?.problem) return el('div', { className: 'warning small' }, saved.problem);
-  // A file name ends the line without a full stop, which would read as part of the name.
-  if (saved) return el('div', { className: 'small' }, saved.fileName ? `Saved ${saved.fileName}` : 'Opened the print dialog to save a PDF.');
+  if (saved) return el('div', { className: 'small' }, saved.fileName ? `Saved ${saved.fileName}.` : 'Opened the print dialog to save a PDF.');
   if (result.savingFile) return el('div', { className: 'small' }, `Saving ${fileNoun(result.save)} in a new tab…`);
   return el('div', { className: 'muted small' }, 'No file was saved, because the capture did not finish. Save a file from the archive only saves what it captured.');
 }
@@ -309,7 +326,6 @@ async function renderArchive(status: ContentStatus): Promise<void> {
   resumable = null;
   if (!conversation) {
     setText('arch-summary', '');
-    setHidden('arch-extent', true);
     setHidden('arch-note', true);
     setHidden('resume-box', true);
     setHidden('capture-box', false);
@@ -321,10 +337,7 @@ async function renderArchive(status: ContentStatus): Promise<void> {
   const resolution = await repo.resolveConversation(conversation, status.evidence ?? null);
   const record = resolution.record;
   renderArchiveNote(resolution, conversation.title);
-  setText('arch-summary', historySummary(record));
-  const extent = historyExtent(record);
-  setText('arch-extent', extent);
-  setHidden('arch-extent', extent === '');
+  setText('arch-summary', historyLine(record));
   const coverage = record ? coverageStatus(record.coverage, record.newestSortKey) : 'empty';
   renderCapture({ record, conversationKey: conversation.conversationKey, idle: status.state === 'idle' });
 
@@ -408,16 +421,16 @@ function check(name: string, value: string): void {
   if (input) input.checked = true;
 }
 
-/** The capture chosen; for **Date range**, the period chosen under it. */
+/** The tile chosen; for **Date range**, the period chosen under it. */
 function selectedChoice(): PopupChoice {
-  const capture = checkedValue('capture') ?? 'everything';
-  return (capture === 'range' ? checkedValue('capture-period') ?? 'last-7d' : capture) as PopupChoice;
+  const tile = checkedValue('capture') ?? 'everything';
+  return (tile === 'range' ? checkedValue('capture-period') ?? 'last-7d' : tile) as PopupChoice;
 }
 
-/** The capture button says what it captures, and the file it saves: "Capture new messages · save PDF". */
+/** The capture button says what it captures, and the file it saves. */
 function startLabel(choice: PopupChoice, rangeStart: number | null, save: SaveChoices | null): string {
   const capture = captureText(choice, rangeStart);
-  return save ? `${capture} · save ${fileShortName(save)}` : capture;
+  return save ? `${capture} and save ${fileNoun(save)}` : capture;
 }
 
 function captureText(choice: PopupChoice, rangeStart: number | null): string {
@@ -441,11 +454,9 @@ function captureText(choice: PopupChoice, rangeStart: number | null): string {
 function captureHint(choice: PopupChoice, record: ConversationRecord | null): string {
   const passed = byId<HTMLInputElement>('opt-rescan').checked ? 'parts already archived are read again' : 'parts already archived are passed quickly';
   if (choice === 'update') {
-    // The day an update starts from: the newest message the last update reached.
-    const anchor = updateAnchor(record);
-    const since = anchor === null ? 'Since the newest archived message' : `Since ${formatDay(anchor)}`;
+    const since = record?.lastUpdate ? `Since the last update, ${formatAgo(record.lastUpdate.at)}.` : 'Since the newest archived message.';
     const days = settings.updateOverlapDays;
-    return days > 0 ? `${since}, plus ${days === 1 ? '1 earlier day' : `${days} earlier days`} for edits.` : `${since}. Stops when it meets archived messages.`;
+    return `${since} ${days > 0 ? `Also checks the ${days === 1 ? 'day' : `${days} days`} before again, for edits and late replies.` : 'Stops when it meets archived messages.'}`;
   }
   if (choice === 'everything') return `Back to the beginning of the chat; ${passed}.`;
   const plan = capturePlan(choice, Date.now(), byId<HTMLInputElement>('capture-from').value);
@@ -557,7 +568,7 @@ async function command(type: 'content/pause' | 'content/resume' | 'content/stop'
 function wire(): void {
   placeIcons();
   byId('btn-start').addEventListener('click', startCapture);
-  saveForm = new SaveForm(byId('save-choices'), () => renderCapture(), SHORT_FORMAT_NAMES);
+  saveForm = new SaveForm(byId('save-choices'), () => renderCapture());
   byId('opt-save').addEventListener('change', () => {
     void chrome.storage.local.set({ [SAVE_AFTER_KEY]: byId<HTMLInputElement>('opt-save').checked }).catch(() => undefined);
   });

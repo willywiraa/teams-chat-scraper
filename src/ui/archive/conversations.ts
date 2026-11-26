@@ -1,7 +1,7 @@
 /**
  * Conversations, at the top of the archive page: the list with search, type filter and sorting,
  * for finding and opening a chat; and the actions on a conversation (save a file, its images,
- * and in a menu rename, merge, copy its key, delete), which its message view shows.
+ * rename, merge, delete), which its message view shows.
  */
 import { saveTargetHash } from '../../export/options';
 import { STALE_SESSION_MS } from '../../shared/protocol';
@@ -24,7 +24,6 @@ import {
   type TypeFilter,
 } from '../view-models';
 import { guarded, type AppContext } from './context';
-import { actionMenu } from './menu';
 
 // -------------------------------------------------------------------- list
 
@@ -72,17 +71,17 @@ function conversationCell(record: ConversationRecord): HTMLTableCellElement {
   );
 }
 
-/**
- * When the chat was last brought up to date, as a relative time ("4 days ago"). The full date, and
- * its last run when that was later, are in the tooltip; the chat's own page says it too.
- */
+/** When the chat was last brought up to date, and its last run when that was later. */
 function lastUpdateCell(record: ConversationRecord): HTMLTableCellElement {
   const update = record.lastUpdate?.at;
   const laterRun = update && Date.parse(record.lastExtractedAt) - Date.parse(update) > 60_000;
-  const title = update
-    ? `${formatDateTime(update)}${laterRun ? ` · last run ${formatDateTime(record.lastExtractedAt)}` : ''}`
-    : `Last run ${formatDateTime(record.lastExtractedAt)}`;
-  return el('td', { className: 'wide-only' }, el('time', { dateTime: update ?? record.lastExtractedAt, title }, update ? formatAgo(update) : 'Not yet'));
+  return el(
+    'td',
+    { className: 'wide-only' },
+    el('div', {}, update ? formatAgo(update) : 'Not yet'),
+    el('div', { className: 'muted small' }, update ? formatDateTime(update) : `last run ${formatDateTime(record.lastExtractedAt)}`),
+    laterRun ? el('div', { className: 'muted small' }, `last run ${formatDateTime(record.lastExtractedAt)}`) : null,
+  );
 }
 
 function conversationRow(app: AppContext, record: ConversationRecord, imageCount: number): HTMLTableRowElement {
@@ -110,49 +109,28 @@ function conversationRow(app: AppContext, record: ConversationRecord, imageCount
   );
 }
 
-/** The history column: Complete, Partial or Not checked, as a badge whose words carry the state. */
+/** The history column: complete, not back to the start, or not checked, as a badge whose words carry the state. */
 function historyBadge(record: ConversationRecord): HTMLSpanElement {
   const label = historyLabel(record);
   const tone = label === 'Complete' ? 'success' : label === 'Not checked' ? 'neutral' : '';
   return el('span', { className: `badge ${tone}`.trim() }, label);
 }
 
-/**
- * The actions on a conversation, on its message view: **Save a file…** and its images as buttons,
- * then a ⋯ menu with Rename, Merge, Copy chat key and, last and apart, Delete.
- */
-export function conversationActions(app: AppContext, record: ConversationRecord, imageCount: number): HTMLElement[] {
+/** Save a file, its images, Rename, Merge and Delete for a conversation, on its message view. */
+export function conversationActions(app: AppContext, record: ConversationRecord, imageCount: number): HTMLButtonElement[] {
   const merging = Boolean(record.mergedInto);
   const button = (name: IconName, text: string, props: Parameters<typeof el>[1]): HTMLButtonElement =>
     el('button', { type: 'button', ...props }, el('span', { className: 'icon-holder' }, icon(name)), text);
-  const actions: HTMLElement[] = [
+  const buttons: HTMLButtonElement[] = [
     button('file-down', 'Save a file…', { className: 'primary', disabled: record.messageCount === 0, onclick: guarded(app, () => saveConversation(record)) }),
   ];
-  if (imageCount > 0) actions.push(button('images', `Images (${formatNumber(imageCount)})`, { onclick: guarded(app, () => showImages(record)) }));
-  actions.push(
-    actionMenu('More actions', [
-      [
-        { icon: 'pencil', label: 'Rename…', disabled: merging, action: guarded(app, () => renameConversation(app, record)) },
-        { icon: 'merge', label: 'Merge…', disabled: merging, action: guarded(app, () => openMerge(app, record)) },
-        { icon: 'copy', label: 'Copy chat key', action: guarded(app, () => copyKey(app, record)) },
-      ],
-      [{ icon: 'trash', label: 'Delete…', danger: true, disabled: merging, action: guarded(app, () => deleteConversation(app, record, imageCount)) }],
-    ]),
+  if (imageCount > 0) buttons.push(button('images', `Images (${formatNumber(imageCount)})`, { onclick: guarded(app, () => showImages(record)) }));
+  buttons.push(
+    button('pencil', 'Rename…', { disabled: merging, onclick: guarded(app, () => renameConversation(app, record)) }),
+    button('merge', 'Merge…', { disabled: merging, onclick: guarded(app, () => openMerge(app, record)) }),
+    button('trash', 'Delete…', { className: 'danger', disabled: merging, onclick: guarded(app, () => deleteConversation(app, record, imageCount)) }),
   );
-  return actions;
-}
-
-/**
- * Copies the chat's key, which the search finds it by. When the browser refuses (the page not in
- * focus), the status line shows the key to select instead, so it is never out of reach.
- */
-async function copyKey(app: AppContext, record: ConversationRecord): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(record.conversationKey);
-    app.notify('Copied the chat key.', 'success');
-  } catch {
-    app.notify(`The browser did not allow copying. The chat key is ${record.conversationKey}`, 'notice');
-  }
+  return buttons;
 }
 
 /** Opens a dialog and settles with what its buttons gave once it closes (Escape gives `cancelled`). */
@@ -259,8 +237,8 @@ async function renameConversation(app: AppContext, record: ConversationRecord): 
   const renamed = await (await app.repository()).renameConversation(record.conversationKey, name);
   app.notify(renamed.displayName ? `Renamed to “${renamed.displayName}”.` : 'The Teams title is shown again.', 'success');
   await app.refresh();
-  // The refresh drew the actions again; give the focus back to the menu Rename was chosen from.
-  byId('conv-view-actions').querySelector<HTMLButtonElement>('.menu-button')?.focus();
+  // The refresh drew the buttons again; keep the focus where the keyboard left it.
+  [...byId('conv-view-actions').querySelectorAll('button')].find((button) => button.textContent === 'Rename…')?.focus();
 }
 
 async function deleteConversation(app: AppContext, record: ConversationRecord, imageCount: number): Promise<void> {

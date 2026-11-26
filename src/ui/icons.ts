@@ -107,14 +107,6 @@ const LUCIDE = {
   merge: ['m8 6 4-4 4 4', 'M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22', 'm20 22-5-5'],
   trash: ['M10 11v6', 'M14 11v6', 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6', 'M3 6h18', 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2'],
   'arrow-up': ['m5 12 7-7 7 7', 'M12 19V5'],
-  /** Three dots: more actions, in a menu. */
-  ellipsis: [
-    ['circle', { cx: 12, cy: 12, r: 1 }],
-    ['circle', { cx: 19, cy: 12, r: 1 }],
-    ['circle', { cx: 5, cy: 12, r: 1 }],
-  ],
-  /** Two sheets: copy. */
-  copy: [['rect', { x: 8, y: 8, width: 14, height: 14, rx: 2 }], 'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2'],
 } satisfies Record<string, readonly Shape[]>;
 
 export type IconName = keyof typeof OWN | keyof typeof LUCIDE;

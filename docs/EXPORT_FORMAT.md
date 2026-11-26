@@ -17,7 +17,7 @@ Versions before 1.9 also offered an HTML page, Markdown and CSV; a choice rememb
 
 ## What a file holds
 
-**Period.** A file saved when a capture ends holds the period captured: for a **Date range** of **24 hours**, **7 days** or **30 days** the messages from that moment on, for **From…** (a date) those from midnight of that day (in the computer's time zone). After **New** or **Full history**, and from the archive page, it holds every archived message of the chat. **Save a file from the archive only** takes the period chosen in the popup, or every archived message. A message is in the period when its `sortKey` is; a period always reaches up to the newest message.
+**Period.** A file saved when a capture ends holds the period captured: for a **Date range** of **24 hours**, **7 days** or **30 days** the messages from that moment on, for **From a date** those from midnight of that day (in the computer's time zone). After **New messages** or **Full history**, and from the archive page, it holds every archived message of the chat. **Save a file from the archive only** takes the period chosen in the popup, or every archived message. A message is in the period when its `sortKey` is; a period always reaches up to the newest message.
 
 **Content.**
 
