@@ -22,7 +22,7 @@
       <p id="view-loading" class="muted small">Checking this tab…</p>
       <section id="view-message" class="card notice" role="status" hidden></section>
 
-      <section id="view-connect" class="card" hidden>
+      <section id="view-connect" class="popup-section" hidden>
         <p>This Teams tab was opened before the extension was loaded or updated.</p>
         <div class="button-row">
           <button type="button" id="btn-connect" class="primary">Connect to this tab</button>
@@ -31,13 +31,15 @@
       </section>
 
       <section id="view-main" hidden>
-        <div class="card conv-card" aria-labelledby="conv-title">
+        <!-- The popup's parts are sections on the page, each closed by a rule. -->
+        <div class="popup-section conv-card" aria-labelledby="conv-title">
           <div class="conv-head">
             <h2 class="conv-title" id="conv-title"></h2>
             <span class="badge neutral" id="conv-type" hidden></span>
           </div>
           <div class="muted small" id="conv-meta" hidden></div>
-          <div class="small" id="arch-summary"></div>
+          <div class="summary-line" id="arch-summary"></div>
+          <div class="muted small" id="arch-extent" hidden></div>
           <div class="warning small" id="conv-warning" hidden></div>
           <div class="muted small" id="arch-note" hidden></div>
           <p class="small" id="nothing-hint" hidden>
@@ -48,47 +50,48 @@
         <div class="card result" id="result-panel" role="status" hidden></div>
 
         <div id="actions">
-          <div id="resume-box" class="card" hidden>
+          <div id="resume-box" class="popup-section" hidden>
             <p id="resume-text" class="small"></p>
             <button type="button" id="btn-resume-session" class="primary wide"><span data-icon="play"></span>Resume extraction</button>
             <button type="button" id="btn-other-capture" class="link small">Start another capture instead</button>
           </div>
           <div id="capture-box">
             <!-- What to capture, and how to read it -->
-            <div class="card popup-group">
+            <div class="popup-section popup-group">
               <fieldset class="choice-group" aria-describedby="capture-hint">
                 <legend class="group-label">Messages to capture</legend>
-                <div class="tiles capture-tiles">
-                  <label class="tile" for="capture-update"><input type="radio" name="capture" id="capture-update" value="update" /><span class="tile-icon" data-icon="refresh-cw" data-icon-size="20"></span><span class="tile-name">New messages</span></label>
-                  <label class="tile" for="capture-range"><input type="radio" name="capture" id="capture-range" value="range" /><span class="tile-icon" data-icon="calendar-days" data-icon-size="20"></span><span class="tile-name">Date range</span></label>
-                  <label class="tile" for="capture-everything"><input type="radio" name="capture" id="capture-everything" value="everything" /><span class="tile-icon" data-icon="rotate-ccw-clock" data-icon-size="20"></span><span class="tile-name">Full history</span></label>
+                <div class="segments even capture-row">
+                  <label class="segment" for="capture-update"><input type="radio" name="capture" id="capture-update" value="update" /><span data-icon="refresh-cw"></span><span>New</span></label>
+                  <label class="segment" for="capture-range"><input type="radio" name="capture" id="capture-range" value="range" /><span data-icon="calendar-days"></span><span>Date range</span></label>
+                  <label class="segment" for="capture-everything"><input type="radio" name="capture" id="capture-everything" value="everything" /><span data-icon="rotate-ccw-clock"></span><span>Full history</span></label>
                 </div>
               </fieldset>
               <div id="capture-period-box" class="period-box" hidden>
                 <fieldset class="choice-group" aria-describedby="capture-hint">
                   <legend class="group-label">Period</legend>
-                  <div class="segments fill">
+                  <div class="segments even period-row">
                     <label class="segment" for="capture-24h"><input type="radio" name="capture-period" id="capture-24h" value="last-24h" /><span>24 hours</span></label>
                     <label class="segment" for="capture-7d"><input type="radio" name="capture-period" id="capture-7d" value="last-7d" checked /><span>7 days</span></label>
                     <label class="segment" for="capture-30d"><input type="radio" name="capture-period" id="capture-30d" value="last-30d" /><span>30 days</span></label>
-                    <label class="segment" for="capture-from-date"><input type="radio" name="capture-period" id="capture-from-date" value="from-date" /><span>From a date</span></label>
+                    <!-- "From…" fits a quarter of the row; a screen reader hears the whole name. -->
+                    <label class="segment" for="capture-from-date"><input type="radio" name="capture-period" id="capture-from-date" value="from-date" /><span aria-hidden="true">From…</span><span class="visually-hidden">From a date</span></label>
                   </div>
                 </fieldset>
                 <label class="field" for="capture-from" id="capture-from-field" hidden><span>From</span><input type="date" id="capture-from" /></label>
               </div>
               <p class="muted small" id="capture-hint"></p>
-              <details class="disclosure divided" id="more">
+              <details class="disclosure" id="more">
                 <summary><span class="disclosure-chevron" data-icon="chevron-right"></span>Options</summary>
                 <div class="disclosure-body">
                   <label class="check" for="opt-rescan">
                     <input type="checkbox" id="opt-rescan" />
-                    <span>Re-read archived parts at normal speed (picks up edits and deletions)</span>
+                    <span>Re-read archived parts<span class="hint">Finds edits and deletions. Slower.</span></span>
                   </label>
                 </div>
               </details>
             </div>
             <!-- The file the capture saves: its format, then what it includes -->
-            <div class="card popup-group">
+            <div class="popup-section popup-group">
               <label class="check save-toggle" for="opt-save">
                 <input type="checkbox" id="opt-save" />
                 <span>Save a file</span>
@@ -102,23 +105,23 @@
           </div>
         </div>
 
-        <div class="card" id="run-panel" hidden>
-          <div class="run-head">
-            <span id="run-phase" class="badge" role="status"></span>
-            <span id="run-elapsed" class="muted small"></span>
+        <div class="popup-section" id="run-panel" hidden>
+          <div class="run-progress">
+            <div class="run-head">
+              <span id="run-phase" class="run-phase" role="status"></span>
+              <span id="run-elapsed" class="muted small"></span>
+            </div>
+            <div class="progress" id="run-bar" role="progressbar" aria-label="How far back the capture has reached" aria-valuemin="0" aria-valuemax="100" hidden>
+              <div class="progress-fill" id="run-bar-fill"></div>
+            </div>
+            <div class="muted small" id="run-reach" hidden></div>
           </div>
-          <div class="progress" id="run-bar" role="progressbar" aria-label="How far back the capture has reached" aria-valuemin="0" aria-valuemax="100" hidden>
-            <div class="progress-fill" id="run-bar-fill"></div>
-          </div>
-          <div class="small" id="run-reach" hidden></div>
           <dl class="stats">
-            <div><dt>Seen</dt><dd id="run-seen">0</dd></div>
             <div><dt>New</dt><dd id="run-new">0</dd></div>
             <div><dt>Updated</dt><dd id="run-updated">0</dd></div>
             <div><dt>Already archived</dt><dd id="run-unchanged">0</dd></div>
           </dl>
-          <div class="muted small log" id="run-detail"></div>
-          <div class="small" id="run-save" hidden></div>
+          <div class="muted small" id="run-save" hidden></div>
           <ul class="warnings small" id="run-warnings" hidden></ul>
           <div class="button-row run-buttons">
             <button type="button" id="btn-pause"><span data-icon="pause"></span>Pause</button>
@@ -130,7 +133,6 @@
         <div class="status-bar" id="status-bar" data-tone="idle">
           <span class="status-dot" aria-hidden="true"></span>
           <span class="status-text"><span id="status-text"></span><span class="status-detail" id="status-detail"></span></span>
-          <span class="status-count" id="status-count" hidden></span>
         </div>
       </section>
     </main>

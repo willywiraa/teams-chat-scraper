@@ -20,10 +20,10 @@ import {
 } from '../../src/shared/settings';
 import type { ConversationRecord } from '../../src/shared/types';
 import { guarded, type AppContext } from '../../src/ui/archive/context';
-import { countOf, formatDate, formatDateTime, formatNumber } from '../../src/ui/common';
+import { countOf, formatDateTime, formatDay, formatDayTime, formatNumber } from '../../src/ui/common';
 import { parseLastBackup } from '../../src/ui/last-backup';
 import { parseLastSave } from '../../src/ui/last-save';
-import { CONTENT_FIELDS, fileNoun, FORMAT_NAMES, formatLine, SAVE_CHOICES_KEY, SaveForm } from '../../src/ui/save-form';
+import { CONTENT_FIELDS, fileNoun, fileShortName, FORMAT_NAMES, formatLine, SAVE_CHOICES_KEY, SaveForm, SHORT_FORMAT_NAMES } from '../../src/ui/save-form';
 import { applyTheme, nextTheme, normalizeTheme, readTheme, saveTheme, THEME_STORAGE_KEY, themeLabel } from '../../src/ui/theme';
 import {
   archiveTotals,
@@ -32,14 +32,17 @@ import {
   conversationDetails,
   earlierPage,
   filterConversations,
+  historyExtent,
   historyLabel,
   historyLine,
+  historySummary,
   messageView,
   parseRoute,
   pictureBox,
   reachShare,
   routeHash,
   timeline,
+  updatedText,
   type Route,
 } from '../../src/ui/view-models';
 import { memoryReader } from '../helpers/export';
@@ -167,31 +170,46 @@ describe('conversation list', () => {
 describe('summary lines', () => {
   const now = Date.parse('2024-01-23T10:00:00.000Z');
 
-  it('say how much is archived, how far back, and when it was updated, on one line', () => {
+  it('say how much is archived and when it was updated, then the period and how much of the history that is', () => {
     const complete = record({ messageCount: 1234, lastUpdate: { sessionId: 's', mode: 'incremental', at: '2024-01-20T10:00:00.000Z', newestSortKey: at(20, 9, 0) } });
-    expect(historyLine(complete, now)).toBe(`${formatNumber(1234)} messages · complete back to ${formatDate(at(1, 9, 0))} · updated 3 days ago`);
+    const period = archivedPeriod(complete);
+    expect(historySummary(complete, now)).toBe(`${formatNumber(1234)} messages · updated 3 days ago`);
+    expect(historyExtent(complete)).toBe(`${period} · complete history`);
+    expect(historyLine(complete, now)).toBe(`${formatNumber(1234)} messages · ${period} · complete history · updated 3 days ago`);
     expect(historyLabel(complete)).toBe('Complete');
   });
 
-  it('give the period of a history not back to the start, and the last run when nothing brought it up to date', () => {
+  it('call a history not back to the start partial, and give the last run when nothing brought it up to date', () => {
     const partial = record({ messageCount: 1, coverage: [{ oldest: at(10, 9, 0), newest: at(20, 9, 0), reachedBeginning: false }], oldestSortKey: at(10, 9, 0) });
-    const period = `${formatDate(at(10, 9, 0))} – ${formatDate(at(20, 9, 0))}`;
-    expect(archivedPeriod(partial)).toBe(period);
-    expect(historyLine(partial, now)).toBe(`1 message · ${period}, not back to the start · last run 3 days ago`);
-    expect(historyLabel(partial)).toBe('Not back to the start');
+    expect(historyLabel(partial)).toBe('Partial');
+    expect(updatedText(partial, now)).toBe('last run 3 days ago');
+    expect(historySummary(partial, now)).toBe('1 message · last run 3 days ago');
+    expect(historyExtent(partial)).toBe(`${archivedPeriod(partial)} · partial history`);
   });
 
-  it('use the same words in the list and the summary line when no capture covered a stretch', () => {
+  it('use the same words in the list and the summary lines when no capture covered a stretch', () => {
     const unchecked = record({ messageCount: 2, coverage: [] });
     expect(historyLabel(unchecked)).toBe('Not checked');
-    expect(historyLine(unchecked, now)).toBe(`2 messages · ${formatDate(at(1, 9, 0))} – ${formatDate(at(20, 9, 0))}, history not checked · last run 3 days ago`);
-    expect(archivedPeriod(record({ oldestSortKey: null, newestSortKey: null }))).toBe('');
-    expect(archivedPeriod(record({ oldestSortKey: at(5, 9, 0), newestSortKey: at(5, 10, 0) }))).toBe(formatDate(at(5, 9, 0)));
+    expect(historyExtent(unchecked)).toBe(`${archivedPeriod(unchecked)} · history not checked`);
   });
 
-  it('say "Not archived yet" for a chat without messages', () => {
+  it('write the period with a shared month and year once, and one day as one date', () => {
+    // en-GB puts thin spaces around the dash.
+    const range = (from: number, to: number) => archivedPeriod({ oldestSortKey: from, newestSortKey: to }, 'en-GB').replace(/\u2009/g, ' ');
+    expect(range(at(10, 9, 0), at(20, 9, 0))).toBe('10 – 20 Jan 2024');
+    expect(range(at(3, 9, 0), Date.UTC(2024, 2, 5, 9))).toBe('3 Jan – 5 Mar 2024');
+    expect(range(Date.UTC(2023, 0, 3, 9), Date.UTC(2024, 2, 5, 9))).toBe('3 Jan 2023 – 5 Mar 2024');
+    expect(range(at(5, 9, 0), at(5, 10, 0))).toBe('5 Jan 2024');
+    expect(archivedPeriod(record({ oldestSortKey: null, newestSortKey: null }))).toBe('');
+  });
+
+  it('say "Not archived yet" for a chat without messages, with no period under it', () => {
+    const empty = record({ messageCount: 0, oldestSortKey: null, newestSortKey: null, coverage: [] });
+    expect(historySummary(null, now)).toBe('Not archived yet');
+    expect(historySummary(empty, now)).toBe('Not archived yet');
+    expect(historyExtent(empty)).toBe('');
     expect(historyLine(null, now)).toBe('Not archived yet');
-    expect(historyLine(record({ messageCount: 0, oldestSortKey: null, newestSortKey: null, coverage: [] }), now)).toBe('Not archived yet');
+    expect(historyLine(empty, now)).toBe('Not archived yet');
   });
 
   it('add up the archive’s totals', () => {
@@ -480,6 +498,21 @@ describe('run progress in the popup', () => {
     expect(reachShare(start, startMs, back(4))).toBeNull();
     expect(reachShare('not a date', startMs - DAY, back(4))).toBeNull();
   });
+
+  it('writes the days in its lines short: the year only when it is not this one, and no time at midnight', () => {
+    const now = new Date(2026, 10, 26, 10, 0).getTime();
+    const morning = new Date(2026, 10, 22, 8, 47).getTime();
+    const chosenDay = new Date(2026, 10, 21).getTime();
+    const lastYear = new Date(2025, 10, 22, 8, 47).getTime();
+    expect(formatDay(morning, now)).toBe(new Date(morning).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }));
+    expect(formatDay(morning, now)).not.toContain('2026');
+    expect(formatDay(lastYear, now)).toContain('2025');
+    expect(formatDayTime(morning, now)).toBe(new Date(morning).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }));
+    expect(formatDayTime(chosenDay, now)).toBe(formatDay(chosenDay, now));
+    expect(formatDayTime(lastYear, now)).toContain('2025');
+    expect(formatDay(null, now)).toBe('–');
+    expect(formatDayTime('not a date', now)).toBe('–');
+  });
 });
 
 describe('saving a file', () => {
@@ -498,6 +531,15 @@ describe('saving a file', () => {
     expect(fileNoun({ format: 'text', content: { ...FULL_CONTENT, images: false } })).toBe('a text file');
     expect(fileNoun({ format: 'json', content: FULL_CONTENT })).toBe('a JSON file');
     expect(fileNoun({ format: 'package', content: FULL_CONTENT })).toBe('a ZIP package');
+  });
+
+  it('names the file shorter in the popup, where the button reads "Capture new messages · save PDF"', () => {
+    expect(fileShortName({ format: 'pdf', content: FULL_CONTENT })).toBe('PDF');
+    expect(fileShortName({ format: 'text', content: FULL_CONTENT })).toBe('text (ZIP)');
+    expect(fileShortName({ format: 'text', content: { ...FULL_CONTENT, images: false } })).toBe('text');
+    expect(fileShortName({ format: 'json', content: FULL_CONTENT })).toBe('JSON');
+    expect(fileShortName({ format: 'package', content: FULL_CONTENT })).toBe('ZIP');
+    expect(SHORT_FORMAT_NAMES).toEqual({ ...FORMAT_NAMES, package: 'ZIP' });
   });
 
   it('keeps the content a format fixes ticked and disabled, with the note, and remembers the rest', () => {

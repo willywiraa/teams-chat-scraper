@@ -157,7 +157,7 @@ function wire(): void {
   });
   wireThemeButton(byId('btn-theme'));
   wireBackup(app);
-  byId('about-version').textContent = `Teams Chat Scraper, version ${chrome.runtime.getManifest().version}`;
+  byId('about-version').textContent = `Teams Chat Scraper ${chrome.runtime.getManifest().version}`;
   window.addEventListener('hashchange', () => void show(parseRoute(location.hash), { navigated: true }));
 }
 

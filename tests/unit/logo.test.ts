@@ -132,7 +132,10 @@ describe('interface colours', () => {
         ['text', 'hover'],
         ['muted', 'hover'],
         ['accent', 'selected'],
-        // A chosen tile or segment: its name, and the line under it.
+        // Delete in the ⋯ menu: pointed at, and pressed.
+        ['danger', 'hover'],
+        ['danger', 'error-bg'],
+        // A chosen segment: its name, and the line under it.
         ['text', 'selected'],
         ['muted', 'selected'],
         ['text', 'self-bg'],

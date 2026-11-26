@@ -21,6 +21,9 @@ export const SAVE_CHOICES_KEY = 'exportChoices.v1';
 
 export const FORMAT_NAMES: Record<SaveFormat, string> = { pdf: 'PDF', text: 'Text', json: 'JSON', package: 'ZIP package' };
 
+/** The names in the popup's row of four, where *ZIP package* would not fit; the line under it says what the ZIP holds. */
+export const SHORT_FORMAT_NAMES: Record<SaveFormat, string> = { ...FORMAT_NAMES, package: 'ZIP' };
+
 /** A printer for the print dialog, a page of lines, a page of braces, a page with a zip. */
 const FORMAT_ICONS: Record<SaveFormat, IconName> = { pdf: 'printer', text: 'file-text', json: 'file-braces', package: 'file-archive' };
 
@@ -62,6 +65,20 @@ export function fileNoun(choices: SaveChoices): string {
   }
 }
 
+/** The file in the popup's capture button, after "save": "PDF", "text", "text (ZIP)", "JSON", "ZIP". */
+export function fileShortName(choices: SaveChoices): string {
+  switch (choices.format) {
+    case 'pdf':
+      return 'PDF';
+    case 'text':
+      return packagingOf(choices) === 'zip' ? 'text (ZIP)' : 'text';
+    case 'json':
+      return 'JSON';
+    case 'package':
+      return 'ZIP';
+  }
+}
+
 export async function loadSaveChoices(): Promise<SaveChoices> {
   try {
     const stored = await chrome.storage.local.get(SAVE_CHOICES_KEY);
@@ -86,6 +103,7 @@ export class SaveForm {
   constructor(
     private readonly root: HTMLElement,
     private readonly onChange: (choices: SaveChoices) => void = () => undefined,
+    names: Record<SaveFormat, string> = FORMAT_NAMES,
   ) {
     root.replaceChildren(
       el(
@@ -101,7 +119,7 @@ export class SaveForm {
               { className: 'segment', for: `save-format-${format}` },
               el('input', { type: 'radio', name: 'save-format', id: `save-format-${format}`, value: format }),
               el('span', { className: 'icon-holder' }, icon(FORMAT_ICONS[format])),
-              el('span', {}, FORMAT_NAMES[format]),
+              el('span', {}, names[format]),
             ),
           ),
         ),

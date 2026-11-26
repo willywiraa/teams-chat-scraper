@@ -65,8 +65,33 @@ export function formatDate(value: string | number | null | undefined): string {
 export function formatMoment(value: number): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '–';
-  const midnight = date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0 && date.getMilliseconds() === 0;
-  return midnight ? formatDate(value) : formatDateTime(value);
+  return isMidnight(date) ? formatDate(value) : formatDateTime(value);
+}
+
+function isMidnight(date: Date): boolean {
+  return date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0 && date.getMilliseconds() === 0;
+}
+
+/** The parts of a short date: day and month, and the year only when it is not this year. */
+function shortDate(date: Date, nowMs: number): Intl.DateTimeFormatOptions {
+  return date.getFullYear() === new Date(nowMs).getFullYear() ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' };
+}
+
+/** "22 Nov", or "22 Nov 2025" in another year: for lines in the popup, where the year is usually this one. */
+export function formatDay(value: string | number | null | undefined, nowMs: number = Date.now()): string {
+  if (value === null || value === undefined || value === '') return '–';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '–';
+  return date.toLocaleDateString(undefined, shortDate(date, nowMs));
+}
+
+/** "22 Nov, 08:47", or the day alone at midnight (a chosen day), with the year only in another year. */
+export function formatDayTime(value: string | number | null | undefined, nowMs: number = Date.now()): string {
+  if (value === null || value === undefined || value === '') return '–';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '–';
+  if (isMidnight(date)) return formatDay(value, nowMs);
+  return date.toLocaleString(undefined, { ...shortDate(date, nowMs), hour: '2-digit', minute: '2-digit' });
 }
 
 export function formatDuration(ms: number): string {

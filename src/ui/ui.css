@@ -116,7 +116,7 @@
   --leading-m: 20px;
   --leading-title: 1.25;
   /* The status bar's height: the capture button's bar stops above it. */
-  --status-height: 36px;
+  --status-height: 32px;
 }
 
 * {
@@ -134,6 +134,12 @@ body {
 
 body[data-mode='popup'] {
   width: 380px;
+}
+
+/* The popup and the side panel are one surface: their sections sit on it, without cards. */
+body[data-mode='popup'],
+body[data-mode='panel'] {
+  background: var(--card);
 }
 
 [hidden] {
@@ -280,6 +286,13 @@ a:hover {
   flex: none;
 }
 
+/* The popup's header is 44 px, its title 16 px in like the sections under it. */
+body[data-mode='popup'] .app-header,
+body[data-mode='panel'] .app-header {
+  min-height: 44px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+}
+
 /* The archive page's header lines up with the page under it. */
 .app-header:has(.app-header-inner) {
   padding: var(--space-2) 0;
@@ -330,19 +343,18 @@ a:hover {
 
 /* ------------------------------------------------------------ layout */
 
-.popup-main,
-#view-main {
-  display: grid;
-  gap: var(--space-3);
-}
-
 .popup-main > *,
 #view-main > * {
   min-width: 0;
 }
 
-.popup-main {
-  padding: var(--space-3);
+.popup-main > #view-loading {
+  padding: var(--space-4);
+}
+
+/* A message about the tab (not Teams, nothing to reach) is a notice with the sections' margin. */
+.popup-main > .card {
+  margin: var(--space-4);
 }
 
 .archive-main {
@@ -620,8 +632,8 @@ select:hover:not(:disabled) {
   background: var(--hover);
 }
 
-/* Pressed: a heavier bottom edge as well as the colour. */
-button:active:not(:disabled):not(.link):not(.icon-button) {
+/* Pressed: a heavier bottom edge as well as the colour (a menu's items take the tint alone). */
+button:active:not(:disabled):not(.link):not(.icon-button):not(.menu-item) {
   background: var(--selected);
   border-color: var(--accent);
   border-bottom: 2px solid var(--text);
@@ -791,9 +803,9 @@ textarea {
 /* ---------------------------------------------------- choices */
 
 /*
- * A choice among a few options drawn as controls, each a radio: segments (a row of names) and
- * tiles (an icon over a name). They take the control outline; the chosen one has the selected
- * tint, the accent colour and a ring twice as thick, so it does not rest on colour alone.
+ * A choice among a few options drawn as controls, each a radio: segments, a row of names (with an
+ * icon before each where one helps). They take the control outline; the chosen one has the
+ * selected tint, the accent colour and a ring twice as thick, so it does not rest on colour alone.
  */
 .choice-group {
   min-width: 0;
@@ -834,76 +846,50 @@ textarea {
     border-color 120ms ease;
 }
 
-.segments.fill > .segment {
-  flex: 1 1 auto;
+/* Segments of one width in one row, whatever their names: the capture choice, the periods, the formats in the popup. */
+.segments.even {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
 }
 
-.tile {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1);
-  min-width: 0;
-  min-height: 56px;
-  padding: var(--space-2) var(--space-1);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-s);
-  background: var(--card);
-  font-size: var(--font-s);
-  line-height: var(--leading-s);
-  text-align: center;
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease;
-}
-
-.segment .icon-holder,
-.tile-icon {
+.segment .icon-holder {
   color: var(--muted);
 }
 
-.segment:hover:not(:has(input:disabled)),
-.tile:hover:not(:has(input:disabled)) {
+.segment:hover:not(:has(input:disabled)) {
   border-color: var(--accent);
   background: var(--hover);
 }
 
 /* Pressed: the tint of the chosen state, before the choice is made. */
-.segment:has(input:active:not(:disabled)),
-.tile:has(input:active:not(:disabled)) {
+.segment:has(input:active:not(:disabled)) {
   border-color: var(--accent);
   background: var(--selected);
 }
 
-.segment:has(input:checked),
-.tile:has(input:checked) {
+.segment:has(input:checked) {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
   background: var(--selected);
   color: var(--accent);
 }
 
-.segment:has(input:checked) .icon-holder,
-.tile:has(input:checked) .tile-icon {
+.segment:has(input:checked) .icon-holder {
   color: var(--accent);
 }
 
-.segment:has(input:focus-visible),
-.tile:has(input:focus-visible) {
+.segment:has(input:focus-visible) {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
-.segment:has(input:disabled),
-.tile:has(input:disabled) {
+.segment:has(input:disabled) {
   opacity: 0.5;
 }
 
 /* The radio itself is kept for the keyboard and screen readers, but not drawn. */
-.segment input,
-.tile input {
+.segment input {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -913,20 +899,13 @@ textarea {
   cursor: pointer;
 }
 
-.segment input:disabled,
-.tile input:disabled {
+.segment input:disabled {
   cursor: not-allowed;
 }
 
 .segment-count {
   color: var(--muted);
   font-weight: 400;
-}
-
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-2);
 }
 
 /* A share that is known (how far back a range capture has reached, the chat a backup is
@@ -989,8 +968,27 @@ textarea {
 
 /* ------------------------------------------------------------- popup */
 
-.conv-card {
+/*
+ * The popup's parts are sections on the page, 16 px in from its edges, each closed by a rule
+ * across the whole width: the chat, what to capture (with Options), the file to save. Inside a
+ * section: 12 px between groups, 8 px from a group's heading to its controls, 4 px from a control
+ * to the line that explains it.
+ */
+.popup-section {
   display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+/* The bars under the last section draw their own rule. */
+.popup-section:has(+ .action-bar),
+#run-panel {
+  border-bottom: none;
+}
+
+/* The chat: its name and type, then its archive in two lines. */
+.conv-card {
   gap: var(--space-1);
 }
 
@@ -1006,21 +1004,14 @@ textarea {
   font-size: var(--font-l);
 }
 
-/*
- * The popup's parts, each a card 12 px from the next: the chat, what to capture (with Options),
- * the file to save (its format, then what it includes). Inside a card, 12 px between its parts.
- */
-#actions,
-#capture-box,
-#resume-box,
-.popup-group {
-  display: grid;
-  gap: var(--space-3);
+.summary-line {
+  font-size: var(--font-s);
+  line-height: var(--leading-s);
 }
 
-/* The line under the capture choices belongs to them: 8 px, not 12. */
+/* The line under the capture choices explains them: 4 px under them, not 12. */
 #capture-hint {
-  margin-top: calc(-1 * var(--space-1));
+  margin-top: calc(var(--space-1) - var(--space-3));
 }
 
 #view-connect {
@@ -1041,38 +1032,31 @@ textarea {
   gap: var(--space-3);
 }
 
-/* Four periods, two by two like the formats: four in a row would not fit their names. */
-.period-box .segments {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 #capture-from-field {
   max-width: 200px;
 }
 
-/* Saving what is archived without capturing: a link at the end of the file's card. */
+/* Saving what is archived without capturing: a link at the end of the file's section. */
 .save-archived {
   justify-self: start;
   margin: calc(-1 * var(--space-1)) 0 calc(-1 * var(--space-1)) calc(-1 * var(--space-1));
 }
 
-/* **Save a file** is the heading of its card, and turns the rest of it on and off. */
+/* **Save a file** is the heading of its section, and turns the rest of it on and off. */
 .save-toggle {
   font-weight: 600;
 }
 
 /*
  * The bar at the bottom of the popup: the button that names what it captures and saves. It runs
- * from edge to edge and stays in view, just above the status bar, while the choices scroll.
+ * from edge to edge and stays in view, just above the status bar, while the sections scroll.
  */
 .action-bar {
   position: sticky;
   bottom: var(--status-height);
   z-index: 1;
   display: grid;
-  margin: 0 calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
-  padding: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border);
   background: var(--card);
 }
@@ -1081,14 +1065,10 @@ textarea {
   min-height: 40px;
 }
 
-#run-panel {
-  display: grid;
-  gap: var(--space-3);
-}
-
 /*
  * Controls in the popup and the side panel are a little roomier than on the archive page: 36 px
- * with a mouse (touch keeps its 44 px), with 8 px between the choices of a group.
+ * with a mouse (touch keeps its 44 px). A row of segments shares the width evenly, 6 px apart,
+ * each with its icon before its name.
  */
 @media not (pointer: coarse) {
   .popup-main button:not(.link):not(.icon-button),
@@ -1098,48 +1078,115 @@ textarea {
   }
 }
 
-.popup-main .segment {
-  padding: var(--space-2) var(--space-3);
-}
-
-.popup-main .segments,
-.popup-main .tiles {
-  gap: var(--space-2);
-}
-
-.popup-main .tile {
-  min-height: 64px;
-  padding: 10px var(--space-1);
+.popup-main .segments {
   gap: 6px;
 }
 
-.popup-main .include-list {
-  gap: var(--space-2) var(--space-3);
+.popup-main .format-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
 }
 
-#run-panel .stats {
-  margin: var(--space-1) 0 0;
+.popup-main .segment {
+  min-width: 0;
+  padding: 0 var(--space-1);
+  white-space: nowrap;
+}
+
+/*
+ * Where a row would not fit a name beside its icon (the side panel at its narrowest), the icon
+ * goes above the name: the row stays one row, and every icon stays.
+ */
+.popup-group {
+  container-type: inline-size;
+}
+
+@container (max-width: 300px) {
+  .capture-row > .segment,
+  .popup-main .format-row > .segment {
+    flex-direction: column;
+    gap: 2px;
+    padding-block: 6px;
+  }
+
+  .period-row > .segment {
+    padding-inline: 2px;
+  }
+}
+
+/* Format, then Include 16 px under it, without a rule; the include list in two columns. */
+.popup-main .save-choices > .choice-group:not(:last-child) {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.popup-main .save-line {
+  margin-top: var(--space-1);
+}
+
+.popup-main .include-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px var(--space-3);
+}
+
+/* During a run: the phase and its time, the bar, how far it reached; the counts; Pause and Stop. */
+#run-panel {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.run-progress {
+  display: grid;
+  gap: var(--space-2);
+}
+
+#run-reach {
+  margin-top: calc(-1 * var(--space-1));
 }
 
 .run-head {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-1) var(--space-2);
+}
+
+.run-phase {
+  font-size: var(--font-m);
+  line-height: var(--leading-m);
+  font-weight: 600;
+}
+
+#run-elapsed {
+  font-variant-numeric: tabular-nums;
+}
+
+#run-panel .stats {
+  margin: 0;
+}
+
+.popup-main .stats {
+  gap: var(--space-2) var(--space-4);
 }
 
 .run-buttons {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: var(--space-1);
+  margin-top: 0;
 }
 
-/* A run's result: an icon for how it ended, then what it did and the link to the chat. */
+/* A run's result: an icon for how it ended, then what it did, the file and the link to the chat. */
 .card.result {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
+}
+
+.popup-main .card.result {
+  margin: var(--space-4) var(--space-4) 0;
+  padding: var(--space-3);
 }
 
 .result-icon {
@@ -1178,14 +1225,14 @@ a.result-link {
 }
 
 .warnings {
-  margin: var(--space-2) 0 0;
+  margin: 0;
   padding-left: var(--space-4);
   color: var(--warning);
 }
 
 /*
  * The status bar at the bottom of the popup: whether it reaches the Teams tab and what the tab
- * shows, or during a run its phase, time and the messages seen. The dot's colour repeats the words.
+ * shows; during a run, that the tab must stay open. The dot's colour repeats the words.
  */
 .status-bar {
   position: sticky;
@@ -1195,8 +1242,8 @@ a.result-link {
   align-items: center;
   gap: var(--space-2);
   height: var(--status-height);
-  margin: 0 calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
-  padding: 0 var(--space-3);
+  /* As the header: the dot lines up with the sections; less on the right, where the text may end. */
+  padding: 0 var(--space-2) 0 var(--space-4);
   border-top: 1px solid var(--border);
   background: var(--card);
   font-size: var(--font-xs);
@@ -1237,21 +1284,11 @@ a.result-link {
   font-variant-numeric: tabular-nums;
 }
 
-.status-count {
-  flex: none;
-  padding: 2px var(--space-2);
-  border-radius: 10px;
-  background: var(--selected);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
 /* ------------------------------------------------------- saving a file */
 
-/* The formats and the Include checklist, in the popup and in the archive's Save a file dialog. */
 /*
- * Format, then Include in the file: two groups 16 px apart, with a hairline rule between them so
- * each reads as its own part.
+ * The formats and the Include checklist, in the popup and in the archive's Save a file dialog:
+ * two groups 16 px apart. In the dialog a hairline rule between them makes each its own part.
  */
 .save-choices {
   display: grid;
@@ -1271,13 +1308,6 @@ a.result-link {
   padding-inline: var(--space-2);
 }
 
-/* Where one row would be cramped (the popup and the side panel), two by two. */
-@container (max-width: 420px) {
-  .format-row {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 
 .save-line {
   margin: var(--space-2) 0 0;
@@ -1444,7 +1474,10 @@ td.num button.link {
   align-items: flex-start;
 }
 
-.field .hint {
+/* The line under a field, or under a checkbox's words, that explains it. */
+.field .hint,
+.check .hint {
+  display: block;
   font-size: var(--font-xs);
   line-height: var(--leading-xs);
   color: var(--muted);
@@ -1575,10 +1608,6 @@ td.num button.link {
   scroll-margin-top: var(--space-4);
 }
 
-.about-line {
-  max-width: 72ch;
-}
-
 .save-dialog {
   width: min(560px, calc(100vw - 32px));
 }
@@ -1610,6 +1639,72 @@ td.num button.link {
 
 .conversation-head .button-row {
   margin-top: 0;
+}
+
+/*
+ * The ⋯ menu beside a chat's buttons: Rename, Merge, Copy chat key, then Delete apart and in the
+ * danger colour. It floats over the page, so it takes the dialog's shadow.
+ */
+.menu {
+  position: relative;
+  display: inline-flex;
+}
+
+button.menu-button {
+  min-width: 32px;
+  padding: 0;
+}
+
+.menu-list {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  z-index: 3;
+  display: grid;
+  min-width: 200px;
+  padding: var(--space-1);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-dialog);
+}
+
+button.menu-item {
+  justify-content: flex-start;
+  gap: var(--space-2);
+  border: none;
+  background: none;
+  padding: 6px var(--space-2);
+  text-align: left;
+  white-space: nowrap;
+}
+
+button.menu-item .icon-holder {
+  color: var(--muted);
+}
+
+button.menu-item:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+button.menu-item:active:not(:disabled) {
+  background: var(--selected);
+}
+
+button.menu-item.danger,
+button.menu-item.danger .icon-holder {
+  color: var(--danger);
+}
+
+/* Pressed, Delete takes the error tint: the selected tint is too close to its red in the dark theme. */
+button.menu-item.danger:active:not(:disabled) {
+  background: var(--error-bg);
+}
+
+.menu-separator {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border);
 }
 
 .messages {
@@ -1756,17 +1851,34 @@ td.num button.link {
 
 /* ------------------------------------------------------------ overview */
 
+/* Backup and import: the last backup and the warning, the buttons beside them, the totals under a rule. */
 .backup-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2) var(--space-3);
-  margin: 0 0 var(--space-3);
+  margin: 0 0 var(--space-4);
 }
 
 .backup-row .button-row {
   margin-top: 0;
+}
+
+.backup-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.backup-text .warning {
+  margin: 0;
+}
+
+.backup-card .stats {
+  margin: 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
 }
 
 /* --------------------------------------------------------- narrow windows */
@@ -1855,6 +1967,7 @@ td.num button.link {
   }
 
   button.icon-button,
+  button.menu-button,
   button.link {
     min-width: 44px;
   }

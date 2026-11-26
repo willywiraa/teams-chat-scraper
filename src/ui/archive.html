@@ -71,20 +71,18 @@
           <div class="section-title">
             <h2 id="backup-title" tabindex="-1">Backup and import</h2>
           </div>
-          <div class="card">
+          <div class="card backup-card">
             <div class="backup-row">
-              <p id="backup-status"></p>
+              <div class="backup-text">
+                <p id="backup-status"></p>
+                <p class="warning small" id="backup-warning">Stored only in this browser. Back up regularly.</p>
+              </div>
               <div class="button-row">
-                <button type="button" id="btn-backup-now" aria-describedby="backup-status"><span data-icon="download"></span>Back up now</button>
+                <button type="button" id="btn-backup-now" aria-describedby="backup-status backup-warning"><span data-icon="download"></span>Back up now</button>
                 <button type="button" data-import><span data-icon="upload"></span>Import archive…</button>
               </div>
             </div>
             <dl class="stats" id="archive-stats"></dl>
-            <p class="muted small">
-              The archive is kept only in this browser profile: removing the extension, or clearing its site data, deletes it. Back up now
-              saves a ZIP package of every chat with everything in it, in a new tab. Import archive… reads a package or a JSON file back,
-              for example to restore a backup or to combine the archives of two browser profiles; importing a file twice changes nothing.
-            </p>
           </div>
         </section>
 
@@ -117,9 +115,8 @@
         </section>
 
         <footer class="muted small about-line">
-          <span id="about-version">Teams Chat Scraper</span>. An independent extension, not made by or affiliated with Microsoft. Microsoft
-          Teams is a trademark of the Microsoft group of companies. It reads only the chats Teams Web shows you, and keeps them in this
-          browser profile.
+          <span id="about-version">Teams Chat Scraper</span> · Not made by or affiliated with Microsoft; Microsoft Teams is a trademark of
+          Microsoft. Chats stay in this browser.
         </footer>
       </div>
 
@@ -130,10 +127,11 @@
           <div class="conversation-head">
             <div class="conversation-head-text">
               <h2 id="conv-view-title" class="view-title" tabindex="-1"></h2>
-              <div id="conv-view-meta" class="muted small"></div>
-              <div id="conv-view-history" class="small"></div>
-              <div id="conv-view-details" class="muted small"></div>
-              <div id="conv-view-key" class="muted small mono"></div>
+              <div id="conv-view-meta" class="summary-line"></div>
+              <div id="conv-view-history" class="muted small"></div>
+              <div id="conv-view-details" class="muted small" hidden></div>
+              <!-- The key is copied from the ⋯ menu (Copy chat key), not shown. -->
+              <div id="conv-view-key" class="mono" hidden></div>
             </div>
             <div class="button-row" id="conv-view-actions"></div>
           </div>

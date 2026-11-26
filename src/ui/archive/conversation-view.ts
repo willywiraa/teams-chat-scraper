@@ -6,8 +6,8 @@
  */
 import { timeFormat } from '../../export/render';
 import { conversationLabel, type ConversationRecord, type StoredMessage } from '../../shared/types';
-import { byId, el, formatNumber, TYPE_LABELS } from '../common';
-import { conversationDetails, earlierPage, historyLine, pictureBox, PICTURE_PLACEHOLDER, timeline, type MessageView, type TimelineItem } from '../view-models';
+import { byId, countOf, el, formatNumber, TYPE_LABELS } from '../common';
+import { conversationDetails, earlierPage, historyExtent, pictureBox, PICTURE_PLACEHOLDER, timeline, updatedText, type MessageView, type TimelineItem } from '../view-models';
 import { conversationActions } from './conversations';
 import { guarded, type AppContext } from './context';
 
@@ -63,6 +63,7 @@ export async function showConversation(app: AppContext, key: string): Promise<st
     byId('conv-view-title').textContent = 'Conversation not found';
     byId('conv-view-meta').textContent = 'It may have been deleted or merged.';
     for (const id of ['conv-view-history', 'conv-view-details', 'conv-view-key', 'conv-view-range']) byId(id).textContent = '';
+    byId('conv-view-details').hidden = true;
     byId('conv-view-actions').replaceChildren();
     byId('btn-load-earlier').hidden = true;
     byId('btn-to-top').hidden = true;
@@ -79,12 +80,19 @@ export async function showConversation(app: AppContext, key: string): Promise<st
   return conversationLabel(record);
 }
 
+/**
+ * The chat's head, in two lines under its name: its type, who is in it and how many messages; then
+ * the period archived, how much of the history that is, and when it was updated. What else it was
+ * called follows only when it had other names.
+ */
 function renderHead(app: AppContext, record: ConversationRecord, imageCount: number): void {
   byId('conv-view-title').textContent = conversationLabel(record);
-  const participants = record.participants.length > 0 ? ` · ${record.participants.slice(0, 8).join(', ')}${record.participants.length > 8 ? `, and ${record.participants.length - 8} more` : ''}` : '';
-  byId('conv-view-meta').textContent = `${TYPE_LABELS[record.type]}${participants}`;
-  byId('conv-view-history').textContent = historyLine(record);
-  byId('conv-view-details').textContent = conversationDetails(record);
+  const participants = record.participants.length > 0 ? `${record.participants.slice(0, 8).join(', ')}${record.participants.length > 8 ? `, and ${record.participants.length - 8} more` : ''}` : '';
+  byId('conv-view-meta').textContent = [TYPE_LABELS[record.type], participants, countOf(record.messageCount, 'message')].filter(Boolean).join(' · ');
+  byId('conv-view-history').textContent = [historyExtent(record), updatedText(record)].filter(Boolean).join(' · ');
+  const details = conversationDetails(record);
+  byId('conv-view-details').textContent = details;
+  byId('conv-view-details').hidden = details === '';
   byId('conv-view-key').textContent = record.conversationKey;
   byId('conv-view-actions').replaceChildren(...conversationActions(app, record, imageCount));
 }
