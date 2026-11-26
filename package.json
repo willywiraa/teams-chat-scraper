@@ -1,6 +1,6 @@
 {
   "name": "teams-chat-extractor",
-  "version": "1.11.0",
+  "version": "1.11.1",
   "private": true,
   "description": "Teams Chat Scraper: a Microsoft Edge extension that archives the Teams Web chats you can see, locally.",
   "type": "module",

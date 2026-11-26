@@ -380,11 +380,6 @@ h3[tabindex='-1']:focus {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-m);
-  padding: var(--space-3);
-}
-
-.archive-main .card,
-.save-main .card {
   padding: var(--space-4);
 }
 
@@ -809,7 +804,7 @@ textarea {
 
 /* A group's heading in a card: Messages to capture, Period, Save a file, Format, Options. */
 .group-label {
-  padding: 0 0 6px;
+  padding: 0 0 var(--space-2);
   font-size: var(--font-s);
   font-weight: 600;
 }
@@ -1011,10 +1006,21 @@ textarea {
   font-size: var(--font-l);
 }
 
+/*
+ * The popup's parts, each a card 12 px from the next: the chat, what to capture (with Options),
+ * the file to save (its format, then what it includes). Inside a card, 12 px between its parts.
+ */
+#actions,
 #capture-box,
-#resume-box {
+#resume-box,
+.popup-group {
   display: grid;
   gap: var(--space-3);
+}
+
+/* The line under the capture choices belongs to them: 8 px, not 12. */
+#capture-hint {
+  margin-top: calc(-1 * var(--space-1));
 }
 
 #view-connect {
@@ -1035,47 +1041,80 @@ textarea {
   gap: var(--space-3);
 }
 
+/* Four periods, two by two like the formats: four in a row would not fit their names. */
+.period-box .segments {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 #capture-from-field {
   max-width: 200px;
 }
 
-/* Saving what is archived without capturing: a link under the file choices. */
+/* Saving what is archived without capturing: a link at the end of the file's card. */
 .save-archived {
   justify-self: start;
-  margin: calc(-1 * var(--space-2)) 0 0 calc(-1 * var(--space-1));
+  margin: calc(-1 * var(--space-1)) 0 calc(-1 * var(--space-1)) calc(-1 * var(--space-1));
 }
 
-/* **Save a file** starts the second group of the popup. */
+/* **Save a file** is the heading of its card, and turns the rest of it on and off. */
 .save-toggle {
   font-weight: 600;
 }
 
 /*
- * The bar at the bottom of the capture choices: the button that names what it captures and
- * saves. It stays in view, just above the status bar, while the choices are on screen.
+ * The bar at the bottom of the popup: the button that names what it captures and saves. It runs
+ * from edge to edge and stays in view, just above the status bar, while the choices scroll.
  */
 .action-bar {
   position: sticky;
   bottom: var(--status-height);
   z-index: 1;
   display: grid;
-  gap: var(--space-1);
-  justify-items: center;
   margin: 0 calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
   padding: var(--space-3);
   border-top: 1px solid var(--border);
-  border-radius: 0 0 var(--radius-m) var(--radius-m);
   background: var(--card);
 }
 
 .action-bar button.wide {
-  justify-self: stretch;
   min-height: 40px;
 }
 
 #run-panel {
   display: grid;
+  gap: var(--space-3);
+}
+
+/*
+ * Controls in the popup and the side panel are a little roomier than on the archive page: 36 px
+ * with a mouse (touch keeps its 44 px), with 8 px between the choices of a group.
+ */
+@media not (pointer: coarse) {
+  .popup-main button:not(.link):not(.icon-button),
+  .popup-main .segment,
+  .popup-main input[type='date'] {
+    min-height: 36px;
+  }
+}
+
+.popup-main .segment {
+  padding: var(--space-2) var(--space-3);
+}
+
+.popup-main .segments,
+.popup-main .tiles {
   gap: var(--space-2);
+}
+
+.popup-main .tile {
+  min-height: 64px;
+  padding: 10px var(--space-1);
+  gap: 6px;
+}
+
+.popup-main .include-list {
+  gap: var(--space-2) var(--space-3);
 }
 
 #run-panel .stats {
@@ -1210,23 +1249,30 @@ a.result-link {
 /* ------------------------------------------------------- saving a file */
 
 /* The formats and the Include checklist, in the popup and in the archive's Save a file dialog. */
+/*
+ * Format, then Include in the file: two groups 16 px apart, with a hairline rule between them so
+ * each reads as its own part.
+ */
 .save-choices {
   display: grid;
-  gap: var(--space-3);
-}
-
-/* The four formats share one row, each as wide as its name needs, its icon before it. */
-.save-choices {
+  gap: var(--space-4);
   container-type: inline-size;
 }
 
+/* The rule closes the Format group: a legend would sit on a top border, not under it. */
+.save-choices > .choice-group:not(:last-child) {
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+/* The four formats share one row, each as wide as its name needs, its icon before it. */
 .format-row > .segment {
   flex: 1 1 auto;
   padding-inline: var(--space-2);
 }
 
-/* Where one row would not fit them (the side panel, narrower than the popup), two by two. */
-@container (max-width: 320px) {
+/* Where one row would be cramped (the popup and the side panel), two by two. */
+@container (max-width: 420px) {
   .format-row {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
