@@ -81,6 +81,8 @@ export interface RunOptions {
   sessionId?: string;
   onProgress?: EngineOptions['onProgress'];
   imageReader?: ImageReader;
+  /** The run's clock (Date.now by default). */
+  now?: () => number;
 }
 
 /**
@@ -107,6 +109,7 @@ export async function runEngine(options: RunOptions): Promise<EngineResult> {
     detectConversation: () => detectConversation(document, TEAMS_URL, profile()),
     onProgress: options.onProgress,
     imageReader: options.imageReader,
+    now: options.now,
   });
   if (result.segments.length > 0) await options.repository.mergeCoverage(conversation.conversationKey, result.segments);
   await options.repository.resolveReplies(conversation.conversationKey);

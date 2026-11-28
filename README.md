@@ -69,13 +69,15 @@ For long chats, click the side panel button at the top right of the popup (next 
 
 **Keep the Teams tab visible.** Edge slows down background tabs, so the extraction pauses on its own while the tab is hidden and continues when you return. You can change this in the settings. Putting Teams in its own window works well.
 
+**The computer stays awake during a run.** While a capture runs, the extension asks Edge to keep the screen and the computer awake, so they don't go to sleep in the middle of it; when the run ends or you pause it, they sleep as usual again. It can't stop a laptop from shutting down or hibernating on a flat battery, or from sleeping when its lid is closed: for a long run, plug it in and leave the lid open.
+
 ### Resuming
 
 If a run was interrupted, stopped or failed (tab closed or reloaded, browser closed, extension updated), the popup shows **Resume extraction** in the capture button's place the next time you open that chat (**Start another capture instead** shows the capture choices). Resuming repeats the same capture (the same period, the same reading) and continues where the previous run stopped:
 
 - Through archived parts it takes steps of two screen heights instead of one, and doesn't read their images again. A skipped stretch counts as covered because the archive already holds it without a gap. If a step goes past the end of the archived part, the run steps back and continues normally.
-- Teams loads older history only from the newest message backwards, so a resumed run still has to pass everything newer than where it stopped. That is quick but depends on how fast Teams loads older messages.
-- Nothing runs while the browser or computer is off. Open the chat again and resume.
+- Teams loads older history only from the newest message backwards, so a resumed run starts at the newest message again and passes everything newer than where it stopped (the popup says *Passing archived messages, back to …*). That is quick but depends on how fast Teams loads older messages. It captures nothing twice: the counts show those messages as *already archived*.
+- Nothing runs while the browser or computer is off. Open the chat again and resume. If the computer only slept or hibernated, the run carries on when it wakes; the time it slept doesn't count toward **Maximum run duration**.
 
 Running any capture again is always safe: messages are never stored twice.
 
@@ -104,7 +106,7 @@ The pages follow the Windows light or dark theme (*Same as Windows*), or *Light*
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | Scrolling speed | Normal | **Gentle**, **Normal** or **Fast** set the scrolling and waiting values below together (see the table after this one). **Custom** shows when the values under Advanced match no preset. |
-| Maximum run duration | 360 min | Hard limit, so a run can never loop forever. |
+| Maximum run duration | 360 min | Hard limit, so a run can never loop forever. It counts the time the run works: time paused, and time the computer sleeps or hibernates, doesn't count. |
 | Update: days before the last update to check again | 2 | **New messages** (in the popup) reads this many days before the last update again, for edits, deletions and late replies. 0 to 30; 0 stops at the first archived messages. |
 | Your display name | (empty) | Teams doesn't show your own name next to your messages. Enter it to record it as their sender. Your messages are marked as yours either way. |
 | Date order used by Teams | auto | Order of numeric dates shown by Teams (for example 1/2/2024). It is used only when no exact timestamp is available. |

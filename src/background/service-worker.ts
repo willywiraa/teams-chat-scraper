@@ -7,7 +7,10 @@ import { saveTargetHash } from '../export/options';
 import { newId } from '../shared/ids';
 import { isBackgroundRequest, STALE_SESSION_MS, TEAMS_URL_PATTERN, type Response } from '../shared/protocol';
 import { ArchiveRepository } from '../storage/repository';
-import { handleBackgroundRequest, type RouterDeps } from './router';
+import { handleBackgroundRequest, syncKeepAwake, type RouterDeps } from './router';
+
+/** While the computer is kept awake, this alarm checks every minute that a capture still runs. */
+const KEEP_AWAKE_ALARM = 'keep-awake-check';
 
 let repositoryPromise: Promise<ArchiveRepository> | null = null;
 
@@ -32,6 +35,18 @@ const deps: RouterDeps = {
       ...(openerTabId === null ? {} : { openerTabId }),
     });
   },
+  // 'display' keeps the screen on too: with the screen off, Edge treats the Teams tab as hidden,
+  // and the run pauses until it is shown again.
+  keepAwake: (awake) => {
+    if (awake) {
+      chrome.power.requestKeepAwake('display');
+      // Recreated with every heartbeat, so it only fires once heartbeats stop (a reloaded tab).
+      void chrome.alarms.create(KEEP_AWAKE_ALARM, { periodInMinutes: 1 });
+    } else {
+      chrome.power.releaseKeepAwake();
+      void chrome.alarms.clear(KEEP_AWAKE_ALARM);
+    }
+  },
 };
 
 function isTrustedSender(sender: chrome.runtime.MessageSender): boolean {
@@ -55,14 +70,24 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (r
 
 function markStale(): void {
   getRepository()
-    .then((repository) => repository.markStaleSessions(Date.now(), STALE_SESSION_MS))
+    .then(async (repository) => {
+      await repository.markStaleSessions(Date.now(), STALE_SESSION_MS);
+      await syncKeepAwake(repository, deps, Date.now());
+    })
     .catch((error: unknown) => console.warn('[teams-chat-extractor] could not check stale sessions', error));
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   getRepository()
-    .then((repository) => repository.markStaleSessions(Date.now(), 0, tabId))
+    .then(async (repository) => {
+      await repository.markStaleSessions(Date.now(), 0, tabId);
+      await syncKeepAwake(repository, deps, Date.now());
+    })
     .catch((error: unknown) => console.warn('[teams-chat-extractor] could not close sessions of a removed tab', error));
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === KEEP_AWAKE_ALARM) markStale();
 });
 
 chrome.runtime.onStartup.addListener(markStale);

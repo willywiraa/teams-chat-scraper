@@ -398,6 +398,67 @@ describe('interruptions and controls', () => {
     await expectArchiveToMatch(repository, conversationKey, expected);
   });
 
+  it('does not count the time the computer slept toward the time limit', async () => {
+    const { repository, expected, conversationKey } = await setup({ count: 150, participants: PEOPLE, seed: 15 });
+    // The clock jumps ten hours once, as when a laptop hibernates and wakes again.
+    let offset = 0;
+    const result = await runEngine({
+      repository,
+      mode: 'full',
+      settings: { maxDurationMinutes: 10 },
+      now: () => Date.now() + offset,
+      onProgress: (progress) => {
+        if (progress.counters.passes === 3) offset = 10 * 60 * 60_000;
+      },
+    });
+    expect(result.status).toBe('completed');
+    await expectArchiveToMatch(repository, conversationKey, expected);
+  });
+
+  it('does not count the time a run was paused toward the time limit', async () => {
+    const { repository, expected, conversationKey } = await setup({ count: 150, participants: PEOPLE, seed: 16 });
+    const control = new ScrapeControl();
+    let offset = 0;
+    let latest: EngineProgress | null = null;
+    let pausedOnce = false;
+    const run = runEngine({
+      repository,
+      mode: 'full',
+      control,
+      settings: { maxDurationMinutes: 3 },
+      now: () => Date.now() + offset,
+      onProgress: (progress) => {
+        latest = progress;
+        if (!pausedOnce && progress.counters.passes >= 3) {
+          pausedOnce = true;
+          control.pause();
+        }
+      },
+    });
+    await waitFor(() => latest?.phase === 'paused', 10_000, 'paused phase');
+    // Four minutes paused: more than the limit, less than a gap that counts as sleep.
+    offset = 4 * 60_000;
+    expect(control.resume()).toBe(true);
+    expect((await run).status).toBe('completed');
+    await expectArchiveToMatch(repository, conversationKey, expected);
+  });
+
+  it('still stops at the time limit when the run works that long', async () => {
+    const { repository } = await setup({ count: 400, participants: PEOPLE, seed: 17 });
+    // Every step takes two minutes of working time.
+    let offset = 0;
+    const result = await runEngine({
+      repository,
+      mode: 'full',
+      settings: { maxDurationMinutes: 5 },
+      now: () => Date.now() + offset,
+      onProgress: () => {
+        offset += 2 * 60_000;
+      },
+    });
+    expect(result).toMatchObject({ status: 'stopped', stopReason: 'max-duration' });
+  });
+
   it('stops when a different conversation is opened', async () => {
     const { repository } = await setup({ count: 200, participants: PEOPLE, seed: 13 });
     let switched = false;

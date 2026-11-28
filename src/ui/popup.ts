@@ -55,6 +55,8 @@ let repositoryPromise: Promise<ArchiveRepository> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let refreshing = false;
 let resumable: SessionRecord | null = null;
+/** How far back this chat's archive reaches (its oldest message), to say where a run passes to. */
+let archivedFrom: number | null = null;
 let busy = false;
 let settings: ScrapeSettings = { ...DEFAULT_SETTINGS };
 /** The re-read option is preset from the settings once; after that it is the user's choice. */
@@ -207,6 +209,14 @@ function renderStatusBar(status: ContentStatus): void {
   setHidden('status-count', count === null);
 }
 
+/**
+ * A full-history run starts at the newest message, as Teams loads older ones only from there: it
+ * says how far back the archived part goes, so passing it does not look like starting over.
+ */
+function passingPhase(mode: ScrapeMode | undefined): string {
+  return mode === 'full' && archivedFrom !== null ? `Passing archived messages, back to ${formatDate(archivedFrom)}…` : 'Passing archived messages…';
+}
+
 function renderProgress(status: ContentStatus): void {
   const progress = status.progress;
   const counters = progress?.counters;
@@ -214,7 +224,7 @@ function renderProgress(status: ContentStatus): void {
   if (status.state === 'stopping') phase = 'Stopping…';
   else if (status.state === 'paused' || progress?.phase === 'paused') phase = 'Paused';
   else if (progress?.phase === 'waiting-visible') phase = 'Waiting: Teams tab is hidden';
-  else if (progress?.phase === 'running') phase = progress.inCoveredRange ? 'Passing archived messages…' : 'Extracting…';
+  else if (progress?.phase === 'running') phase = progress.inCoveredRange ? passingPhase(status.session?.mode) : 'Extracting…';
   setText('run-phase', phase);
   setText(
     'run-elapsed',
@@ -336,6 +346,7 @@ async function renderArchive(status: ContentStatus): Promise<void> {
   // The archive entry of this chat, found as an extraction would find it.
   const resolution = await repo.resolveConversation(conversation, status.evidence ?? null);
   const record = resolution.record;
+  archivedFrom = record?.oldestSortKey ?? null;
   renderArchiveNote(resolution, conversation.title);
   setText('arch-summary', historyLine(record));
   const coverage = record ? coverageStatus(record.coverage, record.newestSortKey) : 'empty';
@@ -353,9 +364,22 @@ async function renderArchive(status: ContentStatus): Promise<void> {
     setText(
       'resume-text',
       `${runSubject(resumable.mode, resumable.captureFrom)} (started ${formatDateTime(resumable.startedAt)}) ended early: ${STOP_REASON_LABELS[resumable.stopReason ?? 'interrupted'].toLowerCase()}. ` +
-        `It captured ${formatNumber(resumable.counters.uniqueSeen)} messages${resumable.counters.oldestSortKey ? `, back to ${formatDate(resumable.counters.oldestSortKey)}` : ''}.`,
+        `It saw ${formatNumber(resumable.counters.uniqueSeen)} messages (${formatNumber(resumable.counters.inserted)} new)${resumable.counters.oldestSortKey ? `, back to ${formatDate(resumable.counters.oldestSortKey)}` : ''}.` +
+        resumePassing(resumable, record),
     );
   }
+}
+
+/**
+ * For a full-history run whose archive reaches further back than the run got: resuming starts at
+ * the newest message again and passes the archived part quickly before it captures older ones.
+ */
+function resumePassing(session: SessionRecord, record: ConversationRecord | null): string {
+  const from = record?.oldestSortKey ?? null;
+  if (session.mode !== 'full' || from === null) return '';
+  const reached = session.counters.oldestSortKey;
+  if (typeof reached === 'number' && reached <= from) return '';
+  return ` Resume passes the archived messages back to ${formatDate(from)} quickly, then captures older ones.`;
 }
 
 /**

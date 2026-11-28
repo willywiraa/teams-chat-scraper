@@ -180,7 +180,7 @@ begin ─▶ running ⇄ paused ─▶ completed | stopped | failed      (report
 
 A run always ends. The engine stops when any of these happens:
 
-- the step limit (`maxSteps`) or the time limit (`maxDurationMinutes`) is reached;
+- the step limit (`maxSteps`) or the time limit (`maxDurationMinutes`) is reached. The time limit counts working time: time paused or waiting for the tab to be shown is left out, and so is any gap longer than `MAX_COUNTED_GAP_MS` (5 minutes) between two looks at the clock, which is the computer asleep or hibernating, so a run that wakes up does not stop at once and save its file;
 - `maxStallPasses` passes in a row bring no new message;
 - the open chat changes (checked before and after every pass);
 - the message list disappears.
@@ -280,6 +280,7 @@ Addresses of earlier versions lead to their new place (`parseRoute`): `#overview
 ## Security
 
 - Host permissions and content scripts are limited to `teams.microsoft.com`, `teams.cloud.microsoft` and `teams.live.com`.
+- `power` and `alarms` only keep the computer awake during a capture: the router calls `syncKeepAwake` when a session begins, sends a heartbeat or ends, and the service worker requests `chrome.power.requestKeepAwake('display')` while a session is running (not paused) with a recent heartbeat, and releases it otherwise. While it is held, a one-minute alarm marks sessions that went quiet (a reloaded tab) as interrupted and releases it when none is left.
 - The extractor only reads the DOM of the open chat. The only page interaction is scrolling the message list. Reading an image waits for its `load` event but changes nothing on the page.
 - The background accepts requests only from Teams tabs and the extension's own pages. The content script accepts commands only from this extension.
 - Message HTML is re-serialised through a tag and attribute allow-list, and only `http(s)`, `mailto` and `tel` links are kept. The UI writes text through `textContent` only.

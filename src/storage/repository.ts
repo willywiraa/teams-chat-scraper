@@ -979,6 +979,13 @@ export class ArchiveRepository {
     return ['interrupted', 'stopped', 'failed'].includes(latest.status) ? latest : null;
   }
 
+  /** Whether a capture is running: a session that is running (not paused) with a recent heartbeat. */
+  async hasRunningSession(nowMs: number, staleMs: number): Promise<boolean> {
+    const tx = this.db.transaction(STORES.sessions, 'readonly');
+    const sessions = (await requestToPromise(tx.objectStore(STORES.sessions).index(INDEXES.sessionsByStatus).getAll('running'))) as SessionRecord[];
+    return sessions.some((session) => Date.parse(session.updatedAt) > nowMs - staleMs);
+  }
+
   /**
    * Marks running/paused sessions whose heartbeat is older than `staleMs` as interrupted
    * (tab closed, page reloaded, browser crashed). Optionally restricted to one tab.

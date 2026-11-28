@@ -32,6 +32,8 @@ export interface RouterDeps {
   maxImageBytes?: number;
   /** Opens the save page for a finished run's file, next to the tab it ran in. */
   openSaveTab?: (sessionId: string, openerTabId: number | null) => Promise<void>;
+  /** Keeps the screen and the computer awake (true) or lets them sleep again (false). */
+  keepAwake?: (awake: boolean) => void;
 }
 
 export interface RequestContext {
@@ -120,6 +122,19 @@ export function savesFileAfter(status: SessionStatus, stopReason: StopReason | n
   return status === 'completed' || (status === 'stopped' && stopReason !== 'user-stop');
 }
 
+/**
+ * Keeps the computer awake while a capture is running, so it does not sleep in the middle of a
+ * long run, and lets it sleep again once none is (ended, paused, or its tab gone quiet).
+ */
+export async function syncKeepAwake(repository: ArchiveRepository, deps: Pick<RouterDeps, 'keepAwake' | 'staleSessionMs'>, nowMs: number): Promise<void> {
+  if (!deps.keepAwake) return;
+  try {
+    deps.keepAwake(await repository.hasRunningSession(nowMs, deps.staleSessionMs));
+  } catch {
+    // Power management only helps a run along; it never stops one.
+  }
+}
+
 /** A message time (epoch ms) from a request, or null. */
 function optionalTime(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -186,6 +201,7 @@ export async function handleBackgroundRequest(
         extractorVersion: EXTRACTOR_VERSION,
       };
       await repository.createSession(session);
+      await syncKeepAwake(repository, deps, now.getTime());
       return {
         sessionId: session.sessionId,
         conversationKey,
@@ -283,6 +299,7 @@ export async function handleBackgroundRequest(
         },
         { skipIfEnded: true },
       );
+      await syncKeepAwake(repository, deps, now.getTime());
       return { recorded: updated !== null };
     }
 
@@ -312,6 +329,7 @@ export async function handleBackgroundRequest(
         updatedAt: nowIso,
         endedAt: nowIso,
       });
+      await syncKeepAwake(repository, deps, now.getTime());
       // Once per run: an end reported again (a retry) does not open a second page.
       let savingFile = false;
       if (session?.save && session.endedAt === null && deps.openSaveTab && savesFileAfter(request.status, request.stopReason)) {

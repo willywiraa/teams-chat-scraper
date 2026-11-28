@@ -51,6 +51,8 @@ Archive the Microsoft Teams Web chats the user opens into local browser storage,
 | `unlimitedStorage` | A long chat history with its pictures can be larger than the default storage quota. The archive is kept in the extension's IndexedDB database on this computer. |
 | `scripting` | **Connect to this tab** adds the extension's own content script to a Teams tab that was already open when the extension was installed or updated, so the user does not have to reload Teams. Only the bundled `content.js` is injected, and only into Teams tabs. |
 | `sidePanel` | Shows the capture controls in the side panel, which stays open during a long capture while the popup would close. |
+| `power` | Keeps the screen and the computer awake while a capture is running, so a long capture is not cut off by sleep. The request is released when the capture ends or is paused. |
+| `alarms` | Checks once a minute, only while the computer is kept awake, that a capture is still running, and lets the computer sleep again if its tab was closed or reloaded. |
 
 No remote code is loaded or run. All scripts are part of the package.
 

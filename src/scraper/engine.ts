@@ -136,6 +136,12 @@ const NUDGE_DELAY_MS = 60;
 const SEEK_ANIMATION_MS = 120;
 /** Scroll step (in viewport heights) while passing through already-archived parts. */
 export const SEEK_STEP_RATIO = 2;
+/**
+ * The most that the time between two looks at the clock can add to a run's working time. A step
+ * takes seconds (a minute or two with the longest waits); a longer gap is the computer asleep or
+ * hibernating, which is not working time and must not end the run at its time limit.
+ */
+export const MAX_COUNTED_GAP_MS = 5 * 60_000;
 
 export function messageSignature(message: ExtractedMessage): string {
   return hashParts([
@@ -211,12 +217,14 @@ class ScrapeEngine {
   private inCovered = false;
   private phase: EnginePhase = 'starting';
   private readonly now: () => number;
-  private readonly startedAt: number;
+  /** Working time so far, for the time limit: pauses and the computer's sleep are left out (tick()). */
+  private workedMs = 0;
+  private lastTick: number;
   private readonly images: ImageCapture | null;
 
   constructor(private readonly options: EngineOptions) {
     this.now = options.now ?? (() => Date.now());
-    this.startedAt = this.now();
+    this.lastTick = this.now();
     this.stepRatio = options.settings.scrollStepRatio;
     this.seekRatio = Math.max(options.settings.scrollStepRatio, SEEK_STEP_RATIO);
     this.since = options.mode !== 'visible' && typeof options.since === 'number' && Number.isFinite(options.since) ? options.since : null;
@@ -262,7 +270,10 @@ class ScrapeEngine {
       let lastUpStep = 0;
 
       for (;;) {
+        this.tick();
         if ((await this.gate()) === 'stop') return this.finish('stopped', 'user-stop');
+        // Time spent paused, or waiting for the Teams tab to be shown, is not working time.
+        this.lastTick = this.now();
         if (!this.conversationUnchanged()) {
           return this.finish('stopped', 'conversation-changed', 'A different conversation was opened during extraction.');
         }
@@ -296,7 +307,8 @@ class ScrapeEngine {
         }
         if (o.mode === 'full' && this.reachedSince(connection)) return this.finish('completed', 'range-reached');
         if (this.counters.passes >= o.settings.maxSteps) return this.finish('stopped', 'max-steps');
-        if (this.now() - this.startedAt >= o.settings.maxDurationMinutes * 60_000) return this.finish('stopped', 'max-duration');
+        this.tick();
+        if (this.workedMs >= o.settings.maxDurationMinutes * 60_000) return this.finish('stopped', 'max-duration');
 
         if (connection === 'gap') {
           this.counters.gapsDetected++;
@@ -363,6 +375,13 @@ class ScrapeEngine {
     } catch (error) {
       return this.finish('failed', 'error', errorMessage(error));
     }
+  }
+
+  /** Adds the time since the last tick to the working time, but no more than MAX_COUNTED_GAP_MS of it. */
+  private tick(): void {
+    const now = this.now();
+    this.workedMs += Math.min(Math.max(0, now - this.lastTick), MAX_COUNTED_GAP_MS);
+    this.lastTick = now;
   }
 
   private driverFor(list: Element): ScrollDriver {

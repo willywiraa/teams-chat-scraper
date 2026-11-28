@@ -5,7 +5,7 @@
   "description": "Saves the Microsoft Teams Web chats you can already see to this browser and exports them. Not affiliated with Microsoft.",
   "version": "0.0.0",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "unlimitedStorage", "scripting", "sidePanel"],
+  "permissions": ["storage", "unlimitedStorage", "scripting", "sidePanel", "power", "alarms"],
   "host_permissions": [
     "https://teams.microsoft.com/*",
     "https://teams.cloud.microsoft/*",
