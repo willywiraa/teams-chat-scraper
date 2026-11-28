@@ -16,7 +16,7 @@ import {
 import { DEFAULT_SETTINGS, normalizeSettings, SETTINGS_STORAGE_KEY, type ScrapeSettings } from '../shared/settings';
 import { conversationLabel, type ConversationRecord, type ScrapeMode, type SessionCounters, type SessionRecord } from '../shared/types';
 import type { ConversationResolution } from '../storage/conversation-identity';
-import { coverageStatus } from '../storage/coverage';
+import { coverageGaps, coverageStatus } from '../storage/coverage';
 import { ArchiveRepository } from '../storage/repository';
 import {
   byId,
@@ -379,6 +379,13 @@ async function renderArchive(status: ContentStatus): Promise<void> {
 function resumePassing(session: SessionRecord, record: ConversationRecord | null): string {
   const from = record?.oldestSortKey ?? null;
   if (session.mode !== 'full' || from === null) return '';
+  // The archive has stretches missing: resuming captures them on its way back, not only older messages.
+  const gaps = record ? coverageGaps(record.coverage) : [];
+  const only = gaps[0];
+  if (gaps.length > 1) return ` Resume passes the archived messages quickly, captures the messages missing in its ${gaps.length} gaps, then goes on to the beginning.`;
+  if (only) {
+    return ` Resume passes the archived messages quickly, captures the messages missing between ${formatDate(only.after)} and ${formatDate(only.before)}, then goes on to the beginning.`;
+  }
   const reached = session.counters.oldestSortKey;
   if (typeof reached === 'number' && reached <= from) return '';
   return ` Resume passes the archived messages back to ${formatDate(from)} quickly, then captures older ones.`;

@@ -159,16 +159,28 @@ export function historyLabel(record: ConversationRecord): string {
 }
 
 /**
- * What a history back to the beginning lacks: "with a gap from 23 Apr 2026 to 8 Jul 2026" (messages
- * between those may be missing), "with 2 gaps", or a gap after the last stretch captured.
+ * The stretches missing between captured ones: "a gap from 23 Apr 2026 to 8 Jul 2026" (messages
+ * between those may be missing) or "2 gaps"; null when there is none.
  */
-function gapText(record: ConversationRecord): string {
-  const gaps = coverageGaps(record.coverage);
+export function gapPhrase(coverage: ConversationRecord['coverage']): string | null {
+  const gaps = coverageGaps(coverage);
   const only = gaps[0];
-  if (gaps.length > 1) return `with ${gaps.length} gaps`;
-  if (only) return `with a gap from ${formatDate(only.after)} to ${formatDate(only.before)}`;
+  if (gaps.length > 1) return `${gaps.length} gaps`;
+  return only ? `a gap from ${formatDate(only.after)} to ${formatDate(only.before)}` : null;
+}
+
+/** What a history back to the beginning lacks: its gaps, or a gap after the last stretch captured. */
+function gapText(record: ConversationRecord): string {
+  const gaps = gapPhrase(record.coverage);
+  if (gaps) return `with ${gaps}`;
   const range = normalizeCoverage(record.coverage)[0];
   return range ? `with a gap after ${formatDate(range.newest)}` : 'with gaps';
+}
+
+/** A history that doesn't reach the beginning, with its gaps if it has any. */
+function notBackText(record: ConversationRecord): string {
+  const gaps = gapPhrase(record.coverage);
+  return gaps ? `not back to the start, with ${gaps}` : 'not back to the start';
 }
 
 /** "3 Jan 2023 – 5 Mar 2024", or '' when nothing is archived. */
@@ -192,7 +204,7 @@ export function historyLine(record: ConversationRecord | null | undefined, nowMs
     parts.push(
       status === 'complete'
         ? `complete back to ${formatDate(record.oldestSortKey)}`
-        : `${archivedPeriod(record)}, ${status !== 'partial' ? 'history not checked' : reachesBeginning(record.coverage) ? gapText(record) : 'not back to the start'}`,
+        : `${archivedPeriod(record)}, ${status !== 'partial' ? 'history not checked' : reachesBeginning(record.coverage) ? gapText(record) : notBackText(record)}`,
     );
   }
   parts.push(record.lastUpdate ? `updated ${formatAgo(record.lastUpdate.at, nowMs)}` : `last run ${formatAgo(record.lastExtractedAt, nowMs)}`);

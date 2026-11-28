@@ -201,6 +201,16 @@ describe('summary lines', () => {
       ],
     });
     expect(historyLine(twice, now)).toContain(', with 2 gaps ·');
+    // Not back to the start, and a stretch missing as well: both are said.
+    const unmarked = record({
+      messageCount: 30,
+      coverage: [
+        { oldest: at(1, 9, 0), newest: at(3, 9, 0), reachedBeginning: false },
+        { oldest: at(10, 9, 0), newest: at(20, 9, 0), reachedBeginning: false },
+      ],
+    });
+    expect(historyLabel(unmarked)).toBe('Not back to the start');
+    expect(historyLine(unmarked, now)).toContain(`, not back to the start, with a gap from ${formatDate(at(3, 9, 0))} to ${formatDate(at(10, 9, 0))} ·`);
   });
 
   it('use the same words in the list and the summary line when no capture covered a stretch', () => {
