@@ -36,7 +36,7 @@ After rebuilding, click **Reload** on the extension card in `edge://extensions` 
 | **New messages** | Archives the messages that arrived since the last update, and reads the 2 days before it again (setting) to pick up edits, deletions and late replies. Preselected once the chat has something archived. | It has re-read back to the last update minus those days, and seen at least 8 archived messages again. |
 | **Date range**, with a **Period** of **24 hours**, **7 days** (the first choice) or **30 days** | Archives the messages of that period. | The start of the period is reached, or it joins archived messages that already reach back that far. |
 | **Date range**, with the **Period** **From a date** | Shows a date field, **From**, and archives the messages from midnight of that day. | As for a period. |
-| **Full history** | Scrolls back to the beginning of the chat and archives everything. Preselected for a chat with nothing archived. | The beginning of the chat is reached, or it has caught up with a complete archive. |
+| **Full history** | Scrolls back to the beginning of the chat and archives everything. Preselected for a chat with nothing archived. Parts already archived are passed quickly, also when the archive is marked complete, so it checks the beginning again. | The beginning of the chat is reached. |
 Every choice keeps the newer messages it passes on the way, so there is no "to" date: the archive never gets a hole between the period and now.
 
 ### Saving a file
@@ -123,8 +123,8 @@ The pages follow the Windows light or dark theme (*Same as Windows*), or *Light*
 | Smooth scrolling: animation per step | 250 ms | Each step glides instead of jumping (at most 120 ms through archived parts). 0 turns it off. A hidden tab always jumps. |
 | Render quiet period | 350 ms | The page must stop changing for this long before a step counts as rendered. |
 | Maximum render wait per step | 6000 ms | Upper limit for that wait. |
-| Wait for older history at the top | 8000 ms | How long to wait for Teams to load older messages at the top of the list. |
-| Attempts at the top before finishing | 3 | Attempts without new messages before the beginning is considered reached. |
+| Wait for older history at the top | 20000 ms | How long each attempt at the top of the list waits for Teams to load older messages. |
+| Attempts at the top before finishing | 6 | Attempts without new messages before the beginning is considered reached. The run waits at least this many times the wait above at the top (2 minutes by default), longer while Teams shows that it is loading or when it has been slow earlier in the run (three times its slowest load), up to 10 minutes. |
 | Steps without new messages before stopping | 25 | Guard against a list that has stopped responding. |
 | Maximum scroll steps per run | 50,000 | Hard limit, like the maximum duration. |
 | Update: archived messages to see again before stopping | 8 | The update also sees at least this many archived messages again. |
@@ -203,7 +203,7 @@ When **Keep the pictures shown in messages** is on (the default), every picture 
   - A renamed chat continues its archive entry when some of the messages on screen are archived already. Otherwise it gets a new entry, which you can merge with the old one on the archive page.
   - A chat with the title of another archived chat gets an entry of its own when that entry lacks the messages it shows from the same period.
   - With no message ids on screen, the title alone decides, and the popup warns about it.
-- The beginning of a chat is detected when Teams stops loading older messages. If Teams failed to load (for example because the network dropped), a run can finish too early. Run **Full history** with **Re-read archived parts** to try again.
+- The beginning of a chat is detected when Teams stops loading older messages. At the top of the list the popup says *Waiting for Teams to load older messages…*, and the run waits at least 2 minutes there, longer when Teams is loading or has been slow (see the settings above). If Teams still fails to load in that time (for example because the network dropped), a run can finish too early. Run **Full history** again: it passes the archived messages quickly and continues with the older ones.
 - Messages that show neither a Teams id nor a timestamp (rare) are matched by their content and position. Two identical messages of that kind next to each other may be stored as one. When two entries that both hold such a message are merged, it is kept twice.
 
 ## Development

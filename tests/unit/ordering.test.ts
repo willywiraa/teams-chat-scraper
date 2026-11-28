@@ -69,6 +69,19 @@ describe('coverage ranges', () => {
     expect(mergeCoverage(ranges, { oldest: 25, newest: 55, reachedBeginning: false })).toEqual([{ oldest: 10, newest: 60, reachedBeginning: true }]);
   });
 
+  it('drops a beginning mark once older messages join its range', () => {
+    // A run took a slow Teams for the beginning of the chat at 50; a later run found older messages.
+    const marked = [{ oldest: 50, newest: 100, reachedBeginning: true }];
+    expect(mergeCoverage(marked, { oldest: 20, newest: 60, reachedBeginning: false })).toEqual([{ oldest: 20, newest: 100, reachedBeginning: false }]);
+    expect(mergeCoverage(marked, { oldest: 10, newest: 100, reachedBeginning: true })).toEqual([{ oldest: 10, newest: 100, reachedBeginning: true }]);
+    // The same beginning, or a newer stretch joining it, keeps the mark.
+    expect(mergeCoverage(marked, { oldest: 50, newest: 70, reachedBeginning: false })).toEqual(marked);
+    expect(mergeCoverage(marked, { oldest: 90, newest: 120, reachedBeginning: false })).toEqual([{ oldest: 50, newest: 120, reachedBeginning: true }]);
+    expect(normalizeCoverage([{ oldest: 50, newest: 100, reachedBeginning: true }, { oldest: 20, newest: 60, reachedBeginning: false }])).toEqual([
+      { oldest: 20, newest: 100, reachedBeginning: false },
+    ]);
+  });
+
   it('ignores invalid ranges', () => {
     expect(mergeCoverage([], { oldest: 5, newest: 1, reachedBeginning: false })).toEqual([]);
     expect(mergeAllCoverage([{ oldest: Number.NaN, newest: 1, reachedBeginning: false }], [{ oldest: 1, newest: 2, reachedBeginning: false }])).toEqual([

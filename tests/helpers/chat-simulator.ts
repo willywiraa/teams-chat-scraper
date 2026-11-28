@@ -29,7 +29,10 @@ export class ChatSimulator {
   readonly itemHeight: number;
   readonly overscan: number;
   readonly pageSize: number;
-  readonly loadDelayMs: number;
+  /** How long a load of older history takes; tests may change it during a run (a slow Teams). */
+  loadDelayMs: number;
+  /** When true, loading older history shows no spinner (a slow load the page does not announce). */
+  silentLoading = false;
   loadedStart: number;
   fetchCount = 0;
   /** When true, assignments to scrollTop are ignored (a stuck list). */
@@ -120,10 +123,12 @@ export class ChatSimulator {
   private maybeLoad(): void {
     if (this.loading || this.loadedStart === 0 || this.historyBlocked) return;
     this.loading = true;
-    this.spinner = document.createElement('div');
-    this.spinner.setAttribute('role', 'progressbar');
-    this.spinner.setAttribute('data-tid', 'message-pane-loading');
-    this.viewport.prepend(this.spinner);
+    if (!this.silentLoading) {
+      this.spinner = document.createElement('div');
+      this.spinner.setAttribute('role', 'progressbar');
+      this.spinner.setAttribute('data-tid', 'message-pane-loading');
+      this.viewport.prepend(this.spinner);
+    }
     const timer = setTimeout(() => {
       this.timers.delete(timer);
       const count = Math.min(this.pageSize, this.loadedStart);

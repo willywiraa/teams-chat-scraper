@@ -66,6 +66,8 @@ export interface EngineProgress {
   counters: SessionCounters;
   lastPassMessages: number;
   inCoveredRange: boolean;
+  /** The list has been at its top for a while, waiting for Teams to load older messages (or to show none come). */
+  waitingForOlder: boolean;
   stepRatio: number;
   oldestReached: string | null;
   newestReached: string | null;
@@ -142,6 +144,18 @@ export const SEEK_STEP_RATIO = 2;
  * hibernating, which is not working time and must not end the run at its time limit.
  */
 export const MAX_COUNTED_GAP_MS = 5 * 60_000;
+/**
+ * The longest the run waits at the top of the list for Teams to load older messages. While Teams
+ * shows that it is loading, or has been slow to load in this run, the run waits longer than the
+ * attempts at the top alone take, but never longer than this.
+ */
+export const MAX_TOP_WAIT_MS = 10 * 60_000;
+/** At the top the run waits at least this many times as long as Teams' slowest load of older messages in the run. */
+const SLOWEST_LOAD_FACTOR = 3;
+/** Each nudge at the top scrolls further down (in viewport heights) before going back up, to trigger Teams' loader again. */
+const NUDGE_RATIOS = [0.25, 0.75, 1.5];
+/** The popup says the run is waiting for older messages once it has waited this long at the top. */
+const WAITING_NOTICE_MS = 5_000;
 
 export function messageSignature(message: ExtractedMessage): string {
   return hashParts([
@@ -220,6 +234,12 @@ class ScrapeEngine {
   /** Working time so far, for the time limit: pauses and the computer's sleep are left out (tick()). */
   private workedMs = 0;
   private lastTick: number;
+  /** Working time when the list reached its top, while it stays there; null otherwise. */
+  private topSince: number | null = null;
+  /** The longest Teams took in this run to load older messages once the list was at its top (working time). */
+  private slowestLoadMs = 0;
+  /** Nudges since the list reached its top. */
+  private nudges = 0;
   private readonly images: ImageCapture | null;
 
   constructor(private readonly options: EngineOptions) {
@@ -241,13 +261,16 @@ class ScrapeEngine {
         : null;
     const coverage = options.coverage ?? [];
     // Archived stretches that, once joined, finish the run: for an update any of them (with the
-    // overlap window still to re-read); for a full run those that already reach back far enough.
+    // overlap window still to re-read); for a period those that already reach back to its start.
+    // The full history always goes on to the top: a stretch marked as reaching the beginning may
+    // have been marked too early (Teams too slow to load older messages), so it is passed quickly
+    // and the beginning checked again.
     const since = this.since;
     this.overlapRanges =
       options.mode === 'incremental'
         ? coverage
-        : options.mode === 'full' && !options.rescan
-          ? coverage.filter((range) => range.reachedBeginning || (since !== null && range.oldest <= since))
+        : options.mode === 'full' && !options.rescan && since !== null
+          ? coverage.filter((range) => range.oldest <= since)
           : [];
   }
 
@@ -320,6 +343,7 @@ class ScrapeEngine {
             if (this.lastStepWasSeek) this.seekRatio = Math.max(this.options.settings.scrollStepRatio, this.seekRatio / 2);
             else this.stepRatio = Math.max(MIN_STEP_RATIO, this.stepRatio / 2);
             this.connectedStreak = 0;
+            this.topSince = null;
             await driver.scrollDown(backStep, o.settings.scrollAnimationMs);
             await this.settleAfterScroll(driver, true);
             previousMoved = null;
@@ -335,15 +359,20 @@ class ScrapeEngine {
           this.recoverStepRatio();
         }
 
-        // "Top reached" needs: scrolling up had no effect, the position really is the top, and
-        // nothing new appeared even after waiting for Teams to load older history.
-        if (previousMoved === false && previousAtTop && newKeys === 0) atTopStreak++;
+        // "Top reached" needs: scrolling up had no effect, the position still is the top (Teams
+        // keeps the view in place when it adds older messages above it), nothing new appeared, and
+        // the run has waited long enough for Teams to load older history (see topWaitDone).
+        const atTop = previousMoved === false && previousAtTop && driver.isAtTop();
+        // An attempt while Teams shows that it is loading does not count, up to the longest wait.
+        const loading = atTop && this.isLoading(driver) && this.topWaitedMs() < MAX_TOP_WAIT_MS;
+        if (atTop && newKeys === 0 && !loading) atTopStreak++;
         else if (newKeys > 0 || previousMoved === true) atTopStreak = 0;
-        if (atTopStreak >= o.settings.maxNoProgressPasses && connection !== 'gap') {
+        if (atTopStreak >= o.settings.maxNoProgressPasses && connection !== 'gap' && this.topWaitDone()) {
           return this.finish('completed', 'reached-top');
         }
 
-        if (connection !== 'ahead') stallPasses = newKeys === 0 ? stallPasses + 1 : 0;
+        // Waiting at the top is not a stall: it ends at the top (above) within MAX_TOP_WAIT_MS.
+        if (connection !== 'ahead' && !atTop) stallPasses = newKeys === 0 ? stallPasses + 1 : 0;
         if (stallPasses >= o.settings.maxStallPasses) {
           return this.finish('stopped', 'no-progress', 'No new messages appeared after repeated scrolling.');
         }
@@ -360,9 +389,19 @@ class ScrapeEngine {
         const move = await driver.scrollUp(step, animation);
         lastUpStep = move.distance;
         previousMoved = move.moved;
-        previousAtTop = !move.moved && driver.isAtTop();
+        const atTopNow = driver.isAtTop();
+        previousAtTop = !move.moved && atTopNow;
+        this.tick();
+        if (move.moved && this.topSince !== null) {
+          // Teams loaded older messages: how long it took since the list reached the top.
+          this.slowestLoadMs = Math.max(this.slowestLoadMs, this.workedMs - this.topSince);
+          this.topSince = null;
+          this.nudges = 0;
+        }
+        // A step that ends at the top starts the wait for older messages, also when it moved there.
+        if (atTopNow && this.topSince === null) this.topSince = this.workedMs;
         if (previousAtTop) {
-          await this.nudge(driver, viewport);
+          await this.nudge(driver, viewport, NUDGE_RATIOS[this.nudges++ % NUDGE_RATIOS.length] as number);
           await this.settleAfterScroll(driver, false);
         } else {
           // Moved normally, or the list refuses to scroll (counted as a stall, never as the top).
@@ -375,6 +414,25 @@ class ScrapeEngine {
     } catch (error) {
       return this.finish('failed', 'error', errorMessage(error));
     }
+  }
+
+  /** Working time spent at the top of the list since it got there (0 when it is not there). */
+  private topWaitedMs(): number {
+    if (this.topSince === null) return 0;
+    this.tick();
+    return this.workedMs - this.topSince;
+  }
+
+  /**
+   * Whether the run has waited at the top long enough to take it for the beginning of the chat:
+   * as long as the attempts at the top take with their full wait (`maxNoProgressPasses` times
+   * `topLoadTimeoutMs`, even when changes elsewhere on the page end a wait early), and three
+   * times as long as Teams' slowest load of older messages so far, but no longer than MAX_TOP_WAIT_MS.
+   */
+  private topWaitDone(): boolean {
+    const s = this.options.settings;
+    const needed = Math.min(MAX_TOP_WAIT_MS, Math.max(s.maxNoProgressPasses * s.topLoadTimeoutMs, SLOWEST_LOAD_FACTOR * this.slowestLoadMs));
+    return this.topWaitedMs() >= needed;
   }
 
   /** Adds the time since the last tick to the working time, but no more than MAX_COUNTED_GAP_MS of it. */
@@ -436,9 +494,9 @@ class ScrapeEngine {
     });
   }
 
-  /** At the top: scroll down a little and back up so Teams' history loader is triggered again. */
-  private async nudge(driver: ScrollDriver, viewport: number): Promise<void> {
-    const distance = Math.max(30, Math.round(viewport * 0.25));
+  /** At the top: scroll down `ratio` viewport heights and back up so Teams' history loader is triggered again. */
+  private async nudge(driver: ScrollDriver, viewport: number, ratio: number): Promise<void> {
+    const distance = Math.max(30, Math.round(viewport * ratio));
     const down = await driver.scrollDown(distance);
     if (!down.moved) return;
     await sleep(NUDGE_DELAY_MS, this.options.control.signal);
@@ -709,6 +767,7 @@ class ScrapeEngine {
       counters: { ...this.counters },
       lastPassMessages: this.lastPassMessages,
       inCoveredRange: this.inCovered,
+      waitingForOlder: this.topSince !== null && this.workedMs - this.topSince >= WAITING_NOTICE_MS,
       stepRatio: this.stepRatio,
       oldestReached: toIso(this.counters.oldestSortKey),
       newestReached: toIso(this.counters.newestSortKey),

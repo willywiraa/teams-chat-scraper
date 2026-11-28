@@ -133,7 +133,7 @@ The page parser reports every image a message displays (`PageParseResult.images`
 
 ## Coverage, updates and resuming
 
-Each conversation stores *coverage*: ranges of the timeline (in sort-key space) that were captured without gaps. `reachedBeginning` marks the range that goes back to the start of the chat.
+Each conversation stores *coverage*: ranges of the timeline (in sort-key space) that were captured without gaps. `reachedBeginning` marks the range that goes back to the start of the chat. When ranges are merged, the merged range keeps the mark only if the range that goes furthest back had it: a message older than a marked beginning shows the mark was wrong.
 
 - **Contiguity.** Every window must contain the oldest message of the previous window (the *anchor*), or span its timestamp. If a scroll step jumped past unseen messages, the engine scrolls back part of the way and halves the step. The step grows again after ten clean passes. If a gap can't be closed after four tries, coverage is split there and a warning is recorded.
 - **Persistence.** Each batch carries the session's segments so far, and they are merged into coverage in the same transaction as the messages. After a failure, only segments that were actually stored are reported.
@@ -153,7 +153,7 @@ A run can be given `since` (`EngineOptions.since`, the session's `captureFrom`):
 
 How runs end:
 
-- **Full** stops when its connected window reaches back to `since` (`range-reached`), or as soon as it has re-seen enough messages (`incrementalOverlap`) from a covered range that reaches the beginning or back to `since` (`history-complete`). Otherwise it continues to the top (`reached-top`). Newer messages passed on the way are always saved: a period has no end date, so it can't leave a hole between itself and the present.
+- **Full** with `since` (a period) stops when its connected window reaches back to `since` (`range-reached`), or as soon as it has re-seen enough messages (`incrementalOverlap`) from a covered range that reaches back to `since` (`history-complete`). Otherwise, and always without `since` (the full history), it continues to the top (`reached-top`): a range marked `reachedBeginning` may have been marked too early, when Teams was too slow to load, so the full history passes it and checks the beginning again. Newer messages passed on the way are always saved: a period has no end date, so it can't leave a hole between itself and the present.
 - **Update** stops after re-seeing *N* archived messages in a connected window *and* reaching back to `since` (`overlap-reached`). The overlap window re-reads the days before the last update, so edits, deletions and late replies there are recorded with the usual version history. Without `since` (nothing archived) it runs like Full history.
 
 **Last update.** `ConversationRecord.lastUpdate` (`{ sessionId, mode, at, newestSortKey }`) is the most recent run that brought the archive up to date. At `session/begin` the router notes where the archive was up to date (`SessionRecord.continuesFrom`: the last update's newest message, else the newest archived message, else null). At `session/end` (`ArchiveRepository.recordRunEnd`) the run becomes the last update when the coverage range holding the newest message it reached also holds `continuesFrom` or reaches the beginning (`coverage.ts` `caughtUp`; with `continuesFrom` null any range counts). Visible-only runs never count. Stopped and failed runs count when they got that far, because coverage only records what was stored. A run that leaves a gap doesn't count, so the next update still goes back to the previous one. Merging and importing keep the last update that reached the newer message (`laterUpdate`).
@@ -185,7 +185,7 @@ A run always ends. The engine stops when any of these happens:
 - the open chat changes (checked before and after every pass);
 - the message list disappears.
 
-"Reached the beginning" requires three things in a row, `maxNoProgressPasses` times: scrolling up didn't move, the list really is at its top, and nothing new arrived after waiting up to `topLoadTimeoutMs` for older history. The engine also nudges the list down and back up to trigger Teams' history loader. A list that refuses to scroll is reported as "no progress", never as a complete history.
+"Reached the beginning" requires three things in a row, `maxNoProgressPasses` times: scrolling up didn't move, the list still is at its top, and nothing new arrived after waiting up to `topLoadTimeoutMs` for older history. The engine nudges the list down and back up to trigger Teams' history loader, a little further each time (a quarter, three quarters, then one and a half viewport heights). On top of the attempts, it must have waited at the top for a time of work of at least `maxNoProgressPasses` × `topLoadTimeoutMs` (a change elsewhere on the page can end one attempt's wait early) and three times the slowest load of older messages so far in the run, but at most `MAX_TOP_WAIT_MS` (10 minutes). An attempt while Teams shows its loading indicator doesn't count, until that maximum. Passes at the top don't count as stalls. After 5 seconds at the top the progress says so (`waitingForOlder`), and the popup shows *Waiting for Teams to load older messages…*. A list that refuses to scroll is reported as "no progress", never as a complete history.
 
 ## Database
 

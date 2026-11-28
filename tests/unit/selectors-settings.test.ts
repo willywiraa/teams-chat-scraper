@@ -67,6 +67,13 @@ describe('settings', () => {
     expect(normalizeSettings({ scrollAnimationMs: 99_999 }).scrollAnimationMs).toBe(2000);
   });
 
+  it('moves settings saved with the old waits at the top to the longer defaults, once', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({ topLoadTimeoutMs: 20_000, maxNoProgressPasses: 6 });
+    expect(normalizeSettings({ revision: 2, topLoadTimeoutMs: 8000, maxNoProgressPasses: 3 })).toMatchObject({ topLoadTimeoutMs: 20_000, maxNoProgressPasses: 6 });
+    expect(normalizeSettings({ revision: 2, topLoadTimeoutMs: 30_000, maxNoProgressPasses: 4 })).toMatchObject({ topLoadTimeoutMs: 30_000, maxNoProgressPasses: 4 });
+    expect(normalizeSettings(settingsForStorage({ ...DEFAULT_SETTINGS, topLoadTimeoutMs: 8000, maxNoProgressPasses: 3 }))).toMatchObject({ topLoadTimeoutMs: 8000, maxNoProgressPasses: 3 });
+  });
+
   it('normalises the image settings', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({ saveImages: true, maxImageMB: 10 });
     expect(normalizeSettings({ saveImages: false, maxImageMB: '25' })).toMatchObject({ saveImages: false, maxImageMB: 25 });

@@ -14,6 +14,16 @@ export function isValidRange(range: CoverageRange | null | undefined): range is 
   );
 }
 
+/**
+ * Whether two overlapping ranges joined reach the beginning: only if the one that goes further
+ * back does. A message older than a range marked as reaching the beginning shows that the mark
+ * was wrong (a run that took Teams' slow loading for the beginning), so it is dropped.
+ */
+function joinedBeginning(a: CoverageRange, b: CoverageRange): boolean {
+  if (a.oldest === b.oldest) return a.reachedBeginning || b.reachedBeginning;
+  return a.oldest < b.oldest ? a.reachedBeginning : b.reachedBeginning;
+}
+
 /** Adds a range, merging every range it overlaps or touches. Result is sorted oldest first. */
 export function mergeCoverage(ranges: readonly CoverageRange[], addition: CoverageRange): CoverageRange[] {
   if (!isValidRange(addition)) return ranges.filter(isValidRange).map((range) => ({ ...range }));
@@ -25,7 +35,7 @@ export function mergeCoverage(ranges: readonly CoverageRange[], addition: Covera
       merged = {
         oldest: Math.min(range.oldest, merged.oldest),
         newest: Math.max(range.newest, merged.newest),
-        reachedBeginning: range.reachedBeginning || merged.reachedBeginning,
+        reachedBeginning: joinedBeginning(range, merged),
       };
     } else {
       untouched.push({ ...range });
@@ -46,7 +56,7 @@ export function normalizeCoverage(ranges: readonly CoverageRange[]): CoverageRan
     const last = result[result.length - 1];
     if (last && range.oldest <= last.newest) {
       last.newest = Math.max(last.newest, range.newest);
-      last.reachedBeginning = last.reachedBeginning || range.reachedBeginning;
+      last.reachedBeginning = joinedBeginning(last, range);
     } else {
       result.push({ ...range });
     }

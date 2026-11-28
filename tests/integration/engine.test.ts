@@ -253,10 +253,11 @@ describe('repeated and incremental runs', () => {
     const { repository, expected, conversationKey } = await setup({ count: 200, participants: PEOPLE, selfName: 'Me', seed: 7 });
     await runEngine({ repository, mode: 'full' });
 
+    // The full history passes the archive quickly and checks the beginning again.
     const fullAgain = await runEngine({ repository, mode: 'full' });
-    expect(fullAgain).toMatchObject({ status: 'completed', stopReason: 'history-complete' });
+    expect(fullAgain).toMatchObject({ status: 'completed', stopReason: 'reached-top' });
     expect(fullAgain.counters.inserted).toBe(0);
-    expect(fullAgain.counters.passes).toBeLessThanOrEqual(3);
+    expect(fullAgain.counters.seekPasses).toBeGreaterThan(0);
 
     const update = await runEngine({ repository, mode: 'incremental' });
     expect(update).toMatchObject({ status: 'completed', stopReason: 'overlap-reached' });
@@ -509,4 +510,78 @@ describe('interruptions and controls', () => {
     expect(sim.scrollTop).toBe(scrollTop);
     expect(await repository.countMessages(conversationKey)).toBe(rendered);
   });
+});
+
+describe('a slow Teams at the top of the list', () => {
+  it('keeps waiting while Teams shows that it is loading older messages', async () => {
+    const { sim, repository, expected, conversationKey } = await setup({ count: 90, participants: PEOPLE, seed: 31 }, { initialLoaded: 30, pageSize: 60, loadDelayMs: 900 });
+    const result = await runEngine({ repository, mode: 'full' });
+
+    expect(result).toMatchObject({ status: 'completed', stopReason: 'reached-top' });
+    expect(sim.fetchCount).toBe(1);
+    await expectArchiveToMatch(repository, conversationKey, expected);
+  }, 20_000);
+
+  it('waits longer at the top once Teams has been slow to load in the run', async () => {
+    const { sim, repository, expected, conversationKey } = await setup({ count: 120, participants: PEOPLE, seed: 32 }, { initialLoaded: 30, pageSize: 30, loadDelayMs: 300 });
+    let waiting = false;
+    const result = await runEngine({
+      repository,
+      mode: 'full',
+      onProgress: (progress) => {
+        // The third load takes longer than the first two, and the page shows no spinner for it.
+        if (sim.fetchCount >= 2) {
+          sim.silentLoading = true;
+          sim.loadDelayMs = 700;
+        }
+        waiting ||= progress.waitingForOlder;
+      },
+    });
+
+    expect(result).toMatchObject({ status: 'completed', stopReason: 'reached-top' });
+    expect(sim.fetchCount).toBe(3);
+    await expectArchiveToMatch(repository, conversationKey, expected);
+    expect(waiting).toBe(false);
+  }, 20_000);
+
+  it('goes past an archive marked complete too early, and finds the real beginning', async () => {
+    const { sim, repository, expected, conversationKey } = await setup({ count: 200, participants: PEOPLE, seed: 33 }, { initialLoaded: 30, pageSize: 25 });
+    // Teams stops loading older messages after two loads, without a spinner: the run takes that for the beginning.
+    const early = await runEngine({
+      repository,
+      mode: 'full',
+      onProgress: () => {
+        if (sim.fetchCount >= 2) sim.historyBlocked = true;
+      },
+    });
+    expect(early).toMatchObject({ status: 'completed', stopReason: 'reached-top' });
+    const partial = await repository.countMessages(conversationKey);
+    expect(partial).toBe(80);
+    const marked = await repository.getConversation(conversationKey);
+    expect(coverageStatus(marked!.coverage, marked!.newestSortKey)).toBe('complete');
+
+    // Teams loads again. A run stopped part of the way no longer claims the beginning.
+    sim.historyBlocked = false;
+    const control = new ScrapeControl();
+    const stopped = await runEngine({
+      repository,
+      mode: 'full',
+      control,
+      onProgress: (progress) => {
+        if (progress.counters.inserted >= 10) control.stop();
+      },
+    });
+    expect(stopped).toMatchObject({ status: 'stopped', stopReason: 'user-stop' });
+    const between = await repository.getConversation(conversationKey);
+    expect(coverageStatus(between!.coverage, between!.newestSortKey)).toBe('partial');
+
+    const full = await runEngine({ repository, mode: 'full' });
+    expect(full).toMatchObject({ status: 'completed', stopReason: 'reached-top' });
+    expect(full.counters.seekPasses).toBeGreaterThan(0);
+    await expectArchiveToMatch(repository, conversationKey, expected);
+    const after = await repository.getConversation(conversationKey);
+    expect(after?.coverage).toEqual([
+      { oldest: Date.parse(expected[0]!.time), newest: Date.parse(expected[expected.length - 1]!.time), reachedBeginning: true },
+    ]);
+  }, 30_000);
 });

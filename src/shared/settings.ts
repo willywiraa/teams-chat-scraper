@@ -19,7 +19,10 @@ export interface ScrapeSettings {
   settleTimeoutMs: number;
   /** How long to wait for Teams to load older history once the top of the list is reached (ms). */
   topLoadTimeoutMs: number;
-  /** Consecutive attempts at the top without new messages before history is considered complete. */
+  /**
+   * Consecutive attempts at the top without new messages before history is considered complete.
+   * The run also waits at least this many times `topLoadTimeoutMs` there (see the engine).
+   */
   maxNoProgressPasses: number;
   /** Consecutive passes without any new message (anywhere) before the run stops as stuck. */
   maxStallPasses: number;
@@ -51,12 +54,15 @@ export const SETTINGS_STORAGE_KEY = 'settings.v1';
 
 /**
  * Stored with the settings. Settings saved under an older revision still holding a default of
- * that time get the current default instead (revision 2 made scrolling faster).
+ * that time get the current default instead (revision 2 made scrolling faster; revision 3 waits
+ * longer at the top, as a slow Teams made runs take the top of what it had loaded for the beginning).
  */
-export const SETTINGS_REVISION = 2;
+export const SETTINGS_REVISION = 3;
 
 const REPLACED_DEFAULTS: ReadonlyArray<{ before: number; key: NumericKey; value: number }> = [
   { before: 2, key: 'scrollIntervalMs', value: 1200 },
+  { before: 3, key: 'topLoadTimeoutMs', value: 8000 },
+  { before: 3, key: 'maxNoProgressPasses', value: 3 },
 ];
 
 export const DEFAULT_SETTINGS: Readonly<ScrapeSettings> = Object.freeze({
@@ -66,8 +72,8 @@ export const DEFAULT_SETTINGS: Readonly<ScrapeSettings> = Object.freeze({
   scrollAnimationMs: 250,
   settleQuietMs: 350,
   settleTimeoutMs: 6000,
-  topLoadTimeoutMs: 8000,
-  maxNoProgressPasses: 3,
+  topLoadTimeoutMs: 20000,
+  maxNoProgressPasses: 6,
   maxStallPasses: 25,
   maxSteps: 50000,
   maxDurationMinutes: 360,
