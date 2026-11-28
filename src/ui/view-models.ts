@@ -7,7 +7,7 @@ import { attachmentPrefix, replyTargetOf, senderLabel, timeLabel, webLink, type 
 import { reactionsText } from '../shared/reactions';
 import { conversationLabel, type ConversationRecord, type ConversationType, type StoredMessage } from '../shared/types';
 import { titleHistoryOf } from '../storage/conversation-identity';
-import { coverageStatus } from '../storage/coverage';
+import { coverageGaps, coverageStatus, normalizeCoverage, reachesBeginning } from '../storage/coverage';
 import { countOf, formatAgo, formatDate, formatDateTime, formatNumber } from './common';
 
 // ------------------------------------------------------------------ routes
@@ -146,15 +146,29 @@ export function conversationDetails(record: ConversationRecord): string {
 
 // ---------------------------------------------------------- summary lines
 
-/** "Complete", "Not back to the start" or "Not checked". */
 /**
  * How much of a chat's history is archived, in the same words everywhere: complete back to its
- * beginning, not back to the start, or not checked (no capture covered a stretch of it: only
- * messages on screen, for example).
+ * beginning, back to it with gaps, not back to the start, or not checked (no capture covered a
+ * stretch of it: only messages on screen, for example).
  */
 export function historyLabel(record: ConversationRecord): string {
   const status = coverageStatus(record.coverage, record.newestSortKey);
-  return status === 'complete' ? 'Complete' : status === 'partial' ? 'Not back to the start' : 'Not checked';
+  if (status === 'complete') return 'Complete';
+  if (status === 'partial') return reachesBeginning(record.coverage) ? 'Has gaps' : 'Not back to the start';
+  return 'Not checked';
+}
+
+/**
+ * What a history back to the beginning lacks: "with a gap from 23 Apr 2026 to 8 Jul 2026" (messages
+ * between those may be missing), "with 2 gaps", or a gap after the last stretch captured.
+ */
+function gapText(record: ConversationRecord): string {
+  const gaps = coverageGaps(record.coverage);
+  const only = gaps[0];
+  if (gaps.length > 1) return `with ${gaps.length} gaps`;
+  if (only) return `with a gap from ${formatDate(only.after)} to ${formatDate(only.before)}`;
+  const range = normalizeCoverage(record.coverage)[0];
+  return range ? `with a gap after ${formatDate(range.newest)}` : 'with gaps';
 }
 
 /** "3 Jan 2023 – 5 Mar 2024", or '' when nothing is archived. */
@@ -178,7 +192,7 @@ export function historyLine(record: ConversationRecord | null | undefined, nowMs
     parts.push(
       status === 'complete'
         ? `complete back to ${formatDate(record.oldestSortKey)}`
-        : `${archivedPeriod(record)}, ${status === 'partial' ? 'not back to the start' : 'history not checked'}`,
+        : `${archivedPeriod(record)}, ${status !== 'partial' ? 'history not checked' : reachesBeginning(record.coverage) ? gapText(record) : 'not back to the start'}`,
     );
   }
   parts.push(record.lastUpdate ? `updated ${formatAgo(record.lastUpdate.at, nowMs)}` : `last run ${formatAgo(record.lastExtractedAt, nowMs)}`);

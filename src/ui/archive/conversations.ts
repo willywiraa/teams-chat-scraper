@@ -109,7 +109,7 @@ function conversationRow(app: AppContext, record: ConversationRecord, imageCount
   );
 }
 
-/** The history column: complete, not back to the start, or not checked, as a badge whose words carry the state. */
+/** The history column: complete, has gaps, not back to the start, or not checked, as a badge whose words carry the state. */
 function historyBadge(record: ConversationRecord): HTMLSpanElement {
   const label = historyLabel(record);
   const tone = label === 'Complete' ? 'success' : label === 'Not checked' ? 'neutral' : '';

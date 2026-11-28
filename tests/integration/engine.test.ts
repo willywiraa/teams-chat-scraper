@@ -585,3 +585,83 @@ describe('a slow Teams at the top of the list', () => {
     ]);
   }, 30_000);
 });
+
+describe('a view that jumps to another part of the chat', () => {
+  const SPLIT = 'A gap in the message list could not be closed; archive coverage was split at this point.';
+
+  it('goes back for the messages it passed when the view jumps to an older message during a run', async () => {
+    const { sim, repository, expected, conversationKey } = await setup({ count: 300, participants: PEOPLE, selfName: 'Me', seed: 41 }, { initialLoaded: 30, pageSize: 25 });
+    let jumped = false;
+    let filling = false;
+    const result = await runEngine({
+      repository,
+      mode: 'full',
+      onProgress: (progress) => {
+        // As when someone opens a search result: Teams shows a page around an old message.
+        if (!jumped && progress.counters.uniqueSeen >= 80) {
+          jumped = true;
+          sim.jumpTo(20);
+        }
+        filling ||= progress.fillingGap;
+      },
+    });
+
+    expect(jumped).toBe(true);
+    expect(filling).toBe(true);
+    expect(result).toMatchObject({ status: 'completed', stopReason: 'reached-top' });
+    expect(result.counters.gapsUnrecovered).toBeGreaterThan(0);
+    expect(result.warnings).not.toContain(SPLIT);
+    expect(result.counters.inserted).toBe(expected.length);
+    await expectArchiveToMatch(repository, conversationKey, expected);
+    const conversation = await repository.getConversation(conversationKey);
+    expect(conversation?.coverage).toEqual([
+      { oldest: Date.parse(expected[0]!.time), newest: Date.parse(expected[expected.length - 1]!.time), reachedBeginning: true },
+    ]);
+  }, 30_000);
+
+  it('fills the stretch between an earlier run and a view that was left on an older message', async () => {
+    const { sim, repository, expected, conversationKey } = await setup({ count: 300, participants: PEOPLE, seed: 42 }, { initialLoaded: 30, pageSize: 25 });
+    const control = new ScrapeControl();
+    await runEngine({
+      repository,
+      mode: 'full',
+      control,
+      onProgress: (progress) => {
+        if (progress.counters.uniqueSeen >= 60) control.stop();
+      },
+    });
+    const partial = await repository.countMessages(conversationKey);
+
+    // Before the next run, the chat was left on a search result far back.
+    sim.jumpTo(40);
+    const result = await runEngine({ repository, mode: 'full' });
+
+    expect(result).toMatchObject({ status: 'completed', stopReason: 'reached-top' });
+    expect(result.counters.inserted).toBe(expected.length - partial);
+    await expectArchiveToMatch(repository, conversationKey, expected);
+    const conversation = await repository.getConversation(conversationKey);
+    expect(coverageStatus(conversation!.coverage, conversation!.newestSortKey)).toBe('complete');
+  }, 30_000);
+
+  it('finishes with the hole, and says so, when Teams does not load the messages in between', async () => {
+    const { sim, repository, conversationKey } = await setup({ count: 300, participants: PEOPLE, seed: 43 }, { initialLoaded: 30, pageSize: 25 });
+    let jumped = false;
+    const result = await runEngine({
+      repository,
+      mode: 'full',
+      onProgress: (progress) => {
+        if (!jumped && progress.counters.uniqueSeen >= 80) {
+          jumped = true;
+          sim.jumpTo(20);
+          sim.historyBlocked = true;
+        }
+      },
+    });
+
+    expect(result).toMatchObject({ status: 'completed', stopReason: 'reached-top' });
+    expect(result.warnings.some((warning) => warning.startsWith('The run could not get back'))).toBe(true);
+    const conversation = await repository.getConversation(conversationKey);
+    expect(conversation!.coverage).toHaveLength(2);
+    expect(coverageStatus(conversation!.coverage, conversation!.newestSortKey)).toBe('partial');
+  }, 30_000);
+});

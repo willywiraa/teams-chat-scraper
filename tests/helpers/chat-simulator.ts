@@ -3,7 +3,9 @@
  *  - only items intersecting the viewport (plus overscan) exist in the DOM;
  *  - older history is fetched (asynchronously, with a spinner) when scrolled to the top,
  *    and the scroll position is kept anchored after the prepend;
- *  - grouped messages from the same sender omit the author header.
+ *  - grouped messages from the same sender omit the author header;
+ *  - after a jump to an older message (a search result, a quoted message) only a page around it is
+ *    loaded, and newer messages are fetched when scrolled to the bottom (jumpTo).
  * jsdom has no layout, so scroll geometry is simulated on the viewport element.
  */
 import { messageItemHtml, shellHtml, type FixtureMessage } from './teams-dom';
@@ -37,9 +39,11 @@ export class ChatSimulator {
   fetchCount = 0;
   /** When true, assignments to scrollTop are ignored (a stuck list). */
   frozen = false;
-  /** When true, scrolling to the top never loads more history (a failing network). */
+  /** When true, scrolling to the top (or, after a jump, the bottom) loads no more messages (a failing network). */
   historyBlocked = false;
   private scrollTopValue = 0;
+  /** End (exclusive) of the loaded items after a jump; null: loaded up to the newest message. */
+  private loadedEndValue: number | null = null;
   private loading = false;
   private readonly rendered = new Map<number, HTMLElement>();
   private spinner: HTMLElement | null = null;
@@ -70,8 +74,12 @@ export class ChatSimulator {
     this.render();
   }
 
+  get loadedEnd(): number {
+    return this.loadedEndValue ?? this.items.length;
+  }
+
   get loadedCount(): number {
-    return this.items.length - this.loadedStart;
+    return this.loadedEnd - this.loadedStart;
   }
 
   get scrollHeight(): number {
@@ -96,6 +104,20 @@ export class ChatSimulator {
     this.scrollTopValue = Math.min(Math.max(0, Math.round(value)), this.maxScrollTop);
     this.render();
     if (this.scrollTopValue <= 0) this.maybeLoad();
+    else if (this.scrollTopValue >= this.maxScrollTop) this.maybeLoadNewer();
+  }
+
+  /**
+   * Shows the item at `index` at the top of the view, as Teams does for a search result: only a page
+   * around it stays loaded, and newer messages come back as the list is scrolled to the bottom.
+   */
+  jumpTo(index: number): void {
+    const half = Math.floor(this.pageSize / 2);
+    this.loadedStart = Math.max(0, index - half);
+    const end = Math.min(this.items.length, index + half);
+    this.loadedEndValue = end >= this.items.length ? null : end;
+    this.scrollTopValue = Math.min((index - this.loadedStart) * this.itemHeight, this.maxScrollTop);
+    this.render();
   }
 
   /** Appends new messages at the bottom (someone posted while we were away). */
@@ -138,6 +160,19 @@ export class ChatSimulator {
       this.fetchCount++;
       this.spinner?.remove();
       this.spinner = null;
+      this.render();
+    }, this.loadDelayMs);
+    this.timers.add(timer);
+  }
+
+  private maybeLoadNewer(): void {
+    if (this.loading || this.loadedEndValue === null || this.historyBlocked) return;
+    this.loading = true;
+    const timer = setTimeout(() => {
+      this.timers.delete(timer);
+      const end = Math.min(this.items.length, this.loadedEnd + this.pageSize);
+      this.loadedEndValue = end >= this.items.length ? null : end;
+      this.loading = false;
       this.render();
     }, this.loadDelayMs);
     this.timers.add(timer);

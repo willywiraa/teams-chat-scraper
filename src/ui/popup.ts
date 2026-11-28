@@ -224,6 +224,7 @@ function renderProgress(status: ContentStatus): void {
   if (status.state === 'stopping') phase = 'Stopping…';
   else if (status.state === 'paused' || progress?.phase === 'paused') phase = 'Paused';
   else if (progress?.phase === 'waiting-visible') phase = 'Waiting: Teams tab is hidden';
+  else if (progress?.phase === 'running' && progress.fillingGap) phase = 'Scrolling back to messages it missed…';
   else if (progress?.phase === 'running' && progress.waitingForOlder) phase = 'Waiting for Teams to load older messages…';
   else if (progress?.phase === 'running') phase = progress.inCoveredRange ? passingPhase(status.session?.mode) : 'Extracting…';
   setText('run-phase', phase);

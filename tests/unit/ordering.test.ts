@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { assignSortKeys, type AssignedSortKey } from '../../src/scraper/sort-keys';
 import type { ExtractedMessage } from '../../src/shared/types';
-import { coverageStatus, findRange, mergeAllCoverage, mergeCoverage, normalizeCoverage } from '../../src/storage/coverage';
+import { coverageGaps, coverageStatus, findRange, mergeAllCoverage, mergeCoverage, normalizeCoverage } from '../../src/storage/coverage';
 import { message } from '../helpers/messages';
 
 const known = (key: string, sortKey: number) => message({ id: null, key, sortKey, sortKeySource: 'timestamp' });
@@ -98,6 +98,13 @@ describe('coverage ranges', () => {
     expect(coverageStatus([{ oldest: 1, newest: 100, reachedBeginning: true }], 100)).toBe('complete');
     // New messages were archived after a gap: the beginning is known, but not everything in between.
     expect(coverageStatus([{ oldest: 1, newest: 100, reachedBeginning: true }, { oldest: 200, newest: 300, reachedBeginning: false }], 300)).toBe('partial');
+    // A newer range marked as reaching the beginning, with older messages archived: the mark was set too early.
+    expect(coverageStatus([{ oldest: 1, newest: 20, reachedBeginning: true }, { oldest: 50, newest: 300, reachedBeginning: true }], 300)).toBe('partial');
+    expect(normalizeCoverage([{ oldest: 50, newest: 300, reachedBeginning: true }, { oldest: 1, newest: 20, reachedBeginning: true }])).toEqual([
+      { oldest: 1, newest: 20, reachedBeginning: true },
+      { oldest: 50, newest: 300, reachedBeginning: false },
+    ]);
+    expect(coverageGaps([{ oldest: 50, newest: 300, reachedBeginning: true }, { oldest: 1, newest: 20, reachedBeginning: true }])).toEqual([{ after: 20, before: 50 }]);
     expect(findRange([{ oldest: 1, newest: 100, reachedBeginning: true }], 50)?.oldest).toBe(1);
     expect(findRange([{ oldest: 1, newest: 100, reachedBeginning: true }], 150)).toBeNull();
   });

@@ -105,7 +105,7 @@ An export without `selection` (made before 1.4) holds the whole archive.
 | `messages` | message[] | Ordered by `sortKey` ascending. |
 | `images` | image[] (optional) | Saved images of the conversation, ordered by `firstSavedAt` (see [Image fields](#image-fields)). Added in 1.1. It is absent in older exports and in exports made without pictures. |
 
-**Coverage.** `coverage` is how a consumer can tell how complete the history is. If one range has `reachedBeginning: true` and its `newest` is at least `newestSortKey`, the archive holds the chat's complete history up to its last extraction. Several ranges mean there are stretches in between that were never captured.
+**Coverage.** `coverage` is how a consumer can tell how complete the history is. If the oldest range has `reachedBeginning: true` and its `newest` is at least `newestSortKey`, the archive holds the chat's complete history up to its last extraction. Several ranges mean there are stretches in between that were never captured. Files saved by versions before 1.11.5 may have `reachedBeginning: true` on a newer range too; only the oldest range's mark counts.
 
 ### Message fields
 

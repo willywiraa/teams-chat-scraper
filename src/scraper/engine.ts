@@ -9,6 +9,8 @@
  *    are already archived the run takes larger steps: a skipped stretch that the archive already
  *    holds without a gap does not count as a gap ("bridged");
  *  - the open conversation is re-identified before and after every pass;
+ *  - a full run that leaves a hole (a gap it could not close, typically the view jumping to a search
+ *    result or a quoted message) goes back down to it and walks up through it before it finishes;
  *  - hard caps (steps, duration, stalled passes) prevent endless loops.
  */
 import { safeQueryAll } from '../extractor/dom';
@@ -33,6 +35,7 @@ import {
 } from '../shared/types';
 import { sleep, type ScrapeControl } from './control';
 import { ImageCapture, type ImageReader, type ImageSaveResult } from './images';
+import { coverageGaps, mergeAllCoverage } from '../storage/coverage';
 import { createScrollDriver, findScrollContainer, type ScrollDriver } from './scroll-driver';
 import { waitForSettle } from './settle';
 import { assignSortKeys, isReliable, type AssignedSortKey } from './sort-keys';
@@ -68,6 +71,8 @@ export interface EngineProgress {
   inCoveredRange: boolean;
   /** The list has been at its top for a while, waiting for Teams to load older messages (or to show none come). */
   waitingForOlder: boolean;
+  /** The run is scrolling back down to messages it passed without capturing them (a hole), to walk up through them. */
+  fillingGap: boolean;
   stepRatio: number;
   oldestReached: string | null;
   newestReached: string | null;
@@ -156,6 +161,11 @@ const SLOWEST_LOAD_FACTOR = 3;
 const NUDGE_RATIOS = [0.25, 0.75, 1.5];
 /** The popup says the run is waiting for older messages once it has waited this long at the top. */
 const WAITING_NOTICE_MS = 5_000;
+/** How often a full run goes back to a hole it left before it finishes with the hole (see fillHole). */
+const MAX_FILL_SWEEPS = 3;
+/** Going down to a hole: attempts at the end of the list (waiting for Teams to add newer messages) before giving up. */
+const DESCENT_WAITS = 3;
+const SPLIT_WARNING = 'A gap in the message list could not be closed; archive coverage was split at this point.';
 
 export function messageSignature(message: ExtractedMessage): string {
   return hashParts([
@@ -240,6 +250,15 @@ class ScrapeEngine {
   private slowestLoadMs = 0;
   /** Nudges since the list reached its top. */
   private nudges = 0;
+  /**
+   * The archive's coverage when the run started, plus the stretches this run closed (at a gap it
+   * could not close, or before going back to a hole): what passes are sought through and bridged by.
+   */
+  private known: CoverageRange[];
+  /** While walking up through a hole: the reason the run was about to finish with. */
+  private fillingFor: StopReason | null = null;
+  private fillSweeps = 0;
+  private descending = false;
   private readonly images: ImageCapture | null;
 
   constructor(private readonly options: EngineOptions) {
@@ -260,6 +279,7 @@ class ScrapeEngine {
           })
         : null;
     const coverage = options.coverage ?? [];
+    this.known = coverage.map((range) => ({ ...range }));
     // Archived stretches that, once joined, finish the run: for an update any of them (with the
     // overlap window still to re-read); for a period those that already reach back to its start.
     // The full history always goes on to the top: a stretch marked as reaching the beginning may
@@ -277,10 +297,11 @@ class ScrapeEngine {
   async run(): Promise<EngineResult> {
     const o = this.options;
     try {
-      let list = findMessageList(o.doc, o.profile);
-      if (!list) {
+      const found = findMessageList(o.doc, o.profile);
+      if (!found) {
         return this.finish('failed', 'container-lost', 'Message list not found. Open a chat in Teams Web and wait until its messages are shown.');
       }
+      let list: Element = found;
       let driver = this.driverFor(list);
       if (o.mode !== 'visible') await this.scrollToBottom(driver);
 
@@ -292,6 +313,26 @@ class ScrapeEngine {
       let backStep = 0;
       let lastUpStep = 0;
 
+      /**
+       * Where a full run would finish, it first goes back to a hole it left (see fillHole). Null while
+       * it walks up through the hole (the walk starts afresh); otherwise the result.
+       */
+      const end = async (reason: StopReason): Promise<EngineResult | null> => {
+        const fill = await this.fillHole(reason, driver, list);
+        if (fill === 'stop') return this.finish('stopped', 'user-stop');
+        if (fill === 'changed') return this.finish('stopped', 'conversation-changed', 'A different conversation was opened during extraction.');
+        if (fill === 'limit') return this.finish('stopped', this.counters.passes >= o.settings.maxSteps ? 'max-steps' : 'max-duration');
+        if (fill === 'finish') return this.finish('completed', reason);
+        previousMoved = null;
+        previousAtTop = false;
+        atTopStreak = 0;
+        stallPasses = 0;
+        gapRetries = 0;
+        backStep = 0;
+        lastUpStep = 0;
+        return null;
+      };
+
       for (;;) {
         this.tick();
         if ((await this.gate()) === 'stop') return this.finish('stopped', 'user-stop');
@@ -301,8 +342,9 @@ class ScrapeEngine {
           return this.finish('stopped', 'conversation-changed', 'A different conversation was opened during extraction.');
         }
         if (!list.isConnected) {
-          list = findMessageList(o.doc, o.profile);
-          if (!list) return this.finish('failed', 'container-lost', 'The message list disappeared from the page.');
+          const again = findMessageList(o.doc, o.profile);
+          if (!again) return this.finish('failed', 'container-lost', 'The message list disappeared from the page.');
+          list = again;
           driver = this.driverFor(list);
         }
 
@@ -325,10 +367,20 @@ class ScrapeEngine {
         this.emit();
 
         if (o.mode === 'visible') return this.finish('completed', 'visible-complete');
-        if (this.overlapReached(connection)) {
-          return this.finish('completed', o.mode === 'incremental' ? 'overlap-reached' : 'history-complete');
+        if (this.fillingFor !== null) {
+          // Walking up through a hole: done once it joins the stretch below the hole.
+          if ((connection === 'connected' || connection === 'first') && this.holeToFill() === null) return this.finishFilled();
+        } else if (this.overlapReached(connection)) {
+          if (o.mode === 'incremental') return this.finish('completed', 'overlap-reached');
+          const result = await end('history-complete');
+          if (result) return result;
+          continue;
         }
-        if (o.mode === 'full' && this.reachedSince(connection)) return this.finish('completed', 'range-reached');
+        if (o.mode === 'full' && this.reachedSince(connection)) {
+          const result = await end('range-reached');
+          if (result) return result;
+          continue;
+        }
         if (this.counters.passes >= o.settings.maxSteps) return this.finish('stopped', 'max-steps');
         this.tick();
         if (this.workedMs >= o.settings.maxDurationMinutes * 60_000) return this.finish('stopped', 'max-duration');
@@ -351,7 +403,7 @@ class ScrapeEngine {
           }
           this.counters.gapsUnrecovered++;
           this.restartSegment(messages);
-          this.warn('A gap in the message list could not be closed; archive coverage was split at this point.');
+          this.warn(SPLIT_WARNING);
         }
         if (connection === 'connected' || connection === 'first') {
           gapRetries = 0;
@@ -368,7 +420,9 @@ class ScrapeEngine {
         if (atTop && newKeys === 0 && !loading) atTopStreak++;
         else if (newKeys > 0 || previousMoved === true) atTopStreak = 0;
         if (atTopStreak >= o.settings.maxNoProgressPasses && connection !== 'gap' && this.topWaitDone()) {
-          return this.finish('completed', 'reached-top');
+          const result = await end('reached-top');
+          if (result) return result;
+          continue;
         }
 
         // Waiting at the top is not a stall: it ends at the top (above) within MAX_TOP_WAIT_MS.
@@ -413,6 +467,95 @@ class ScrapeEngine {
       }
     } catch (error) {
       return this.finish('failed', 'error', errorMessage(error));
+    }
+  }
+
+  /**
+   * Before a full run finishes, it goes back to the newest hole it left (holeToFill): it closes its
+   * current stretch (reaching the beginning when it finishes at the top), scrolls down until the
+   * messages after the hole are shown, and walks up through the hole again. At most MAX_FILL_SWEEPS
+   * times; then, or when it cannot get back there, it finishes with the hole (the archive says so).
+   */
+  private async fillHole(reason: StopReason, driver: ScrollDriver, list: Element): Promise<'filling' | 'finish' | 'stop' | 'changed' | 'limit'> {
+    if (this.options.mode !== 'full' || this.fillSweeps >= MAX_FILL_SWEEPS) return 'finish';
+    const target = this.holeToFill();
+    if (target === null) return 'finish';
+    this.fillSweeps++;
+    this.fillingFor = reason;
+    this.closeSegment(reason === 'reached-top');
+    const outcome = await this.descendTo(driver, list, target);
+    if (outcome === 'reached') {
+      this.anchor = null;
+      this.connectedStreak = 0;
+      this.topSince = null;
+      this.nudges = 0;
+      this.lastStepWasSeek = false;
+      return 'filling';
+    }
+    if (outcome === 'ended') {
+      this.warn('The run could not get back to messages it had passed (Teams showed no newer ones). Reload the Teams tab and capture the full history again to fill the gap.');
+      return 'finish';
+    }
+    return outcome;
+  }
+
+  /**
+   * The hole a full run fills before it finishes, as the time of the oldest message after it (where
+   * the walk up through it starts), or null. It is the newest stretch missing between the ranges
+   * the archive and this run cover, among those newer than the oldest message the run reached
+   * (older ones are history Teams no longer shows) and, for a period, newer than its start.
+   */
+  private holeToFill(): number | null {
+    const own = this.segments();
+    if (own.length === 0) return null;
+    const reachedFrom = Math.min(...own.map((range) => range.oldest));
+    const gaps = coverageGaps([...this.known, ...own]);
+    for (let i = gaps.length - 1; i >= 0; i--) {
+      const gap = gaps[i] as { after: number; before: number };
+      if (gap.after >= reachedFrom && (this.since === null || gap.before > this.since)) return gap.before;
+    }
+    return null;
+  }
+
+  /** The walk up through a hole joined the stretch below it: the run finishes as it was about to. */
+  private finishFilled(): EngineResult {
+    const index = this.warnings.indexOf(SPLIT_WARNING);
+    if (index >= 0) this.warnings.splice(index, 1);
+    return this.finish('completed', this.fillingFor as StopReason, undefined, false);
+  }
+
+  /**
+   * Scrolls down (towards newer messages) until a message at or after `target` is shown, quickly and
+   * without storing anything: the walk up from there captures what lies below. At the end of the
+   * list it waits for Teams to add newer messages (after a jump to a search result Teams shows a part
+   * of the chat, and adds newer messages as one scrolls down).
+   */
+  private async descendTo(driver: ScrollDriver, list: Element, target: number): Promise<'reached' | 'ended' | 'stop' | 'changed' | 'limit'> {
+    const o = this.options;
+    let still = 0;
+    this.descending = true;
+    try {
+      for (;;) {
+        this.tick();
+        if ((await this.gate()) === 'stop') return 'stop';
+        this.lastTick = this.now();
+        if (!this.conversationUnchanged()) return 'changed';
+        if (!list.isConnected) return 'ended';
+        const { messages } = this.parsePass(list);
+        if (messages.some((message) => isReliable(message) && (message.sortKey as number) >= target)) return 'reached';
+        this.counters.passes++;
+        this.emit();
+        this.tick();
+        if (this.counters.passes >= o.settings.maxSteps || this.workedMs >= o.settings.maxDurationMinutes * 60_000) return 'limit';
+        const move = await driver.scrollDown(Math.round(driver.viewportHeight() * SEEK_STEP_RATIO), Math.min(o.settings.scrollAnimationMs, SEEK_ANIMATION_MS));
+        if (move.moved) still = 0;
+        else if (++still > DESCENT_WAITS) return 'ended';
+        // At the end of the list: wait (as at the top) for Teams to add newer messages.
+        await this.settleAfterScroll(driver, move.moved);
+        await sleep(o.settings.seekIntervalMs, o.control.signal);
+      }
+    } finally {
+      this.descending = false;
     }
   }
 
@@ -607,11 +750,18 @@ class ScrapeEngine {
     this.current.newest = this.current.newest === null ? max : Math.max(this.current.newest, max);
   }
 
-  private restartSegment(messages: ExtractedMessage[]): void {
+  /** Ends the current stretch (keeping it with the run's segments and what passes can seek through). */
+  private closeSegment(reachedBeginning: boolean): void {
     if (this.current.oldest !== null && this.current.newest !== null) {
-      this.closedSegments.push({ oldest: this.current.oldest, newest: this.current.newest, reachedBeginning: false });
+      const range: CoverageRange = { oldest: this.current.oldest, newest: this.current.newest, reachedBeginning };
+      this.closedSegments.push(range);
+      this.known = mergeAllCoverage(this.known, [range]);
     }
     this.current = { oldest: null, newest: null, reachedBeginning: false };
+  }
+
+  private restartSegment(messages: ExtractedMessage[]): void {
+    this.closeSegment(false);
     const oldest = messages[0];
     this.anchor = oldest ? anchorOf(oldest) : null;
     this.extendSegment(messages);
@@ -628,7 +778,7 @@ class ScrapeEngine {
     if (keys.length === 0) return false;
     const newest = Math.max(...keys);
     const top = anchor.sortKey;
-    return (this.options.coverage ?? []).some((range) => range.oldest <= newest && top <= range.newest);
+    return this.known.some((range) => range.oldest <= newest && top <= range.newest);
   }
 
   /**
@@ -753,7 +903,7 @@ class ScrapeEngine {
     if (keys.length === 0) return false;
     const min = Math.min(...keys);
     const max = Math.max(...keys);
-    return (this.options.coverage ?? []).some((range) => min >= range.oldest && max <= range.newest);
+    return this.known.some((range) => min >= range.oldest && max <= range.newest);
   }
 
   private warn(message: string): void {
@@ -768,6 +918,7 @@ class ScrapeEngine {
       lastPassMessages: this.lastPassMessages,
       inCoveredRange: this.inCovered,
       waitingForOlder: this.topSince !== null && this.workedMs - this.topSince >= WAITING_NOTICE_MS,
+      fillingGap: this.descending,
       stepRatio: this.stepRatio,
       oldestReached: toIso(this.counters.oldestSortKey),
       newestReached: toIso(this.counters.newestSortKey),
@@ -775,8 +926,9 @@ class ScrapeEngine {
     });
   }
 
-  private finish(status: EngineResult['status'], stopReason: StopReason, error?: string): EngineResult {
-    if (stopReason === 'reached-top') this.current.reachedBeginning = true;
+  /** `reachedBeginning`: the current stretch goes back to the beginning (a run that stops at the top). */
+  private finish(status: EngineResult['status'], stopReason: StopReason, error?: string, reachedBeginning = stopReason === 'reached-top'): EngineResult {
+    if (reachedBeginning) this.current.reachedBeginning = true;
     this.images?.abandonPending();
     this.phase = 'done';
     this.emit();

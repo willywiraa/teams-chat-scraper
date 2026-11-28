@@ -17,7 +17,7 @@ Dial: ENERGY 1 / RHYTHM 1 / MOTION 1
 ## Identity
 
 - **Who it is for.** One person archiving the chats their own account can see, on their own computer. No team, no sign-up, no cloud.
-- **Personality.** Plain, careful, honest. It says exactly what it did and what it did not do, and never claims more than it knows (a history that does not reach the chat's beginning says "not back to the start").
+- **Personality.** Plain, careful, honest. It says exactly what it did and what it did not do, and never claims more than it knows (a history that does not reach the chat's beginning says "not back to the start"; one that does, with a stretch missing, names the gap).
 - **Not affiliated with Microsoft.** Nothing may use the Teams logo, Teams purple (`#5b5fc7` and its relatives) or anything that reads as an official Microsoft product.
 - **Identity motif.** The logo: an archive box shaped like a speech bubble, white on a blue tile. It appears once, in the page header, at 20 or 24 px. No other illustration or decoration.
 

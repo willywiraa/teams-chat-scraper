@@ -48,7 +48,10 @@ export function mergeAllCoverage(ranges: readonly CoverageRange[], additions: re
   return additions.reduce<CoverageRange[]>((acc, range) => mergeCoverage(acc, range), ranges.map((range) => ({ ...range })));
 }
 
-/** Sorts ranges oldest first and merges any that overlap or touch. */
+/**
+ * Sorts ranges oldest first and merges any that overlap or touch. Only the oldest range can reach
+ * the beginning: a mark on a newer one (with older messages archived) was set too early, and is dropped.
+ */
 export function normalizeCoverage(ranges: readonly CoverageRange[]): CoverageRange[] {
   const sorted = ranges.filter(isValidRange).sort((a, b) => a.oldest - b.oldest);
   const result: CoverageRange[] = [];
@@ -58,10 +61,16 @@ export function normalizeCoverage(ranges: readonly CoverageRange[]): CoverageRan
       last.newest = Math.max(last.newest, range.newest);
       last.reachedBeginning = joinedBeginning(last, range);
     } else {
-      result.push({ ...range });
+      result.push({ ...range, reachedBeginning: last ? false : range.reachedBeginning });
     }
   }
   return result;
+}
+
+/** The stretches between captured ranges, where messages may be missing: from the newest message before each to the oldest after it. */
+export function coverageGaps(ranges: readonly CoverageRange[]): Array<{ after: number; before: number }> {
+  const sorted = normalizeCoverage(ranges);
+  return sorted.slice(1).map((range, i) => ({ after: (sorted[i] as CoverageRange).newest, before: range.oldest }));
 }
 
 export function findRange(ranges: readonly CoverageRange[], sortKey: number): CoverageRange | null {
@@ -83,9 +92,19 @@ export function caughtUp(ranges: readonly CoverageRange[], newest: number | null
 
 export type CoverageStatus = 'empty' | 'complete' | 'partial';
 
-/** Complete when one gap-free range runs from the beginning of the chat to the newest archived message. */
+/**
+ * Complete when one gap-free range runs from the beginning of the chat to the newest archived message.
+ * That is the oldest range: a newer one marked as reaching the beginning (archived before older
+ * messages were found) doesn't make the history complete.
+ */
 export function coverageStatus(ranges: readonly CoverageRange[], newestSortKey: number | null): CoverageStatus {
   if (ranges.length === 0) return 'empty';
-  const complete = ranges.some((range) => range.reachedBeginning && (newestSortKey === null || range.newest >= newestSortKey));
+  const oldest = normalizeCoverage(ranges)[0];
+  const complete = !!oldest && oldest.reachedBeginning && (newestSortKey === null || oldest.newest >= newestSortKey);
   return complete ? 'complete' : 'partial';
+}
+
+/** Whether the oldest range reaches the beginning of the chat (the history may still have gaps). */
+export function reachesBeginning(ranges: readonly CoverageRange[]): boolean {
+  return normalizeCoverage(ranges)[0]?.reachedBeginning ?? false;
 }

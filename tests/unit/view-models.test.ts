@@ -181,6 +181,28 @@ describe('summary lines', () => {
     expect(historyLabel(partial)).toBe('Not back to the start');
   });
 
+  it('name the gap of a history that goes back to the beginning with a stretch missing', () => {
+    // A run marked the beginning too early (at 10th), and a later one captured 1st to 3rd.
+    const gapped = record({
+      messageCount: 30,
+      coverage: [
+        { oldest: at(1, 9, 0), newest: at(3, 9, 0), reachedBeginning: true },
+        { oldest: at(10, 9, 0), newest: at(20, 9, 0), reachedBeginning: true },
+      ],
+    });
+    expect(historyLabel(gapped)).toBe('Has gaps');
+    expect(historyLine(gapped, now)).toBe(`30 messages · ${formatDate(at(1, 9, 0))} – ${formatDate(at(20, 9, 0))}, with a gap from ${formatDate(at(3, 9, 0))} to ${formatDate(at(10, 9, 0))} · last run 3 days ago`);
+    const twice = record({
+      messageCount: 30,
+      coverage: [
+        { oldest: at(1, 9, 0), newest: at(3, 9, 0), reachedBeginning: true },
+        { oldest: at(5, 9, 0), newest: at(7, 9, 0), reachedBeginning: false },
+        { oldest: at(10, 9, 0), newest: at(20, 9, 0), reachedBeginning: false },
+      ],
+    });
+    expect(historyLine(twice, now)).toContain(', with 2 gaps ·');
+  });
+
   it('use the same words in the list and the summary line when no capture covered a stretch', () => {
     const unchecked = record({ messageCount: 2, coverage: [] });
     expect(historyLabel(unchecked)).toBe('Not checked');
